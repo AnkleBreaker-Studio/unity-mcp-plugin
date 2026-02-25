@@ -753,18 +753,28 @@ namespace UnityMCP.Editor
                                             var extRef = refCurrent.GetValue(refsEnumerator);
                                             if (extRef == null) continue;
 
-                                            var nodeIdField = extRef.GetType().GetField("NodeId") ??
-                                                              extRef.GetType().GetProperty("NodeId")?.GetGetMethod() != null
-                                                                  ? null : null;
-                                            var portIdField = extRef.GetType().GetField("PortId");
-
                                             string sourceNodeId = "";
                                             string sourcePortId = "";
 
+                                            var nodeIdField = extRef.GetType().GetField("NodeId");
                                             if (nodeIdField != null)
                                                 sourceNodeId = nodeIdField.GetValue(extRef)?.ToString() ?? "";
+                                            else
+                                            {
+                                                var nodeIdProp = extRef.GetType().GetProperty("NodeId");
+                                                if (nodeIdProp != null)
+                                                    sourceNodeId = nodeIdProp.GetValue(extRef)?.ToString() ?? "";
+                                            }
+
+                                            var portIdField = extRef.GetType().GetField("PortId");
                                             if (portIdField != null)
                                                 sourcePortId = portIdField.GetValue(extRef)?.ToString() ?? "";
+                                            else
+                                            {
+                                                var portIdProp = extRef.GetType().GetProperty("PortId");
+                                                if (portIdProp != null)
+                                                    sourcePortId = portIdProp.GetValue(extRef)?.ToString() ?? "";
+                                            }
 
                                             connections.Add(new Dictionary<string, object>
                                             {

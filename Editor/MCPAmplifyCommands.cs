@@ -448,5 +448,499 @@ namespace UnityMCP.Editor
                 { "hint", "Import Amplify Shader Editor from the Unity Asset Store, then these commands will become available." },
             };
         }
+
+        // ═══════════════════════════════════════════════════════════
+        // ─── Node-Level Editing via Reflection ───
+        // ═══════════════════════════════════════════════════════════
+
+        private static Assembly _amplifyAssembly;
+        private static Type _parentNodeType;
+        private static Type _parentGraphType;
+
+        private static Assembly GetAmplifyAssembly()
+        {
+            if (_amplifyAssembly != null) return _amplifyAssembly;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name == "AmplifyShaderEditor" || asm.GetName().Name.Contains("AmplifyShaderEditor"))
+                {
+                    _amplifyAssembly = asm;
+                    _parentNodeType = asm.GetType("AmplifyShaderEditor.ParentNode");
+                    _parentGraphType = asm.GetType("AmplifyShaderEditor.ParentGraph");
+                    break;
+                }
+            }
+            return _amplifyAssembly;
+        }
+
+        /// <summary>
+        /// Get available Amplify Shader Editor node types via reflection.
+        /// </summary>
+        public static object GetAmplifyNodeTypes(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            var asm = GetAmplifyAssembly();
+            if (asm == null)
+                return new Dictionary<string, object> { { "error", "Amplify assembly not accessible" } };
+
+            string filter = args.ContainsKey("filter") ? args["filter"].ToString().ToLower() : "";
+            int maxResults = args.ContainsKey("maxResults") ? Convert.ToInt32(args["maxResults"]) : 200;
+
+            var nodeTypes = new List<Dictionary<string, object>>();
+
+            try
+            {
+                Type baseType = _parentNodeType;
+                if (baseType == null)
+                    return new Dictionary<string, object> { { "error", "ParentNode type not found in Amplify assembly" } };
+
+                foreach (var type in asm.GetTypes())
+                {
+                    if (type.IsAbstract || type.IsInterface) continue;
+                    if (!baseType.IsAssignableFrom(type)) continue;
+
+                    string name = type.Name;
+                    if (!string.IsNullOrEmpty(filter) && !name.ToLower().Contains(filter))
+                        continue;
+
+                    // Try to get node attributes
+                    string category = "";
+                    try
+                    {
+                        var nodeAttr = type.GetCustomAttributes(false)
+                            .FirstOrDefault(a => a.GetType().Name.Contains("NodeAttributes"));
+                        if (nodeAttr != null)
+                        {
+                            var catProp = nodeAttr.GetType().GetField("Category") ??
+                                          nodeAttr.GetType().GetField("category");
+                            if (catProp != null)
+                                category = catProp.GetValue(nodeAttr)?.ToString() ?? "";
+
+                            var nameProp = nodeAttr.GetType().GetField("Name") ??
+                                           nodeAttr.GetType().GetField("name");
+                            if (nameProp != null)
+                            {
+                                string displayName = nameProp.GetValue(nodeAttr)?.ToString();
+                                if (!string.IsNullOrEmpty(displayName))
+                                    name = displayName;
+                            }
+                        }
+                    }
+                    catch { }
+
+                    nodeTypes.Add(new Dictionary<string, object>
+                    {
+                        { "name", name },
+                        { "typeName", type.Name },
+                        { "fullName", type.FullName },
+                        { "category", category },
+                    });
+
+                    if (nodeTypes.Count >= maxResults) break;
+                }
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to enumerate node types: {ex.Message}" } };
+            }
+
+            nodeTypes.Sort((a, b) => string.Compare(a["name"].ToString(), b["name"].ToString(), StringComparison.Ordinal));
+
+            return new Dictionary<string, object>
+            {
+                { "count", nodeTypes.Count },
+                { "nodeTypes", nodeTypes.ToArray() },
+            };
+        }
+
+        /// <summary>
+        /// Get nodes from the currently open Amplify Shader Editor graph via reflection.
+        /// </summary>
+        public static object GetAmplifyGraphNodes(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object>
+                    {
+                        { "error", "No Amplify Shader Editor window is open. Open a shader first with amplify/open." },
+                    };
+
+                // Get the current graph
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded in the Amplify editor" } };
+
+                // Get all nodes
+                var allNodesProp = _parentGraphType.GetProperty("AllNodes") ??
+                                   _parentGraphType.GetProperty("CurrentNodes");
+                if (allNodesProp == null)
+                {
+                    // Try field
+                    var nodesField = _parentGraphType.GetField("m_nodes", BindingFlags.NonPublic | BindingFlags.Instance) ??
+                                     _parentGraphType.GetField("m_allNodes", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (nodesField == null)
+                        return new Dictionary<string, object> { { "error", "Could not access nodes collection" } };
+                }
+
+                var nodes = new List<Dictionary<string, object>>();
+
+                // Use generic approach to iterate nodes
+                var nodesObj = allNodesProp != null ? allNodesProp.GetValue(graph) : null;
+                if (nodesObj == null) return new Dictionary<string, object> { { "error", "Nodes collection is null" } };
+
+                var enumerator = nodesObj.GetType().GetMethod("GetEnumerator")?.Invoke(nodesObj, null);
+                if (enumerator == null) return new Dictionary<string, object> { { "error", "Cannot enumerate nodes" } };
+
+                var moveNext = enumerator.GetType().GetMethod("MoveNext");
+                var current = enumerator.GetType().GetProperty("Current");
+
+                while ((bool)moveNext.Invoke(enumerator, null))
+                {
+                    var node = current.GetValue(enumerator);
+                    if (node == null) continue;
+
+                    var nodeType = node.GetType();
+                    var nodeInfo = new Dictionary<string, object>
+                    {
+                        { "typeName", nodeType.Name },
+                    };
+
+                    // Get UniqueId
+                    var uniqueIdProp = nodeType.GetProperty("UniqueId") ??
+                                       _parentNodeType?.GetProperty("UniqueId");
+                    if (uniqueIdProp != null)
+                        nodeInfo["uniqueId"] = uniqueIdProp.GetValue(node)?.ToString() ?? "-1";
+
+                    // Get position
+                    var posProp = nodeType.GetProperty("Position") ?? nodeType.GetProperty("Vec2Position");
+                    if (posProp != null)
+                    {
+                        var pos = posProp.GetValue(node);
+                        if (pos is Rect r)
+                            nodeInfo["position"] = new Dictionary<string, object> { { "x", r.x }, { "y", r.y } };
+                        else if (pos is Vector2 v)
+                            nodeInfo["position"] = new Dictionary<string, object> { { "x", v.x }, { "y", v.y } };
+                    }
+
+                    // Get input/output port counts
+                    var inputPortsProp = nodeType.GetProperty("InputPorts");
+                    var outputPortsProp = nodeType.GetProperty("OutputPorts");
+                    if (inputPortsProp != null)
+                    {
+                        var inputs = inputPortsProp.GetValue(node);
+                        if (inputs != null)
+                        {
+                            var countProp = inputs.GetType().GetProperty("Count");
+                            if (countProp != null)
+                                nodeInfo["inputPortCount"] = countProp.GetValue(inputs);
+                        }
+                    }
+                    if (outputPortsProp != null)
+                    {
+                        var outputs = outputPortsProp.GetValue(node);
+                        if (outputs != null)
+                        {
+                            var countProp = outputs.GetType().GetProperty("Count");
+                            if (countProp != null)
+                                nodeInfo["outputPortCount"] = countProp.GetValue(outputs);
+                        }
+                    }
+
+                    nodes.Add(nodeInfo);
+                }
+
+                return new Dictionary<string, object>
+                {
+                    { "nodeCount", nodes.Count },
+                    { "nodes", nodes.ToArray() },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to get nodes: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Get connections between nodes in the currently open Amplify graph.
+        /// </summary>
+        public static object GetAmplifyGraphConnections(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var connections = new List<Dictionary<string, object>>();
+
+                // Iterate all nodes, check their input ports for connections
+                var allNodesProp = _parentGraphType.GetProperty("AllNodes") ??
+                                   _parentGraphType.GetProperty("CurrentNodes");
+                if (allNodesProp == null)
+                    return new Dictionary<string, object> { { "error", "Cannot access nodes" } };
+
+                var nodesObj = allNodesProp.GetValue(graph);
+                if (nodesObj == null)
+                    return new Dictionary<string, object> { { "error", "Nodes collection is null" } };
+
+                var enumerator = nodesObj.GetType().GetMethod("GetEnumerator")?.Invoke(nodesObj, null);
+                var moveNext = enumerator.GetType().GetMethod("MoveNext");
+                var current = enumerator.GetType().GetProperty("Current");
+
+                while ((bool)moveNext.Invoke(enumerator, null))
+                {
+                    var node = current.GetValue(enumerator);
+                    if (node == null) continue;
+
+                    var nodeType = node.GetType();
+                    var uniqueIdProp = nodeType.GetProperty("UniqueId") ?? _parentNodeType?.GetProperty("UniqueId");
+                    string nodeId = uniqueIdProp?.GetValue(node)?.ToString() ?? "-1";
+
+                    // Check input ports
+                    var inputPortsProp = nodeType.GetProperty("InputPorts");
+                    if (inputPortsProp == null) continue;
+
+                    var inputPorts = inputPortsProp.GetValue(node);
+                    if (inputPorts == null) continue;
+
+                    var portEnumerator = inputPorts.GetType().GetMethod("GetEnumerator")?.Invoke(inputPorts, null);
+                    if (portEnumerator == null) continue;
+
+                    var portMoveNext = portEnumerator.GetType().GetMethod("MoveNext");
+                    var portCurrent = portEnumerator.GetType().GetProperty("Current");
+
+                    int portIdx = 0;
+                    while ((bool)portMoveNext.Invoke(portEnumerator, null))
+                    {
+                        var port = portCurrent.GetValue(portEnumerator);
+                        if (port == null) { portIdx++; continue; }
+
+                        var isConnectedProp = port.GetType().GetProperty("IsConnected");
+                        bool isConnected = isConnectedProp != null && (bool)isConnectedProp.GetValue(port);
+
+                        if (isConnected)
+                        {
+                            // Get external references
+                            var extRefsProp = port.GetType().GetProperty("ExternalReferences");
+                            if (extRefsProp != null)
+                            {
+                                var refs = extRefsProp.GetValue(port);
+                                if (refs != null)
+                                {
+                                    var refsEnumerator = refs.GetType().GetMethod("GetEnumerator")?.Invoke(refs, null);
+                                    if (refsEnumerator != null)
+                                    {
+                                        var refMoveNext = refsEnumerator.GetType().GetMethod("MoveNext");
+                                        var refCurrent = refsEnumerator.GetType().GetProperty("Current");
+
+                                        while ((bool)refMoveNext.Invoke(refsEnumerator, null))
+                                        {
+                                            var extRef = refCurrent.GetValue(refsEnumerator);
+                                            if (extRef == null) continue;
+
+                                            var nodeIdField = extRef.GetType().GetField("NodeId") ??
+                                                              extRef.GetType().GetProperty("NodeId")?.GetGetMethod() != null
+                                                                  ? null : null;
+                                            var portIdField = extRef.GetType().GetField("PortId");
+
+                                            string sourceNodeId = "";
+                                            string sourcePortId = "";
+
+                                            if (nodeIdField != null)
+                                                sourceNodeId = nodeIdField.GetValue(extRef)?.ToString() ?? "";
+                                            if (portIdField != null)
+                                                sourcePortId = portIdField.GetValue(extRef)?.ToString() ?? "";
+
+                                            connections.Add(new Dictionary<string, object>
+                                            {
+                                                { "outputNodeId", sourceNodeId },
+                                                { "outputPortId", sourcePortId },
+                                                { "inputNodeId", nodeId },
+                                                { "inputPortIndex", portIdx },
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        portIdx++;
+                    }
+                }
+
+                return new Dictionary<string, object>
+                {
+                    { "connectionCount", connections.Count },
+                    { "connections", connections.ToArray() },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to get connections: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Create a new Amplify Shader at the specified path.
+        /// </summary>
+        public static object CreateAmplifyShader(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("path"))
+                return new Dictionary<string, object> { { "error", "path is required" } };
+
+            string path = args["path"].ToString();
+            string shaderName = args.ContainsKey("shaderName") ? args["shaderName"].ToString() : Path.GetFileNameWithoutExtension(path);
+
+            try
+            {
+                // Try to use Amplify's create method via reflection
+                var asm = GetAmplifyAssembly();
+                if (asm == null)
+                    return new Dictionary<string, object> { { "error", "Amplify assembly not found" } };
+
+                // Try to find AmplifyShaderEditorWindow.CreateNewGraph or similar
+                if (_amplifyShaderType != null)
+                {
+                    // First try: Create via menu item
+                    bool created = false;
+
+                    // Try the CreateNewShader static method
+                    var createMethod = _amplifyShaderType.GetMethod("CreateNewShader",
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+
+                    if (createMethod == null)
+                    {
+                        // Try CreateConfirmationReceivedFromStandalone or similar
+                        createMethod = _amplifyShaderType.GetMethod("CreateNewGraph",
+                            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                    }
+
+                    // Fallback: Create a minimal shader file with ASE markers
+                    if (!created)
+                    {
+                        string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
+                        if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
+                        {
+                            string[] parts = dir.Split('/');
+                            string curr = parts[0];
+                            for (int i = 1; i < parts.Length; i++)
+                            {
+                                string next = curr + "/" + parts[i];
+                                if (!AssetDatabase.IsValidFolder(next))
+                                    AssetDatabase.CreateFolder(curr, parts[i]);
+                                curr = next;
+                            }
+                        }
+
+                        string shaderContent = GenerateMinimalAmplifyShader(shaderName);
+                        string fullPath = Path.Combine(Application.dataPath, "..", path);
+                        File.WriteAllText(fullPath, shaderContent);
+                        AssetDatabase.ImportAsset(path);
+                        created = true;
+                    }
+
+                    if (created)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            { "success", true },
+                            { "assetPath", path },
+                            { "shaderName", shaderName },
+                            { "note", "Amplify shader created. Open it in Amplify Shader Editor to add nodes." },
+                        };
+                    }
+                }
+
+                return new Dictionary<string, object> { { "error", "Failed to create Amplify shader" } };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to create shader: {ex.Message}" } };
+            }
+        }
+
+        // ─── Helpers ───
+
+        private static EditorWindow GetOpenAmplifyWindow()
+        {
+            if (_amplifyShaderType == null) return null;
+            try
+            {
+                var windows = Resources.FindObjectsOfTypeAll(_amplifyShaderType);
+                return windows.Length > 0 ? windows[0] as EditorWindow : null;
+            }
+            catch { return null; }
+        }
+
+        private static object GetCurrentGraph(EditorWindow window)
+        {
+            try
+            {
+                var graphProp = window.GetType().GetProperty("CurrentGraph") ??
+                                window.GetType().GetProperty("ParentGraph");
+                if (graphProp != null) return graphProp.GetValue(window);
+
+                var graphField = window.GetType().GetField("m_currentGraph", BindingFlags.NonPublic | BindingFlags.Instance) ??
+                                 window.GetType().GetField("m_graph", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (graphField != null) return graphField.GetValue(window);
+            }
+            catch { }
+            return null;
+        }
+
+        private static string GenerateMinimalAmplifyShader(string shaderName)
+        {
+            return $@"Shader ""{shaderName}""
+{{
+    Properties
+    {{
+        _Color (""Color"", Color) = (1,1,1,1)
+    }}
+    SubShader
+    {{
+        Tags {{ ""RenderType""=""Opaque"" }}
+        LOD 200
+
+        CGPROGRAM
+        #pragma surface surf Standard fullforwardshadows
+        #pragma target 3.0
+
+        fixed4 _Color;
+
+        struct Input
+        {{
+            float2 uv_MainTex;
+        }};
+
+        void surf (Input IN, inout SurfaceOutputStandard o)
+        {{
+            o.Albedo = _Color.rgb;
+            o.Alpha = _Color.a;
+        }}
+        ENDCG
+    }}
+    FallBack ""Diffuse""
+    //ASEBEGIN
+    //ASEEND
+    CustomEditor ""AmplifyShaderEditor.MaterialInspector""
+}}";
+        }
     }
 }

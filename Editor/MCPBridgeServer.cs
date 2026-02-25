@@ -334,6 +334,42 @@ namespace UnityMCP.Editor
                 case "animation/assign-controller":
                     return MCPAnimationCommands.AssignController(ParseJson(body));
 
+                case "animation/get-curve-keyframes":
+                    return MCPAnimationCommands.GetCurveKeyframes(ParseJson(body));
+
+                case "animation/remove-curve":
+                    return MCPAnimationCommands.RemoveCurve(ParseJson(body));
+
+                case "animation/add-keyframe":
+                    return MCPAnimationCommands.AddKeyframe(ParseJson(body));
+
+                case "animation/remove-keyframe":
+                    return MCPAnimationCommands.RemoveKeyframe(ParseJson(body));
+
+                case "animation/add-event":
+                    return MCPAnimationCommands.AddAnimationEvent(ParseJson(body));
+
+                case "animation/remove-event":
+                    return MCPAnimationCommands.RemoveAnimationEvent(ParseJson(body));
+
+                case "animation/get-events":
+                    return MCPAnimationCommands.GetAnimationEvents(ParseJson(body));
+
+                case "animation/set-clip-settings":
+                    return MCPAnimationCommands.SetClipSettings(ParseJson(body));
+
+                case "animation/remove-transition":
+                    return MCPAnimationCommands.RemoveTransition(ParseJson(body));
+
+                case "animation/remove-layer":
+                    return MCPAnimationCommands.RemoveLayer(ParseJson(body));
+
+                case "animation/create-blend-tree":
+                    return MCPAnimationCommands.CreateBlendTree(ParseJson(body));
+
+                case "animation/get-blend-tree":
+                    return MCPAnimationCommands.GetBlendTreeInfo(ParseJson(body));
+
                 // ─── Prefab (Advanced) ───
                 case "prefab/info":
                     return MCPPrefabCommands.GetPrefabInfo(ParseJson(body));
@@ -556,6 +592,30 @@ namespace UnityMCP.Editor
                 case "shadergraph/open-vfx":
                     return MCPShaderGraphCommands.OpenVFXGraph(ParseJson(body));
 
+                case "shadergraph/get-nodes":
+                    return MCPShaderGraphCommands.GetGraphNodes(ParseJson(body));
+
+                case "shadergraph/get-edges":
+                    return MCPShaderGraphCommands.GetGraphEdges(ParseJson(body));
+
+                case "shadergraph/add-node":
+                    return MCPShaderGraphCommands.AddGraphNode(ParseJson(body));
+
+                case "shadergraph/remove-node":
+                    return MCPShaderGraphCommands.RemoveGraphNode(ParseJson(body));
+
+                case "shadergraph/connect":
+                    return MCPShaderGraphCommands.ConnectGraphNodes(ParseJson(body));
+
+                case "shadergraph/disconnect":
+                    return MCPShaderGraphCommands.DisconnectGraphNodes(ParseJson(body));
+
+                case "shadergraph/set-node-property":
+                    return MCPShaderGraphCommands.SetGraphNodeProperty(ParseJson(body));
+
+                case "shadergraph/get-node-types":
+                    return MCPShaderGraphCommands.GetNodeTypes(ParseJson(body));
+
                 // ─── Amplify Shader Editor ───
                 case "amplify/status":
                     return MCPAmplifyCommands.GetStatus(ParseJson(body));
@@ -571,6 +631,18 @@ namespace UnityMCP.Editor
 
                 case "amplify/list-functions":
                     return MCPAmplifyCommands.ListAmplifyFunctions(ParseJson(body));
+
+                case "amplify/get-node-types":
+                    return MCPAmplifyCommands.GetAmplifyNodeTypes(ParseJson(body));
+
+                case "amplify/get-nodes":
+                    return MCPAmplifyCommands.GetAmplifyGraphNodes(ParseJson(body));
+
+                case "amplify/get-connections":
+                    return MCPAmplifyCommands.GetAmplifyGraphConnections(ParseJson(body));
+
+                case "amplify/create-shader":
+                    return MCPAmplifyCommands.CreateAmplifyShader(ParseJson(body));
 
                 // ─── Agent Management ───
                 case "agents/list":

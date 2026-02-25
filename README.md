@@ -4,7 +4,7 @@ A Unity Editor plugin that enables AI assistants (Claude, etc.) to control Unity
 
 ## What It Does
 
-This package runs a lightweight HTTP server inside the Unity Editor on `localhost:7890`. The companion [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **95+ tools** to AI assistants across **21 feature categories**.
+This package runs a lightweight HTTP server inside the Unity Editor on `localhost:7890`. The companion [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI assistants across **21 feature categories**.
 
 **Core Capabilities:**
 

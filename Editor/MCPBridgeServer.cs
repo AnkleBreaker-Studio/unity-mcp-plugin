@@ -246,6 +246,43 @@ namespace UnityMCP.Editor
                 case "project/info":
                     return ExecuteOnMainThread(() => MCPProjectCommands.GetInfo());
 
+                // ─── Animation ───
+                case "animation/create-controller":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.CreateController(ParseJson(body)));
+
+                case "animation/controller-info":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.GetControllerInfo(ParseJson(body)));
+
+                case "animation/add-parameter":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddParameter(ParseJson(body)));
+
+                case "animation/remove-parameter":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.RemoveParameter(ParseJson(body)));
+
+                case "animation/add-state":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddState(ParseJson(body)));
+
+                case "animation/remove-state":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.RemoveState(ParseJson(body)));
+
+                case "animation/add-transition":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddTransition(ParseJson(body)));
+
+                case "animation/create-clip":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.CreateClip(ParseJson(body)));
+
+                case "animation/clip-info":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.GetClipInfo(ParseJson(body)));
+
+                case "animation/set-clip-curve":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.SetClipCurve(ParseJson(body)));
+
+                case "animation/add-layer":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddLayer(ParseJson(body)));
+
+                case "animation/assign-controller":
+                    return ExecuteOnMainThread(() => MCPAnimationCommands.AssignController(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

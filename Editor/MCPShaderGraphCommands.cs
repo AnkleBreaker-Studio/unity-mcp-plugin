@@ -344,7 +344,6 @@ namespace UnityMCP.Editor
                     { "description", ShaderUtil.GetPropertyDescription(shader, i) },
                     { "type", propType.ToString() },
                     { "isHidden", ShaderUtil.IsShaderPropertyHidden(shader, i) },
-                    { "isNonModifiable", ShaderUtil.IsShaderPropertyNonModifiable(shader, i) },
                 };
 
                 if (propType == ShaderUtil.ShaderPropertyType.Range)

@@ -62,15 +62,15 @@ namespace UnityMCP.Editor
                 _listenerThread = new Thread(ListenLoop)
                 {
                     IsBackground = true,
-                    Name = "MCP Bridge Server"
+                    Name = "AB Unity MCP Server"
                 };
                 _listenerThread.Start();
 
-                Debug.Log($"[MCP Bridge] Server started on port {Port}");
+                Debug.Log($"[AB-UMCP] Server started on port {Port}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MCP Bridge] Failed to start: {ex.Message}");
+                Debug.LogError($"[AB-UMCP] Failed to start: {ex.Message}");
             }
         }
 
@@ -84,7 +84,7 @@ namespace UnityMCP.Editor
                 _listenerThread?.Join(1000);
             }
             catch { }
-            Debug.Log("[MCP Bridge] Server stopped");
+            Debug.Log("[AB-UMCP] Server stopped");
         }
 
         // ─── EditorApplication.update — processes both legacy queue AND ticket queue ───
@@ -115,7 +115,7 @@ namespace UnityMCP.Editor
                 catch (Exception ex)
                 {
                     if (_isRunning)
-                        Debug.LogError($"[MCP Bridge] Listener error: {ex.Message}");
+                        Debug.LogError($"[AB-UMCP] Listener error: {ex.Message}");
                 }
             }
         }
@@ -256,7 +256,7 @@ namespace UnityMCP.Editor
             if (category != "ping" && category != "agents" && category != "queue"
                 && !MCPSettingsManager.IsCategoryEnabled(category))
             {
-                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > MCP Dashboard." };
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP." };
             }
 
             switch (path)
@@ -848,7 +848,7 @@ namespace UnityMCP.Editor
                     try { action?.Invoke(); }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"[MCP Bridge] Main thread action error: {ex}");
+                        Debug.LogError($"[AB-UMCP] Main thread action error: {ex}");
                     }
                 }
             }

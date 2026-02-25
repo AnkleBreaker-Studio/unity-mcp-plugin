@@ -1,66 +1,113 @@
-# Unity MCP Bridge Plugin
+# AnkleBreaker Unity MCP — Plugin
 
-A Unity Editor plugin that enables AI assistants (Claude, etc.) to control Unity Editor via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Part of the [Unity MCP](https://github.com/AnkleBreaker-Studio) toolchain by AnkleBreaker Studio.
+<p align="center">
+  <strong>Give AI agents direct control of the Unity Editor</strong><br>
+  <em>Built for <a href="https://claude.ai">Claude Cowork</a> multi-agent workflows</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.8.0-blue"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
+</p>
+
+---
+
+## How This Is Different From Typical MCP
+
+Most MCP integrations are designed for a **single AI assistant** talking to **one tool** in a simple request-response loop.
+
+**AnkleBreaker Unity MCP is built for something different.** It's designed for [Claude Cowork](https://claude.ai), where **multiple AI agents work in parallel** on the same Unity project — one agent building the scene, another writing scripts, another tweaking materials — all at the same time.
+
+This creates a unique challenge: **Unity is single-threaded.** You can't have five agents calling Unity APIs simultaneously. AnkleBreaker Unity MCP solves this with a **ticket-based async queue** that sits inside the Editor:
+
+1. Each agent submits a request and gets a ticket back immediately
+2. The queue processes requests fairly across agents (round-robin, no starvation)
+3. Read operations are batched (up to 5 per frame), writes are serialized (1 per frame)
+4. Agents poll their ticket status and get results when ready
+
+This means you can tell Claude Cowork to *"set up the level lighting while also creating the player controller script and configuring the physics materials"* and it will dispatch parallel agents that coordinate through the queue automatically.
+
+> **TL;DR:** This isn't just "Claude can click buttons in Unity." This is "a team of AI agents can build your game together."
+
+---
 
 ## What It Does
 
-This package runs a lightweight HTTP server inside the Unity Editor on `localhost:7890`. The companion [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI assistants across **21 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [AnkleBreaker Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI agents across **21 feature categories**.
 
-**Core Capabilities:**
+### Core Capabilities
 
-- **Scene Management** — Open, save, create scenes; browse full hierarchy tree
-- **GameObjects** — Create (primitives or empty), delete, inspect, set transforms (world/local)
-- **Components** — Add/remove components, get/set any serialized property
-- **Assets** — List, import, delete assets; create prefabs and materials; assign materials
-- **Scripts** — Create, read, update C# scripts
-- **Builds** — Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL)
-- **Console** — Read errors/warnings/logs, clear console
-- **Play Mode** — Play, pause, stop
-- **Editor** — Execute menu items, run arbitrary C# code, check editor state, get project info
+| Category | What Agents Can Do |
+|----------|-------------------|
+| **Scenes** | Open, save, create scenes; browse full hierarchy tree |
+| **GameObjects** | Create primitives or empties, delete, inspect, set transforms |
+| **Components** | Add/remove components, get/set any serialized property |
+| **Assets** | List, import, delete assets; create prefabs and materials |
+| **Scripts** | Create, read, update C# scripts |
+| **Builds** | Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL) |
+| **Console** | Read errors/warnings/logs, clear console |
+| **Play Mode** | Play, pause, stop |
+| **Editor** | Execute menu items, run arbitrary C# code, check state, get project info |
 
-**Extended Capabilities:**
+### Extended Capabilities
 
-- **Animation** — List clips, get clip info, list Animator controllers and parameters, set Animator properties, play animations
-- **Prefab (Advanced)** — Open/close prefab editing mode, check prefab status, get overrides, apply/revert changes
-- **Physics** — Raycasts, sphere/box casts, overlap tests, get/set physics settings (gravity, layers, collision matrix)
-- **Lighting** — Manage lights, configure environment lighting/skybox, bake lightmaps, list/manage reflection probes
-- **Audio** — Manage AudioSources, AudioListeners, AudioMixers, play/stop clips, adjust mixer parameters
-- **Tags & Layers** — List tags and layers, add/remove tags, assign tags/layers to GameObjects
-- **Selection** — Get/set editor selection, find objects by name/tag/component
-- **Input Actions** — List action maps and actions, inspect bindings (Input System package)
-- **Assembly Definitions** — List, inspect, create, update .asmdef files
+| Category | What Agents Can Do |
+|----------|-------------------|
+| **Animation** | List clips, get clip info, manage Animator controllers and parameters |
+| **Prefab** | Open/close prefab editing, check status, get overrides, apply/revert |
+| **Physics** | Raycasts, sphere/box casts, overlap tests, get/set physics settings |
+| **Lighting** | Manage lights, environment, skybox, bake lightmaps, reflection probes |
+| **Audio** | AudioSources, AudioListeners, AudioMixers, play/stop clips |
+| **Tags & Layers** | List/add/remove tags, assign tags and layers |
+| **Selection** | Get/set editor selection, find objects by name/tag/component |
+| **Input Actions** | List action maps, actions, and bindings (Input System) |
+| **Assembly Defs** | List, inspect, create, update .asmdef files |
 
-**Profiling & Debugging:**
+### Profiling & Debugging
 
-- **Profiler** — Start/stop profiler, get stats, take deep profiles, save profiler data
-- **Frame Debugger** — Enable/disable frame debugger, get draw call list and details, get render target info
-- **Memory Profiler** — Memory breakdown by asset type, top memory consumers, take memory snapshots (with `com.unity.memoryprofiler` package)
+| Category | What Agents Can Do |
+|----------|-------------------|
+| **Profiler** | Start/stop profiler, get stats, deep profiles, save data |
+| **Frame Debugger** | Enable/disable, draw call list and details, render targets |
+| **Memory Profiler** | Memory breakdown by asset type, top consumers, snapshots |
 
-**Shader & Visual Tools (conditional on packages):**
+### Shader & Visual Tools (conditional)
 
-- **Shader Graph** — List, inspect, create, open Shader Graphs; inspect shader properties; list Sub Graphs and VFX Graphs (requires `com.unity.shadergraph` / `com.unity.visualeffectgraph`)
-- **Amplify Shader Editor** — List, inspect, open Amplify shaders and functions (requires Amplify Shader Editor asset)
+| Package Required | Features Unlocked |
+|-----------------|-------------------|
+| `com.unity.shadergraph` | Shader Graph create, inspect, open; Sub Graphs |
+| `com.unity.visualeffectgraph` | VFX Graph listing and opening |
+| Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
 
-**Infrastructure:**
+### Multi-Agent Infrastructure
 
-- **Multi-Agent Support** — Multiple AI agents can connect simultaneously with session tracking, action logging, and queued execution
-- **Dashboard** — Built-in Editor window (`Window > MCP Dashboard`) showing server status, category toggles, agent sessions, and update checker
-- **Settings** — Configurable port, auto-start, and per-category enable/disable via EditorPrefs
-- **Update Checker** — Automatic GitHub release checking with in-dashboard notification
+| Feature | Description |
+|---------|-------------|
+| **Request Queue** | Ticket-based async queue with fair round-robin scheduling |
+| **Agent Sessions** | Per-agent identity tracking, action logging, queue stats |
+| **Read Batching** | Read-only operations batched (up to 5/frame) for throughput |
+| **Write Serialization** | Write operations serialized (1/frame) for safety |
+| **Dashboard** | Built-in Editor window showing queue state, agent sessions, categories |
+| **30s Timeout** | Queue timeout handles long operations like compilation |
 
-## Installation via Unity Package Manager
+---
+
+## Installation
+
+### Via Unity Package Manager
 
 1. Open Unity > **Window** > **Package Manager**
-2. Click the **+** button > **Add package from git URL...**
+2. Click **+** > **Add package from git URL...**
 3. Enter:
    ```
    https://github.com/AnkleBreaker-Studio/unity-mcp-plugin.git
    ```
 4. Click **Add**
 
-Unity will download and install the package. You should see in the Console:
+You should see in the Console:
 ```
-[MCP Bridge] Server started on port 7890
+[AB-UMCP] Server started on port 7890
 ```
 
 ### Verify
@@ -69,56 +116,93 @@ Open a browser and visit: `http://127.0.0.1:7890/api/ping`
 
 You should see JSON with your Unity version and project name.
 
-## Companion: MCP Server
+---
 
-This plugin is one half of the system. You also need the **Node.js MCP Server** that connects Claude to this bridge:
+## You Also Need: The MCP Server
 
-👉 [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
+This plugin is one half of the system. You also need the **Node.js MCP Server**:
+
+> **[AnkleBreaker Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)**
+
+The server is what Claude (or Claude Cowork) actually talks to via MCP protocol. The server then communicates with this plugin's HTTP bridge.
+
+```
+Claude Cowork Agents ←→ MCP Server (Node.js) ←→ This Plugin (HTTP bridge in Unity)
+       ↕                       ↕
+  Multiple agents        Unity Hub CLI
+  working in parallel
+```
+
+---
 
 ## Dashboard
 
-Open **Window > MCP Dashboard** to access:
+Open **Window > AB Unity MCP** to access:
 
 - Server status with live indicator (green = running, red = stopped)
 - Start / Stop / Restart controls
+- **Request Queue** — live view of pending tickets, active agents, per-agent queue depths
+- **Agent Sessions** — connected agents with action counts, queue stats, average response time
 - Per-category feature toggles (enable/disable any of the 21 categories)
 - Port and auto-start settings
-- Active agent session monitoring
 - Version display with update checker
+
+---
+
+## Configuration
+
+Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Port** | `7890` | HTTP server port |
+| **Auto-Start** | `true` | Start the bridge when Unity opens |
+| **Category Toggles** | All enabled | Enable/disable any of the 21 feature categories |
+
+Settings are stored in `EditorPrefs` and persist across sessions.
+
+---
 
 ## Requirements
 
-- Unity 2021.3 LTS or newer (tested on 2022.3 LTS and Unity 6)
+- **Unity 2021.3 LTS** or newer (tested on 2022.3 LTS and Unity 6)
 - .NET Standard 2.1 or .NET Framework
 
 ### Optional Packages
 
-Some features activate automatically when their corresponding packages are detected:
+Some features activate automatically when their packages are detected:
 
 | Package / Asset | Features Unlocked |
 |----------------|-------------------|
 | `com.unity.memoryprofiler` | Memory snapshots via MemoryProfiler API |
 | `com.unity.shadergraph` | Shader Graph create, inspect, open |
 | `com.unity.visualeffectgraph` | VFX Graph listing and opening |
-| `com.unity.inputsystem` | Input Action maps and bindings inspection |
+| `com.unity.inputsystem` | Input Action maps and bindings |
 | Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
 
-## Configuration
-
-Configuration is managed through the MCP Dashboard (`Window > MCP Dashboard > Settings`):
-
-- **Port** — HTTP server port (default: `7890`)
-- **Auto-Start** — Automatically start the bridge when Unity opens (default: `true`)
-- **Category Toggles** — Enable/disable any of the 21 feature categories
-
-Settings are stored in `EditorPrefs` and persist across sessions.
+---
 
 ## Security
 
-- The server **only** binds to `127.0.0.1` (localhost) — it is not accessible from the network
-- No authentication is required since it's local-only
+- The server **only** binds to `127.0.0.1` (localhost) — not accessible from the network
+- No authentication required (local-only by design)
 - All operations support Unity's Undo system
-- Multi-agent requests are queued to prevent conflicts
+- Multi-agent requests are queued with fair scheduling to prevent conflicts
+
+---
+
+## Contributing
+
+Contributions are welcome! This is an open-source project by [AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio).
+
+1. Fork the repo
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+Please also check out the companion server repo: [anklebreaker-unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
+
+---
 
 ## License
 

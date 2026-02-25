@@ -5,9 +5,9 @@ using UnityEngine;
 namespace UnityMCP.Editor
 {
     /// <summary>
-    /// Editor window providing an overview of MCP Bridge status, feature categories,
+    /// Editor window providing an overview of AB Unity MCP status, feature categories,
     /// server controls, queue monitoring, settings, and active agent sessions.
-    /// Accessible via Window > MCP Dashboard.
+    /// Accessible via Window > AB Unity MCP.
     /// </summary>
     public class MCPDashboardWindow : EditorWindow
     {
@@ -30,10 +30,10 @@ namespace UnityMCP.Editor
         private GUIStyle _dotStyle;
         private bool _stylesInitialized;
 
-        [MenuItem("Window/MCP Dashboard")]
+        [MenuItem("Window/AB Unity MCP")]
         public static void ShowWindow()
         {
-            var window = GetWindow<MCPDashboardWindow>("MCP Dashboard");
+            var window = GetWindow<MCPDashboardWindow>("AB Unity MCP");
             window.minSize = new Vector2(340, 500);
         }
 
@@ -98,7 +98,7 @@ namespace UnityMCP.Editor
         {
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            EditorGUILayout.LabelField("Unity MCP Dashboard", _headerStyle, GUILayout.Height(28));
+            EditorGUILayout.LabelField("AnkleBreaker Unity MCP", _headerStyle, GUILayout.Height(28));
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
         }

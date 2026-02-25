@@ -283,6 +283,34 @@ namespace UnityMCP.Editor
                 case "animation/assign-controller":
                     return ExecuteOnMainThread(() => MCPAnimationCommands.AssignController(ParseJson(body)));
 
+                // ─── Prefab (Advanced) ───
+                case "prefab/info":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.GetPrefabInfo(ParseJson(body)));
+
+                case "prefab/create-variant":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.CreateVariant(ParseJson(body)));
+
+                case "prefab/apply-overrides":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.ApplyOverrides(ParseJson(body)));
+
+                case "prefab/revert-overrides":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.RevertOverrides(ParseJson(body)));
+
+                case "prefab/unpack":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.Unpack(ParseJson(body)));
+
+                case "prefab/set-object-reference":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.SetObjectReference(ParseJson(body)));
+
+                case "prefab/duplicate":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.Duplicate(ParseJson(body)));
+
+                case "prefab/set-active":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.SetActive(ParseJson(body)));
+
+                case "prefab/reparent":
+                    return ExecuteOnMainThread(() => MCPPrefabCommands.Reparent(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

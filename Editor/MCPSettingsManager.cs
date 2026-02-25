@@ -13,9 +13,9 @@ namespace UnityMCP.Editor
         // ─── Categories ───
         private static readonly string[] AllCategories = new[]
         {
-            "animation", "asmdef", "asset", "audio", "build", "component", "console",
+            "amplify", "animation", "asmdef", "asset", "audio", "build", "component", "console",
             "debugger", "editor", "gameobject", "input", "lighting", "physics", "prefab",
-            "profiler", "project", "renderer", "scene", "script", "selection", "taglayer"
+            "profiler", "project", "renderer", "scene", "script", "selection", "shadergraph", "taglayer"
         };
 
         private static Dictionary<string, bool> _enabledCategories;

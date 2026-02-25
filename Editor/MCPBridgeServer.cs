@@ -512,6 +512,66 @@ namespace UnityMCP.Editor
                 case "debugger/event-details":
                     return MCPProfilerCommands.GetFrameEventDetails(ParseJson(body));
 
+                // ─── Memory Profiler ───
+                case "profiler/memory-status":
+                    return MCPMemoryProfilerCommands.GetStatus(ParseJson(body));
+
+                case "profiler/memory-breakdown":
+                    return MCPMemoryProfilerCommands.GetMemoryBreakdown(ParseJson(body));
+
+                case "profiler/memory-top-assets":
+                    return MCPMemoryProfilerCommands.GetTopMemoryConsumers(ParseJson(body));
+
+                case "profiler/memory-snapshot":
+                    return MCPMemoryProfilerCommands.TakeMemorySnapshot(ParseJson(body));
+
+                // ─── Shader Graph ───
+                case "shadergraph/status":
+                    return MCPShaderGraphCommands.GetStatus(ParseJson(body));
+
+                case "shadergraph/list-shaders":
+                    return MCPShaderGraphCommands.ListShaders(ParseJson(body));
+
+                case "shadergraph/list":
+                    return MCPShaderGraphCommands.ListShaderGraphs(ParseJson(body));
+
+                case "shadergraph/info":
+                    return MCPShaderGraphCommands.GetShaderGraphInfo(ParseJson(body));
+
+                case "shadergraph/get-properties":
+                    return MCPShaderGraphCommands.GetShaderProperties(ParseJson(body));
+
+                case "shadergraph/create":
+                    return MCPShaderGraphCommands.CreateShaderGraph(ParseJson(body));
+
+                case "shadergraph/open":
+                    return MCPShaderGraphCommands.OpenShaderGraph(ParseJson(body));
+
+                case "shadergraph/list-subgraphs":
+                    return MCPShaderGraphCommands.ListSubGraphs(ParseJson(body));
+
+                case "shadergraph/list-vfx":
+                    return MCPShaderGraphCommands.ListVFXGraphs(ParseJson(body));
+
+                case "shadergraph/open-vfx":
+                    return MCPShaderGraphCommands.OpenVFXGraph(ParseJson(body));
+
+                // ─── Amplify Shader Editor ───
+                case "amplify/status":
+                    return MCPAmplifyCommands.GetStatus(ParseJson(body));
+
+                case "amplify/list":
+                    return MCPAmplifyCommands.ListAmplifyShaders(ParseJson(body));
+
+                case "amplify/info":
+                    return MCPAmplifyCommands.GetAmplifyShaderInfo(ParseJson(body));
+
+                case "amplify/open":
+                    return MCPAmplifyCommands.OpenAmplifyShader(ParseJson(body));
+
+                case "amplify/list-functions":
+                    return MCPAmplifyCommands.ListAmplifyFunctions(ParseJson(body));
+
                 // ─── Agent Management ───
                 case "agents/list":
                     return MCPRequestQueue.GetActiveSessions();

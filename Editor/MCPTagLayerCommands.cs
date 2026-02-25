@@ -83,7 +83,11 @@ namespace UnityMCP.Editor
 
             int layer = -1;
             if (args.ContainsKey("layer"))
-                layer = Convert.ToInt32(args["layer"]);
+            {
+                string layerVal = args["layer"].ToString();
+                if (!int.TryParse(layerVal, out layer))
+                    layer = LayerMask.NameToLayer(layerVal);
+            }
             else if (args.ContainsKey("layerName"))
                 layer = LayerMask.NameToLayer(args["layerName"].ToString());
 

@@ -659,6 +659,114 @@ namespace UnityMCP.Editor
                     };
                 }
 
+                // ─── Search ───
+                case "search/by-component":
+                    return MCPSearchCommands.FindByComponent(ParseJson(body));
+                case "search/by-tag":
+                    return MCPSearchCommands.FindByTag(ParseJson(body));
+                case "search/by-layer":
+                    return MCPSearchCommands.FindByLayer(ParseJson(body));
+                case "search/by-name":
+                    return MCPSearchCommands.FindByName(ParseJson(body));
+                case "search/by-shader":
+                    return MCPSearchCommands.FindByShader(ParseJson(body));
+                case "search/assets":
+                    return MCPSearchCommands.SearchAssets(ParseJson(body));
+                case "search/missing-references":
+                    return MCPSearchCommands.FindMissingReferences(ParseJson(body));
+                case "search/scene-stats":
+                    return MCPSearchCommands.GetSceneStats(ParseJson(body));
+
+                // ─── Project Settings ───
+                case "settings/quality":
+                    return MCPProjectSettingsCommands.GetQualitySettings(ParseJson(body));
+                case "settings/quality-level":
+                    return MCPProjectSettingsCommands.SetQualityLevel(ParseJson(body));
+                case "settings/physics":
+                    return MCPProjectSettingsCommands.GetPhysicsSettings(ParseJson(body));
+                case "settings/set-physics":
+                    return MCPProjectSettingsCommands.SetPhysicsSettings(ParseJson(body));
+                case "settings/time":
+                    return MCPProjectSettingsCommands.GetTimeSettings(ParseJson(body));
+                case "settings/set-time":
+                    return MCPProjectSettingsCommands.SetTimeSettings(ParseJson(body));
+                case "settings/player":
+                    return MCPProjectSettingsCommands.GetPlayerSettings(ParseJson(body));
+                case "settings/set-player":
+                    return MCPProjectSettingsCommands.SetPlayerSettings(ParseJson(body));
+                case "settings/render-pipeline":
+                    return MCPProjectSettingsCommands.GetRenderPipelineInfo(ParseJson(body));
+
+                // ─── Undo ───
+                case "undo/perform":
+                    return MCPUndoCommands.PerformUndo(ParseJson(body));
+                case "undo/redo":
+                    return MCPUndoCommands.PerformRedo(ParseJson(body));
+                case "undo/history":
+                    return MCPUndoCommands.GetUndoHistory(ParseJson(body));
+                case "undo/clear":
+                    return MCPUndoCommands.ClearUndo(ParseJson(body));
+
+                // ─── Screenshot / Scene View ───
+                case "screenshot/game":
+                    return MCPScreenshotCommands.CaptureGameView(ParseJson(body));
+                case "screenshot/scene":
+                    return MCPScreenshotCommands.CaptureSceneView(ParseJson(body));
+                case "sceneview/info":
+                    return MCPScreenshotCommands.GetSceneViewInfo(ParseJson(body));
+                case "sceneview/set-camera":
+                    return MCPScreenshotCommands.SetSceneViewCamera(ParseJson(body));
+
+                // ─── Terrain ───
+                case "terrain/create":
+                    return MCPTerrainCommands.CreateTerrain(ParseJson(body));
+                case "terrain/info":
+                    return MCPTerrainCommands.GetTerrainInfo(ParseJson(body));
+                case "terrain/set-height":
+                    return MCPTerrainCommands.SetHeight(ParseJson(body));
+                case "terrain/flatten":
+                    return MCPTerrainCommands.FlattenTerrain(ParseJson(body));
+                case "terrain/add-layer":
+                    return MCPTerrainCommands.AddTerrainLayer(ParseJson(body));
+                case "terrain/get-height":
+                    return MCPTerrainCommands.GetHeightAtPosition(ParseJson(body));
+
+                // ─── Particle System ───
+                case "particle/create":
+                    return MCPParticleCommands.CreateParticleSystem(ParseJson(body));
+                case "particle/info":
+                    return MCPParticleCommands.GetParticleSystemInfo(ParseJson(body));
+                case "particle/set-main":
+                    return MCPParticleCommands.SetMainModule(ParseJson(body));
+                case "particle/set-emission":
+                    return MCPParticleCommands.SetEmission(ParseJson(body));
+                case "particle/set-shape":
+                    return MCPParticleCommands.SetShape(ParseJson(body));
+                case "particle/playback":
+                    return MCPParticleCommands.PlaybackControl(ParseJson(body));
+
+                // ─── ScriptableObject ───
+                case "scriptableobject/create":
+                    return MCPScriptableObjectCommands.CreateScriptableObject(ParseJson(body));
+                case "scriptableobject/info":
+                    return MCPScriptableObjectCommands.GetScriptableObjectInfo(ParseJson(body));
+                case "scriptableobject/set-field":
+                    return MCPScriptableObjectCommands.SetScriptableObjectField(ParseJson(body));
+                case "scriptableobject/list-types":
+                    return MCPScriptableObjectCommands.ListScriptableObjectTypes(ParseJson(body));
+
+                // ─── Texture ───
+                case "texture/info":
+                    return MCPTextureCommands.GetTextureInfo(ParseJson(body));
+                case "texture/set-import":
+                    return MCPTextureCommands.SetTextureImportSettings(ParseJson(body));
+                case "texture/reimport":
+                    return MCPTextureCommands.ReimportTexture(ParseJson(body));
+                case "texture/set-sprite":
+                    return MCPTextureCommands.SetAsSprite(ParseJson(body));
+                case "texture/set-normalmap":
+                    return MCPTextureCommands.SetAsNormalMap(ParseJson(body));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

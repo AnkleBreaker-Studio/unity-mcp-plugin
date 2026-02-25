@@ -575,7 +575,7 @@ namespace UnityMCP.Editor
                         break;
                     case '}':
                     case ']':
-                        indent--;
+                        indent = Math.Max(0, indent - 1);
                         if (!lastWasNewline)
                         {
                             sb.Append('\n');
@@ -584,10 +584,12 @@ namespace UnityMCP.Editor
                         else
                         {
                             // Remove extra indent if we just added a newline
-                            string current = sb.ToString();
-                            if (current.EndsWith(new string(' ', (indent + 1) * 2)))
+                            int extraSpaces = (indent + 1) * 2;
+                            if (extraSpaces > 0 && sb.Length >= extraSpaces)
                             {
-                                sb.Remove(sb.Length - 2, 2);
+                                string tail = sb.ToString(sb.Length - extraSpaces, extraSpaces);
+                                if (tail == new string(' ', extraSpaces) && sb.Length >= 2)
+                                    sb.Remove(sb.Length - 2, 2);
                             }
                         }
                         sb.Append(c);
@@ -596,7 +598,7 @@ namespace UnityMCP.Editor
                     case ',':
                         sb.Append(c);
                         sb.Append('\n');
-                        sb.Append(new string(' ', indent * 2));
+                        sb.Append(new string(' ', Math.Max(0, indent) * 2));
                         lastWasNewline = true;
                         break;
                     case ':':

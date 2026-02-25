@@ -372,6 +372,19 @@ namespace UnityMCP.Editor
                 case "taglayer/set-static":
                     return ExecuteOnMainThread(() => MCPTagLayerCommands.SetStatic(ParseJson(body)));
 
+                // ─── Selection & Scene View ───
+                case "selection/get":
+                    return ExecuteOnMainThread(() => MCPSelectionCommands.GetSelection(ParseJson(body)));
+
+                case "selection/set":
+                    return ExecuteOnMainThread(() => MCPSelectionCommands.SetSelection(ParseJson(body)));
+
+                case "selection/focus-scene-view":
+                    return ExecuteOnMainThread(() => MCPSelectionCommands.FocusSceneView(ParseJson(body)));
+
+                case "selection/find-by-type":
+                    return ExecuteOnMainThread(() => MCPSelectionCommands.FindObjectsByType(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

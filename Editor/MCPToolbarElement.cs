@@ -1,295 +1,181 @@
 using System;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Overlays;
+using UnityEditor.Toolbars;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace UnityMCP.Editor
 {
+    // ─── Overlay: shows "MCP" toolbar strip in the Scene View ───────────
+
     /// <summary>
-    /// Injects an MCP status indicator and dropdown into Unity's main toolbar,
-    /// next to the Asset Store / AI / Unity VCS buttons.
-    /// Uses reflection to access the internal Toolbar VisualElement tree.
+    /// Registers an MCP overlay toolbar that appears in the Scene View.
+    /// Uses Unity's official Overlay / EditorToolbar APIs (2021.2+).
+    /// Users can dock, float, or collapse the overlay like any other.
     /// </summary>
-    [InitializeOnLoad]
-    public static class MCPToolbarElement
+    [Overlay(typeof(SceneView), OverlayId, "MCP")]
+    [Icon("d_Profiler.NetworkMessages")]
+    public class MCPToolbarOverlay : ToolbarOverlay
     {
-        // Reflection handles
-        private static readonly Type kToolbarType =
-            typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.Toolbar");
+        public const string OverlayId = "unity-mcp-toolbar-overlay";
 
-        private static ScriptableObject _toolbar;
-        private static VisualElement _mcpRoot;
-        private static VisualElement _statusDot;
-        private static Label _statusLabel;
-        private static Label _agentCountLabel;
-        private static bool _injected;
+        MCPToolbarOverlay() : base(
+            MCPStatusElement.Id,
+            MCPDropdownElement.Id
+        )
+        { }
+    }
 
-        // Colors
-        private static readonly Color kRunningColor  = new Color(0.30f, 0.85f, 0.40f);
-        private static readonly Color kStoppedColor   = new Color(0.90f, 0.25f, 0.25f);
-        private static readonly Color kAgentColor     = new Color(0.40f, 0.75f, 1.00f);
+    // ─── Status element: green/red dot + "MCP" label ────────────────────
 
-        static MCPToolbarElement()
+    [EditorToolbarElement(Id, typeof(SceneView))]
+    public class MCPStatusElement : EditorToolbarButton
+    {
+        public const string Id = "UnityMCP/Status";
+
+        private readonly VisualElement _dot;
+        private readonly Label _agentBadge;
+
+        private static readonly Color kRunning = new Color(0.30f, 0.85f, 0.40f);
+        private static readonly Color kStopped = new Color(0.90f, 0.25f, 0.25f);
+        private static readonly Color kWarning = new Color(0.90f, 0.80f, 0.10f);
+        private static readonly Color kBadgeBg = new Color(0.40f, 0.75f, 1.00f);
+
+        public MCPStatusElement()
         {
-            EditorApplication.update += TryInject;
-        }
+            // Remove default button text / icon
+            text = null;
+            icon = null;
 
-        // ─── Injection ───────────────────────────────────────────────
-
-        private static void TryInject()
-        {
-            if (_injected) return;
-            if (kToolbarType == null) return;
-
-            // Find the Toolbar ScriptableObject instance
-            var toolbars = Resources.FindObjectsOfTypeAll(kToolbarType);
-            if (toolbars == null || toolbars.Length == 0) return;
-            _toolbar = (ScriptableObject)toolbars[0];
-
-            // Get rootVisualElement via reflection
-            var rootProp = _toolbar.GetType().GetProperty(
-                "rootVisualElement",
-                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-            if (rootProp == null) return;
-
-            var root = rootProp.GetValue(_toolbar) as VisualElement;
-            if (root == null) return;
-
-            // Schedule injection after layout is built
-            root.schedule.Execute(() => Inject(root)).StartingIn(200);
-        }
-
-        private static void Inject(VisualElement root)
-        {
-            if (_injected) return;
-
-            // Find the right-aligned zone in the toolbar
-            // Unity 6 uses "ToolbarZoneRightAlign" or similar
-            var target = FindTargetContainer(root);
-            if (target == null)
-            {
-                Debug.LogWarning("[MCP Toolbar] Could not find toolbar container. Toolbar element not injected.");
-                return;
-            }
-
-            // Build the MCP toolbar element
-            _mcpRoot = BuildToolbarElement();
-
-            // Insert at the beginning of the right zone (before Asset Store, AI, etc.)
-            target.Insert(0, _mcpRoot);
-
-            _injected = true;
-            EditorApplication.update -= TryInject;
-
-            // Start periodic status refresh
-            _mcpRoot.schedule.Execute(RefreshStatus).Every(1000);
-        }
-
-        /// <summary>
-        /// Walk the toolbar visual tree to find the container where existing buttons live.
-        /// Tries several selectors for compatibility across Unity 6 subversions.
-        /// </summary>
-        private static VisualElement FindTargetContainer(VisualElement root)
-        {
-            // Strategy 1: Direct name query
-            var target = root.Q("ToolbarZoneRightAlign");
-            if (target != null) return target;
-
-            // Strategy 2: USS class
-            target = root.Q(className: "unity-toolbar-zone-right-align");
-            if (target != null) return target;
-
-            // Strategy 3: Walk children for a right-aligned flex container
-            target = root.Q("unity-editor-toolbar-right");
-            if (target != null) return target;
-
-            // Strategy 4: Broad search — find the container that holds known toolbar buttons
-            // Look for a VisualElement whose children include things like "Asset Store", "AI" text
-            target = FindContainerByContent(root);
-            if (target != null) return target;
-
-            return null;
-        }
-
-        /// <summary>
-        /// Fallback: walk the tree to find the parent of known toolbar buttons.
-        /// </summary>
-        private static VisualElement FindContainerByContent(VisualElement root)
-        {
-            // Find any element containing "Asset Store" text — its parent is our target
-            var found = FindElementRecursive(root, el =>
-            {
-                if (el is Label label && label.text != null &&
-                    label.text.Contains("Asset Store"))
-                    return true;
-                if (el is TextElement txt && txt.text != null &&
-                    txt.text.Contains("Asset Store"))
-                    return true;
-                return false;
-            });
-
-            return found?.parent?.parent; // Button > container > zone
-        }
-
-        private static VisualElement FindElementRecursive(VisualElement root, Func<VisualElement, bool> predicate)
-        {
-            if (predicate(root)) return root;
-            foreach (var child in root.Children())
-            {
-                var result = FindElementRecursive(child, predicate);
-                if (result != null) return result;
-            }
-            return null;
-        }
-
-        // ─── Build UI ────────────────────────────────────────────────
-
-        private static VisualElement BuildToolbarElement()
-        {
-            var container = new VisualElement();
-            container.name = "mcp-toolbar-element";
-            container.style.flexDirection = FlexDirection.Row;
-            container.style.alignItems = Align.Center;
-            container.style.marginLeft = 4;
-            container.style.marginRight = 4;
-            container.style.paddingLeft = 6;
-            container.style.paddingRight = 6;
-            container.style.height = new StyleLength(StyleKeyword.Auto);
-
-            // Make it look like the other toolbar buttons
-            container.style.borderLeftWidth = 1;
-            container.style.borderLeftColor = new Color(0.15f, 0.15f, 0.15f, 0.4f);
-
-            // Clickable — show dropdown on click
-            container.RegisterCallback<ClickEvent>(evt => ShowDropdown(container));
-
-            // Hover cursor
-            container.RegisterCallback<MouseEnterEvent>(evt =>
-            {
-                container.style.backgroundColor = new Color(1f, 1f, 1f, 0.06f);
-            });
-            container.RegisterCallback<MouseLeaveEvent>(evt =>
-            {
-                container.style.backgroundColor = Color.clear;
-            });
+            style.flexDirection = FlexDirection.Row;
+            style.alignItems = Align.Center;
+            style.paddingLeft = 6;
+            style.paddingRight = 6;
 
             // Status dot
-            _statusDot = new VisualElement();
-            _statusDot.name = "mcp-status-dot";
-            _statusDot.style.width = 8;
-            _statusDot.style.height = 8;
-            _statusDot.style.borderTopLeftRadius = 4;
-            _statusDot.style.borderTopRightRadius = 4;
-            _statusDot.style.borderBottomLeftRadius = 4;
-            _statusDot.style.borderBottomRightRadius = 4;
-            _statusDot.style.marginRight = 5;
-            _statusDot.style.backgroundColor = kStoppedColor;
-            container.Add(_statusDot);
+            _dot = new VisualElement();
+            _dot.style.width = 8;
+            _dot.style.height = 8;
+            _dot.style.borderTopLeftRadius = 4;
+            _dot.style.borderTopRightRadius = 4;
+            _dot.style.borderBottomLeftRadius = 4;
+            _dot.style.borderBottomRightRadius = 4;
+            _dot.style.marginRight = 5;
+            _dot.style.backgroundColor = kStopped;
+            Add(_dot);
 
             // "MCP" label
-            _statusLabel = new Label("MCP");
-            _statusLabel.name = "mcp-status-label";
-            _statusLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
-            _statusLabel.style.fontSize = 11;
-            _statusLabel.style.color = new Color(0.78f, 0.78f, 0.78f);
-            _statusLabel.style.marginRight = 2;
-            container.Add(_statusLabel);
+            var label = new Label("MCP");
+            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            label.style.fontSize = 11;
+            label.style.color = new Color(0.78f, 0.78f, 0.78f);
+            Add(label);
 
-            // Agent count badge (hidden when 0)
-            _agentCountLabel = new Label();
-            _agentCountLabel.name = "mcp-agent-count";
-            _agentCountLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
-            _agentCountLabel.style.fontSize = 9;
-            _agentCountLabel.style.color = Color.white;
-            _agentCountLabel.style.backgroundColor = kAgentColor;
-            _agentCountLabel.style.borderTopLeftRadius = 6;
-            _agentCountLabel.style.borderTopRightRadius = 6;
-            _agentCountLabel.style.borderBottomLeftRadius = 6;
-            _agentCountLabel.style.borderBottomRightRadius = 6;
-            _agentCountLabel.style.paddingLeft = 4;
-            _agentCountLabel.style.paddingRight = 4;
-            _agentCountLabel.style.paddingTop = 1;
-            _agentCountLabel.style.paddingBottom = 1;
-            _agentCountLabel.style.marginLeft = 3;
-            _agentCountLabel.style.marginRight = 2;
-            _agentCountLabel.style.display = DisplayStyle.None;
-            container.Add(_agentCountLabel);
+            // Agent count badge (hidden by default)
+            _agentBadge = new Label();
+            _agentBadge.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _agentBadge.style.fontSize = 9;
+            _agentBadge.style.color = Color.white;
+            _agentBadge.style.backgroundColor = kBadgeBg;
+            _agentBadge.style.borderTopLeftRadius = 6;
+            _agentBadge.style.borderTopRightRadius = 6;
+            _agentBadge.style.borderBottomLeftRadius = 6;
+            _agentBadge.style.borderBottomRightRadius = 6;
+            _agentBadge.style.paddingLeft = 4;
+            _agentBadge.style.paddingRight = 4;
+            _agentBadge.style.paddingTop = 1;
+            _agentBadge.style.paddingBottom = 1;
+            _agentBadge.style.marginLeft = 4;
+            _agentBadge.style.display = DisplayStyle.None;
+            Add(_agentBadge);
 
-            // Dropdown arrow
-            var arrow = new Label("\u25BE"); // ▾
-            arrow.style.fontSize = 10;
-            arrow.style.color = new Color(0.6f, 0.6f, 0.6f);
-            arrow.style.marginLeft = 2;
-            arrow.style.unityTextAlign = TextAnchor.MiddleCenter;
-            container.Add(arrow);
+            // Click opens dashboard
+            clicked += () => MCPDashboardWindow.ShowWindow();
 
-            return container;
+            // Tooltip
+            tooltip = "MCP Bridge Status — Click to open Dashboard";
+
+            // Periodic refresh
+            schedule.Execute(Refresh).Every(1000);
         }
 
-        // ─── Status Refresh ──────────────────────────────────────────
-
-        private static readonly Color kWarningColor = new Color(0.90f, 0.80f, 0.10f);
-
-        private static void RefreshStatus()
+        private void Refresh()
         {
-            if (_mcpRoot == null || !_injected) return;
-
             bool running = MCPBridgeServer.IsRunning;
 
-            // Status dot — reflects server + test health
-            Color dotColor;
+            // Dot color
+            Color c;
             if (!running)
-                dotColor = kStoppedColor;
+                c = kStopped;
             else if (MCPSelfTest.HasFailures)
-                dotColor = kStoppedColor; // Red — something is broken
+                c = kStopped;
             else if (MCPSelfTest.HasWarnings)
-                dotColor = kWarningColor; // Yellow — some warnings
+                c = kWarning;
             else
-                dotColor = kRunningColor; // Green — all good
-            _statusDot.style.backgroundColor = dotColor;
+                c = kRunning;
+            _dot.style.backgroundColor = c;
 
-            // Tooltip with test summary
-            string tooltip = running
+            // Tooltip
+            string tip = running
                 ? $"MCP Bridge — Running on port {MCPSettingsManager.Port}"
                 : "MCP Bridge — Stopped";
 
-            if (running && MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+            if (running && MCPSelfTest.LastRunTime > DateTime.MinValue)
             {
                 int p = MCPSelfTest.PassedCount;
                 int f = MCPSelfTest.FailedCount;
                 int w = MCPSelfTest.WarningCount;
-                tooltip += $"\nTests: {p} passed";
-                if (f > 0) tooltip += $", {f} failed";
-                if (w > 0) tooltip += $", {w} warnings";
+                tip += $"\nTests: {p} passed";
+                if (f > 0) tip += $", {f} failed";
+                if (w > 0) tip += $", {w} warnings";
             }
-            _mcpRoot.tooltip = tooltip;
+            tooltip = tip;
 
-            // Agent count badge
+            // Agent badge
             int agents = MCPRequestQueue.ActiveSessionCount;
             if (agents > 0)
             {
-                _agentCountLabel.text = agents.ToString();
-                _agentCountLabel.style.display = DisplayStyle.Flex;
-                _agentCountLabel.tooltip = $"{agents} active agent{(agents > 1 ? "s" : "")}";
+                _agentBadge.text = agents.ToString();
+                _agentBadge.style.display = DisplayStyle.Flex;
+                _agentBadge.tooltip = $"{agents} active agent{(agents > 1 ? "s" : "")}";
             }
             else
             {
-                _agentCountLabel.style.display = DisplayStyle.None;
+                _agentBadge.style.display = DisplayStyle.None;
             }
         }
+    }
 
-        // ─── Dropdown Menu ───────────────────────────────────────────
+    // ─── Dropdown element: ▾ button with GenericMenu ────────────────────
 
-        private static void ShowDropdown(VisualElement anchor)
+    [EditorToolbarElement(Id, typeof(SceneView))]
+    public class MCPDropdownElement : EditorToolbarButton
+    {
+        public const string Id = "UnityMCP/Dropdown";
+
+        public MCPDropdownElement()
+        {
+            text = "\u25BE"; // ▾
+            style.fontSize = 12;
+            style.paddingLeft = 2;
+            style.paddingRight = 4;
+            style.unityTextAlign = TextAnchor.MiddleCenter;
+            tooltip = "MCP Actions";
+
+            clicked += ShowMenu;
+        }
+
+        private void ShowMenu()
         {
             var menu = new GenericMenu();
             bool running = MCPBridgeServer.IsRunning;
 
-            // Status header (disabled, just for info)
+            // Status header
             menu.AddDisabledItem(new GUIContent(
                 running
-                    ? $"\u25CF  Running — Port {MCPSettingsManager.Port}"
+                    ? $"\u25CF  Running \u2014 Port {MCPSettingsManager.Port}"
                     : "\u25CF  Stopped"));
 
             menu.AddSeparator("");
@@ -331,7 +217,7 @@ namespace UnityMCP.Editor
 
             menu.AddSeparator("");
 
-            // Quick toggles for categories
+            // Category toggles
             menu.AddItem(new GUIContent("Categories/Enable All"), false, () =>
             {
                 foreach (var cat in MCPSettingsManager.GetAllCategoryNames())
@@ -343,13 +229,11 @@ namespace UnityMCP.Editor
                     MCPSettingsManager.SetCategoryEnabled(cat, false);
             });
             menu.AddSeparator("Categories/");
-
-            // Individual category toggles
             foreach (var cat in MCPSettingsManager.GetAllCategoryNames())
             {
                 bool enabled = MCPSettingsManager.IsCategoryEnabled(cat);
                 string displayName = char.ToUpper(cat[0]) + cat.Substring(1);
-                string catCapture = cat; // Capture for closure
+                string catCapture = cat;
                 menu.AddItem(new GUIContent($"Categories/{displayName}"), enabled, () =>
                 {
                     MCPSettingsManager.SetCategoryEnabled(catCapture, !enabled);
@@ -362,7 +246,7 @@ namespace UnityMCP.Editor
             if (running && !MCPSelfTest.IsRunning)
             {
                 string testLabel = "Run Tests";
-                if (MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+                if (MCPSelfTest.LastRunTime > DateTime.MinValue)
                 {
                     int f = MCPSelfTest.FailedCount;
                     int p = MCPSelfTest.PassedCount;
@@ -385,13 +269,8 @@ namespace UnityMCP.Editor
 
             menu.AddSeparator("");
 
-            // Open full dashboard
-            menu.AddItem(new GUIContent("Open Dashboard..."), false, () =>
-            {
-                MCPDashboardWindow.ShowWindow();
-            });
-
-            // Check for updates
+            // Dashboard & Updates
+            menu.AddItem(new GUIContent("Open Dashboard..."), false, () => MCPDashboardWindow.ShowWindow());
             menu.AddItem(new GUIContent("Check for Updates..."), false, () =>
             {
                 MCPUpdateChecker.CheckForUpdates((hasUpdate, latestVersion) =>
@@ -405,26 +284,223 @@ namespace UnityMCP.Editor
                 });
             });
 
-            // Show the menu anchored below the toolbar element
-            var rect = anchor.worldBound;
-            menu.DropDown(new Rect(rect.x, rect.yMax, 0, 0));
+            menu.ShowAsContext();
+        }
+    }
+
+    // ─── Main toolbar injection (legacy fallback) ───────────────────────
+
+    /// <summary>
+    /// Attempts to also inject a status indicator into Unity's main top toolbar
+    /// (next to Asset Store / AI / VCS tabs) via reflection.
+    /// This is a best-effort approach since Unity doesn't expose a public API for it.
+    /// If injection fails, the Overlay toolbar in Scene View is the primary UI.
+    /// </summary>
+    [InitializeOnLoad]
+    public static class MCPMainToolbarInjector
+    {
+        private static bool _injected;
+        private static VisualElement _mcpRoot;
+        private static VisualElement _statusDot;
+        private static Label _agentBadge;
+        private static int _retryCount;
+        private const int MaxRetries = 30; // Try for ~3 seconds
+
+        private static readonly Color kRunning = new Color(0.30f, 0.85f, 0.40f);
+        private static readonly Color kStopped = new Color(0.90f, 0.25f, 0.25f);
+        private static readonly Color kWarning = new Color(0.90f, 0.80f, 0.10f);
+        private static readonly Color kBadgeBg = new Color(0.40f, 0.75f, 1.00f);
+
+        static MCPMainToolbarInjector()
+        {
+            EditorApplication.update += TryInject;
         }
 
-        // ─── Cleanup ─────────────────────────────────────────────────
-
-        /// <summary>
-        /// Re-inject after domain reload (static state is lost).
-        /// The [InitializeOnLoad] constructor handles this automatically.
-        /// </summary>
-        internal static void ForceReinject()
+        private static void TryInject()
         {
-            _injected = false;
-            _mcpRoot = null;
-            _statusDot = null;
-            _statusLabel = null;
-            _agentCountLabel = null;
-            _toolbar = null;
-            EditorApplication.update += TryInject;
+            if (_injected || _retryCount >= MaxRetries)
+            {
+                EditorApplication.update -= TryInject;
+                if (!_injected && _retryCount >= MaxRetries)
+                    Debug.Log("[MCP Toolbar] Main toolbar injection skipped — Overlay toolbar in Scene View is available.");
+                return;
+            }
+            _retryCount++;
+
+            try
+            {
+                var toolbarType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.Toolbar");
+                if (toolbarType == null) return;
+
+                var toolbars = Resources.FindObjectsOfTypeAll(toolbarType);
+                if (toolbars == null || toolbars.Length == 0) return;
+
+                var toolbar = toolbars[0];
+
+                // Get rootVisualElement
+                var rootProp = toolbarType.GetProperty("rootVisualElement",
+                    BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                if (rootProp == null) return;
+
+                var root = rootProp.GetValue(toolbar) as VisualElement;
+                if (root == null || root.childCount == 0) return;
+
+                // Try to find the right-aligned zone
+                var target = root.Q("ToolbarZoneRightAlign")
+                    ?? root.Q(className: "unity-toolbar-zone-align-right")
+                    ?? root.Q(className: "unity-editor-toolbar-container__right")
+                    ?? FindRightZone(root);
+
+                if (target == null)
+                {
+                    // Log the tree structure for debugging (only on last retry)
+                    if (_retryCount >= MaxRetries)
+                    {
+                        Debug.Log("[MCP Toolbar] Could not find toolbar container. Tree dump:");
+                        DumpTree(root, 0, 3);
+                    }
+                    return;
+                }
+
+                // Build and inject
+                _mcpRoot = BuildElement();
+                target.Insert(0, _mcpRoot);
+                _injected = true;
+                EditorApplication.update -= TryInject;
+
+                // Periodic refresh
+                _mcpRoot.schedule.Execute(RefreshMainToolbar).Every(1000);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[MCP Toolbar] Injection attempt {_retryCount} failed: {ex.Message}");
+            }
+        }
+
+        private static VisualElement FindRightZone(VisualElement root)
+        {
+            // Walk the tree looking for a container that holds known buttons
+            // In Unity 6, look for containers with specific patterns
+            return FindRecursive(root, el =>
+            {
+                // Look for flex-row containers in the right portion of the toolbar
+                if (el.childCount >= 2 && el.resolvedStyle.flexDirection == FlexDirection.Row)
+                {
+                    // Check if any child contains text like "Account", "Cloud", or known toolbar items
+                    foreach (var child in el.Children())
+                    {
+                        if (child is TextElement te)
+                        {
+                            string t = te.text ?? "";
+                            if (t.Contains("Account") || t.Contains("Cloud") || t.Contains("Collab")
+                                || t.Contains("Services") || t.Contains("Asset Store"))
+                                return true;
+                        }
+                    }
+                }
+                return false;
+            });
+        }
+
+        private static VisualElement FindRecursive(VisualElement root, Func<VisualElement, bool> match)
+        {
+            if (match(root)) return root;
+            foreach (var child in root.Children())
+            {
+                var found = FindRecursive(child, match);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static void DumpTree(VisualElement el, int depth, int maxDepth)
+        {
+            if (depth > maxDepth) return;
+            string indent = new string(' ', depth * 2);
+            string name = string.IsNullOrEmpty(el.name) ? "" : $" name='{el.name}'";
+            string text = el is TextElement te2 && !string.IsNullOrEmpty(te2.text) ? $" text='{te2.text}'" : "";
+            Debug.Log($"[MCP Toolbar] {indent}{el.GetType().Name}{name}{text} children={el.childCount}");
+            foreach (var child in el.Children())
+                DumpTree(child, depth + 1, maxDepth);
+        }
+
+        private static VisualElement BuildElement()
+        {
+            var container = new VisualElement();
+            container.name = "mcp-toolbar-element";
+            container.style.flexDirection = FlexDirection.Row;
+            container.style.alignItems = Align.Center;
+            container.style.marginLeft = 4;
+            container.style.marginRight = 4;
+            container.style.paddingLeft = 6;
+            container.style.paddingRight = 6;
+            container.style.borderLeftWidth = 1;
+            container.style.borderLeftColor = new Color(0.15f, 0.15f, 0.15f, 0.4f);
+
+            container.RegisterCallback<ClickEvent>(evt => MCPDashboardWindow.ShowWindow());
+            container.RegisterCallback<MouseEnterEvent>(evt =>
+                container.style.backgroundColor = new Color(1f, 1f, 1f, 0.06f));
+            container.RegisterCallback<MouseLeaveEvent>(evt =>
+                container.style.backgroundColor = Color.clear);
+
+            _statusDot = new VisualElement();
+            _statusDot.style.width = 8;
+            _statusDot.style.height = 8;
+            _statusDot.style.borderTopLeftRadius = 4;
+            _statusDot.style.borderTopRightRadius = 4;
+            _statusDot.style.borderBottomLeftRadius = 4;
+            _statusDot.style.borderBottomRightRadius = 4;
+            _statusDot.style.marginRight = 5;
+            _statusDot.style.backgroundColor = kStopped;
+            container.Add(_statusDot);
+
+            var label = new Label("MCP");
+            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            label.style.fontSize = 11;
+            label.style.color = new Color(0.78f, 0.78f, 0.78f);
+            container.Add(label);
+
+            _agentBadge = new Label();
+            _agentBadge.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _agentBadge.style.fontSize = 9;
+            _agentBadge.style.color = Color.white;
+            _agentBadge.style.backgroundColor = kBadgeBg;
+            _agentBadge.style.borderTopLeftRadius = 6;
+            _agentBadge.style.borderTopRightRadius = 6;
+            _agentBadge.style.borderBottomLeftRadius = 6;
+            _agentBadge.style.borderBottomRightRadius = 6;
+            _agentBadge.style.paddingLeft = 4;
+            _agentBadge.style.paddingRight = 4;
+            _agentBadge.style.paddingTop = 1;
+            _agentBadge.style.paddingBottom = 1;
+            _agentBadge.style.marginLeft = 4;
+            _agentBadge.style.display = DisplayStyle.None;
+            container.Add(_agentBadge);
+
+            return container;
+        }
+
+        private static void RefreshMainToolbar()
+        {
+            if (_mcpRoot == null || !_injected) return;
+
+            bool running = MCPBridgeServer.IsRunning;
+            Color c = !running ? kStopped
+                : MCPSelfTest.HasFailures ? kStopped
+                : MCPSelfTest.HasWarnings ? kWarning
+                : kRunning;
+            _statusDot.style.backgroundColor = c;
+
+            int agents = MCPRequestQueue.ActiveSessionCount;
+            if (agents > 0)
+            {
+                _agentBadge.text = agents.ToString();
+                _agentBadge.style.display = DisplayStyle.Flex;
+            }
+            else
+            {
+                _agentBadge.style.display = DisplayStyle.None;
+            }
         }
     }
 }

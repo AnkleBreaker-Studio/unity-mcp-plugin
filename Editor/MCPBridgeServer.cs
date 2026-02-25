@@ -142,9 +142,11 @@ namespace UnityMCP.Editor
                 // Extract agent identity from header
                 string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
 
-                // Route the request with agent tracking
+                // Route the request with agent tracking.
+                // The entire RouteRequest runs on the main thread so all Unity APIs
+                // (EditorPrefs, Application, etc.) work correctly.
                 var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                    () => RouteRequest(apiPath, request.HttpMethod, body));
+                    () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));
                 SendJson(response, 200, result);
             }
             catch (Exception ex)
@@ -163,6 +165,12 @@ namespace UnityMCP.Editor
             return slash > 0 ? path.Substring(0, slash) : path;
         }
 
+        /// <summary>
+        /// Route API requests to the appropriate handler.
+        /// NOTE: This entire method runs on the main thread (dispatched by HandleRequest),
+        /// so all Unity APIs (EditorPrefs, Application, etc.) work correctly here.
+        /// No individual ExecuteOnMainThread wrappers needed.
+        /// </summary>
         private static object RouteRequest(string path, string method, string body)
         {
             // Check if category is enabled (skip for ping and agents)
@@ -177,256 +185,256 @@ namespace UnityMCP.Editor
             {
                 // ─── Ping ───
                 case "ping":
-                    return ExecuteOnMainThread(() => new
+                    return new
                     {
                         status = "ok",
                         unityVersion = Application.unityVersion,
                         projectName = Application.productName,
                         projectPath = GetProjectPath(),
                         platform = Application.platform.ToString()
-                    });
+                    };
 
                 // ─── Editor State ───
                 case "editor/state":
-                    return ExecuteOnMainThread(() => MCPEditorCommands.GetEditorState());
+                    return MCPEditorCommands.GetEditorState();
 
                 case "editor/play-mode":
-                    return ExecuteOnMainThread(() => MCPEditorCommands.SetPlayMode(ParseJson(body)));
+                    return MCPEditorCommands.SetPlayMode(ParseJson(body));
 
                 case "editor/execute-menu-item":
-                    return ExecuteOnMainThread(() => MCPEditorCommands.ExecuteMenuItem(ParseJson(body)));
+                    return MCPEditorCommands.ExecuteMenuItem(ParseJson(body));
 
                 case "editor/execute-code":
-                    return ExecuteOnMainThread(() => MCPEditorCommands.ExecuteCode(ParseJson(body)));
+                    return MCPEditorCommands.ExecuteCode(ParseJson(body));
 
                 // ─── Scene ───
                 case "scene/info":
-                    return ExecuteOnMainThread(() => MCPSceneCommands.GetSceneInfo());
+                    return MCPSceneCommands.GetSceneInfo();
 
                 case "scene/open":
-                    return ExecuteOnMainThread(() => MCPSceneCommands.OpenScene(ParseJson(body)));
+                    return MCPSceneCommands.OpenScene(ParseJson(body));
 
                 case "scene/save":
-                    return ExecuteOnMainThread(() => MCPSceneCommands.SaveScene());
+                    return MCPSceneCommands.SaveScene();
 
                 case "scene/new":
-                    return ExecuteOnMainThread(() => MCPSceneCommands.NewScene());
+                    return MCPSceneCommands.NewScene();
 
                 case "scene/hierarchy":
-                    return ExecuteOnMainThread(() => MCPSceneCommands.GetHierarchy(ParseJson(body)));
+                    return MCPSceneCommands.GetHierarchy(ParseJson(body));
 
                 // ─── GameObject ───
                 case "gameobject/create":
-                    return ExecuteOnMainThread(() => MCPGameObjectCommands.Create(ParseJson(body)));
+                    return MCPGameObjectCommands.Create(ParseJson(body));
 
                 case "gameobject/delete":
-                    return ExecuteOnMainThread(() => MCPGameObjectCommands.Delete(ParseJson(body)));
+                    return MCPGameObjectCommands.Delete(ParseJson(body));
 
                 case "gameobject/info":
-                    return ExecuteOnMainThread(() => MCPGameObjectCommands.GetInfo(ParseJson(body)));
+                    return MCPGameObjectCommands.GetInfo(ParseJson(body));
 
                 case "gameobject/set-transform":
-                    return ExecuteOnMainThread(() => MCPGameObjectCommands.SetTransform(ParseJson(body)));
+                    return MCPGameObjectCommands.SetTransform(ParseJson(body));
 
                 // ─── Component ───
                 case "component/add":
-                    return ExecuteOnMainThread(() => MCPComponentCommands.Add(ParseJson(body)));
+                    return MCPComponentCommands.Add(ParseJson(body));
 
                 case "component/remove":
-                    return ExecuteOnMainThread(() => MCPComponentCommands.Remove(ParseJson(body)));
+                    return MCPComponentCommands.Remove(ParseJson(body));
 
                 case "component/get-properties":
-                    return ExecuteOnMainThread(() => MCPComponentCommands.GetProperties(ParseJson(body)));
+                    return MCPComponentCommands.GetProperties(ParseJson(body));
 
                 case "component/set-property":
-                    return ExecuteOnMainThread(() => MCPComponentCommands.SetProperty(ParseJson(body)));
+                    return MCPComponentCommands.SetProperty(ParseJson(body));
 
                 // ─── Assets ───
                 case "asset/list":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.List(ParseJson(body)));
+                    return MCPAssetCommands.List(ParseJson(body));
 
                 case "asset/import":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.Import(ParseJson(body)));
+                    return MCPAssetCommands.Import(ParseJson(body));
 
                 case "asset/delete":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.Delete(ParseJson(body)));
+                    return MCPAssetCommands.Delete(ParseJson(body));
 
                 case "asset/create-prefab":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.CreatePrefab(ParseJson(body)));
+                    return MCPAssetCommands.CreatePrefab(ParseJson(body));
 
                 case "asset/instantiate-prefab":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.InstantiatePrefab(ParseJson(body)));
+                    return MCPAssetCommands.InstantiatePrefab(ParseJson(body));
 
                 case "asset/create-material":
-                    return ExecuteOnMainThread(() => MCPAssetCommands.CreateMaterial(ParseJson(body)));
+                    return MCPAssetCommands.CreateMaterial(ParseJson(body));
 
                 // ─── Scripts ───
                 case "script/create":
-                    return ExecuteOnMainThread(() => MCPScriptCommands.Create(ParseJson(body)));
+                    return MCPScriptCommands.Create(ParseJson(body));
 
                 case "script/read":
-                    return ExecuteOnMainThread(() => MCPScriptCommands.Read(ParseJson(body)));
+                    return MCPScriptCommands.Read(ParseJson(body));
 
                 case "script/update":
-                    return ExecuteOnMainThread(() => MCPScriptCommands.Update(ParseJson(body)));
+                    return MCPScriptCommands.Update(ParseJson(body));
 
                 // ─── Renderer ───
                 case "renderer/set-material":
-                    return ExecuteOnMainThread(() => MCPRendererCommands.SetMaterial(ParseJson(body)));
+                    return MCPRendererCommands.SetMaterial(ParseJson(body));
 
                 // ─── Build ───
                 case "build/start":
-                    return ExecuteOnMainThread(() => MCPBuildCommands.StartBuild(ParseJson(body)));
+                    return MCPBuildCommands.StartBuild(ParseJson(body));
 
                 // ─── Console ───
                 case "console/log":
-                    return ExecuteOnMainThread(() => MCPConsoleCommands.GetLog(ParseJson(body)));
+                    return MCPConsoleCommands.GetLog(ParseJson(body));
 
                 case "console/clear":
-                    return ExecuteOnMainThread(() => MCPConsoleCommands.Clear());
+                    return MCPConsoleCommands.Clear();
 
                 // ─── Project ───
                 case "project/info":
-                    return ExecuteOnMainThread(() => MCPProjectCommands.GetInfo());
+                    return MCPProjectCommands.GetInfo();
 
                 // ─── Animation ───
                 case "animation/create-controller":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.CreateController(ParseJson(body)));
+                    return MCPAnimationCommands.CreateController(ParseJson(body));
 
                 case "animation/controller-info":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.GetControllerInfo(ParseJson(body)));
+                    return MCPAnimationCommands.GetControllerInfo(ParseJson(body));
 
                 case "animation/add-parameter":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddParameter(ParseJson(body)));
+                    return MCPAnimationCommands.AddParameter(ParseJson(body));
 
                 case "animation/remove-parameter":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.RemoveParameter(ParseJson(body)));
+                    return MCPAnimationCommands.RemoveParameter(ParseJson(body));
 
                 case "animation/add-state":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddState(ParseJson(body)));
+                    return MCPAnimationCommands.AddState(ParseJson(body));
 
                 case "animation/remove-state":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.RemoveState(ParseJson(body)));
+                    return MCPAnimationCommands.RemoveState(ParseJson(body));
 
                 case "animation/add-transition":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddTransition(ParseJson(body)));
+                    return MCPAnimationCommands.AddTransition(ParseJson(body));
 
                 case "animation/create-clip":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.CreateClip(ParseJson(body)));
+                    return MCPAnimationCommands.CreateClip(ParseJson(body));
 
                 case "animation/clip-info":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.GetClipInfo(ParseJson(body)));
+                    return MCPAnimationCommands.GetClipInfo(ParseJson(body));
 
                 case "animation/set-clip-curve":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.SetClipCurve(ParseJson(body)));
+                    return MCPAnimationCommands.SetClipCurve(ParseJson(body));
 
                 case "animation/add-layer":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.AddLayer(ParseJson(body)));
+                    return MCPAnimationCommands.AddLayer(ParseJson(body));
 
                 case "animation/assign-controller":
-                    return ExecuteOnMainThread(() => MCPAnimationCommands.AssignController(ParseJson(body)));
+                    return MCPAnimationCommands.AssignController(ParseJson(body));
 
                 // ─── Prefab (Advanced) ───
                 case "prefab/info":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.GetPrefabInfo(ParseJson(body)));
+                    return MCPPrefabCommands.GetPrefabInfo(ParseJson(body));
 
                 case "prefab/create-variant":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.CreateVariant(ParseJson(body)));
+                    return MCPPrefabCommands.CreateVariant(ParseJson(body));
 
                 case "prefab/apply-overrides":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.ApplyOverrides(ParseJson(body)));
+                    return MCPPrefabCommands.ApplyOverrides(ParseJson(body));
 
                 case "prefab/revert-overrides":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.RevertOverrides(ParseJson(body)));
+                    return MCPPrefabCommands.RevertOverrides(ParseJson(body));
 
                 case "prefab/unpack":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.Unpack(ParseJson(body)));
+                    return MCPPrefabCommands.Unpack(ParseJson(body));
 
                 case "prefab/set-object-reference":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.SetObjectReference(ParseJson(body)));
+                    return MCPPrefabCommands.SetObjectReference(ParseJson(body));
 
                 case "prefab/duplicate":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.Duplicate(ParseJson(body)));
+                    return MCPPrefabCommands.Duplicate(ParseJson(body));
 
                 case "prefab/set-active":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.SetActive(ParseJson(body)));
+                    return MCPPrefabCommands.SetActive(ParseJson(body));
 
                 case "prefab/reparent":
-                    return ExecuteOnMainThread(() => MCPPrefabCommands.Reparent(ParseJson(body)));
+                    return MCPPrefabCommands.Reparent(ParseJson(body));
 
                 // ─── Physics ───
                 case "physics/raycast":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.Raycast(ParseJson(body)));
+                    return MCPPhysicsCommands.Raycast(ParseJson(body));
 
                 case "physics/overlap-sphere":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.OverlapSphere(ParseJson(body)));
+                    return MCPPhysicsCommands.OverlapSphere(ParseJson(body));
 
                 case "physics/overlap-box":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.OverlapBox(ParseJson(body)));
+                    return MCPPhysicsCommands.OverlapBox(ParseJson(body));
 
                 case "physics/collision-matrix":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.GetCollisionMatrix(ParseJson(body)));
+                    return MCPPhysicsCommands.GetCollisionMatrix(ParseJson(body));
 
                 case "physics/set-collision-layer":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.SetCollisionLayer(ParseJson(body)));
+                    return MCPPhysicsCommands.SetCollisionLayer(ParseJson(body));
 
                 case "physics/set-gravity":
-                    return ExecuteOnMainThread(() => MCPPhysicsCommands.SetGravity(ParseJson(body)));
+                    return MCPPhysicsCommands.SetGravity(ParseJson(body));
 
                 // ─── Lighting ───
                 case "lighting/info":
-                    return ExecuteOnMainThread(() => MCPLightingCommands.GetLightingInfo(ParseJson(body)));
+                    return MCPLightingCommands.GetLightingInfo(ParseJson(body));
 
                 case "lighting/create":
-                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateLight(ParseJson(body)));
+                    return MCPLightingCommands.CreateLight(ParseJson(body));
 
                 case "lighting/set-environment":
-                    return ExecuteOnMainThread(() => MCPLightingCommands.SetEnvironment(ParseJson(body)));
+                    return MCPLightingCommands.SetEnvironment(ParseJson(body));
 
                 case "lighting/create-reflection-probe":
-                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateReflectionProbe(ParseJson(body)));
+                    return MCPLightingCommands.CreateReflectionProbe(ParseJson(body));
 
                 case "lighting/create-light-probe-group":
-                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateLightProbeGroup(ParseJson(body)));
+                    return MCPLightingCommands.CreateLightProbeGroup(ParseJson(body));
 
                 // ─── Audio ───
                 case "audio/info":
-                    return ExecuteOnMainThread(() => MCPAudioCommands.GetAudioInfo(ParseJson(body)));
+                    return MCPAudioCommands.GetAudioInfo(ParseJson(body));
 
                 case "audio/create-source":
-                    return ExecuteOnMainThread(() => MCPAudioCommands.CreateAudioSource(ParseJson(body)));
+                    return MCPAudioCommands.CreateAudioSource(ParseJson(body));
 
                 case "audio/set-global":
-                    return ExecuteOnMainThread(() => MCPAudioCommands.SetGlobalAudio(ParseJson(body)));
+                    return MCPAudioCommands.SetGlobalAudio(ParseJson(body));
 
                 // ─── Tags & Layers ───
                 case "taglayer/info":
-                    return ExecuteOnMainThread(() => MCPTagLayerCommands.GetTagsAndLayers(ParseJson(body)));
+                    return MCPTagLayerCommands.GetTagsAndLayers(ParseJson(body));
 
                 case "taglayer/add-tag":
-                    return ExecuteOnMainThread(() => MCPTagLayerCommands.AddTag(ParseJson(body)));
+                    return MCPTagLayerCommands.AddTag(ParseJson(body));
 
                 case "taglayer/set-tag":
-                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetTag(ParseJson(body)));
+                    return MCPTagLayerCommands.SetTag(ParseJson(body));
 
                 case "taglayer/set-layer":
-                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetLayer(ParseJson(body)));
+                    return MCPTagLayerCommands.SetLayer(ParseJson(body));
 
                 case "taglayer/set-static":
-                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetStatic(ParseJson(body)));
+                    return MCPTagLayerCommands.SetStatic(ParseJson(body));
 
                 // ─── Selection & Scene View ───
                 case "selection/get":
-                    return ExecuteOnMainThread(() => MCPSelectionCommands.GetSelection(ParseJson(body)));
+                    return MCPSelectionCommands.GetSelection(ParseJson(body));
 
                 case "selection/set":
-                    return ExecuteOnMainThread(() => MCPSelectionCommands.SetSelection(ParseJson(body)));
+                    return MCPSelectionCommands.SetSelection(ParseJson(body));
 
                 case "selection/focus-scene-view":
-                    return ExecuteOnMainThread(() => MCPSelectionCommands.FocusSceneView(ParseJson(body)));
+                    return MCPSelectionCommands.FocusSceneView(ParseJson(body));
 
                 case "selection/find-by-type":
-                    return ExecuteOnMainThread(() => MCPSelectionCommands.FindObjectsByType(ParseJson(body)));
+                    return MCPSelectionCommands.FindObjectsByType(ParseJson(body));
 
                 // ─── Agent Management ───
                 case "agents/list":

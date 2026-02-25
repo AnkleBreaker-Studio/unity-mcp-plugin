@@ -311,6 +311,25 @@ namespace UnityMCP.Editor
                 case "prefab/reparent":
                     return ExecuteOnMainThread(() => MCPPrefabCommands.Reparent(ParseJson(body)));
 
+                // ─── Physics ───
+                case "physics/raycast":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.Raycast(ParseJson(body)));
+
+                case "physics/overlap-sphere":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.OverlapSphere(ParseJson(body)));
+
+                case "physics/overlap-box":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.OverlapBox(ParseJson(body)));
+
+                case "physics/collision-matrix":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.GetCollisionMatrix(ParseJson(body)));
+
+                case "physics/set-collision-layer":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.SetCollisionLayer(ParseJson(body)));
+
+                case "physics/set-gravity":
+                    return ExecuteOnMainThread(() => MCPPhysicsCommands.SetGravity(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

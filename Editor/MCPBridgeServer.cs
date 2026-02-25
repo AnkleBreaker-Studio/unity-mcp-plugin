@@ -330,6 +330,22 @@ namespace UnityMCP.Editor
                 case "physics/set-gravity":
                     return ExecuteOnMainThread(() => MCPPhysicsCommands.SetGravity(ParseJson(body)));
 
+                // ─── Lighting ───
+                case "lighting/info":
+                    return ExecuteOnMainThread(() => MCPLightingCommands.GetLightingInfo(ParseJson(body)));
+
+                case "lighting/create":
+                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateLight(ParseJson(body)));
+
+                case "lighting/set-environment":
+                    return ExecuteOnMainThread(() => MCPLightingCommands.SetEnvironment(ParseJson(body)));
+
+                case "lighting/create-reflection-probe":
+                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateReflectionProbe(ParseJson(body)));
+
+                case "lighting/create-light-probe-group":
+                    return ExecuteOnMainThread(() => MCPLightingCommands.CreateLightProbeGroup(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

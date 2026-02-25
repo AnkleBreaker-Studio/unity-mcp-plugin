@@ -436,6 +436,31 @@ namespace UnityMCP.Editor
                 case "selection/find-by-type":
                     return MCPSelectionCommands.FindObjectsByType(ParseJson(body));
 
+                // ─── Input Actions ───
+                case "input/create":
+                    return MCPInputCommands.CreateInputActions(ParseJson(body));
+
+                case "input/info":
+                    return MCPInputCommands.GetInputActionsInfo(ParseJson(body));
+
+                case "input/add-map":
+                    return MCPInputCommands.AddActionMap(ParseJson(body));
+
+                case "input/remove-map":
+                    return MCPInputCommands.RemoveActionMap(ParseJson(body));
+
+                case "input/add-action":
+                    return MCPInputCommands.AddAction(ParseJson(body));
+
+                case "input/remove-action":
+                    return MCPInputCommands.RemoveAction(ParseJson(body));
+
+                case "input/add-binding":
+                    return MCPInputCommands.AddBinding(ParseJson(body));
+
+                case "input/add-composite-binding":
+                    return MCPInputCommands.AddCompositeBinding(ParseJson(body));
+
                 // ─── Agent Management ───
                 case "agents/list":
                     return MCPRequestQueue.GetActiveSessions();

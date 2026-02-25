@@ -6,11 +6,13 @@ using UnityEngine;
 
 namespace UnityMCP.Editor
 {
+    [InitializeOnLoad]
     public static class MCPConsoleCommands
     {
-        // Store log messages via Application.logMessageReceived
+        // Store log messages via Application.logMessageReceivedThreaded
         private static readonly List<LogEntry> _logEntries = new List<LogEntry>();
         private static bool _isListening = false;
+        private const int MaxEntries = 1000;
 
         private struct LogEntry
         {
@@ -20,10 +22,23 @@ namespace UnityMCP.Editor
             public DateTime timestamp;
         }
 
-        private static void EnsureListening()
+        // Static constructor — runs at editor load thanks to [InitializeOnLoad]
+        static MCPConsoleCommands()
+        {
+            EnsureListening();
+        }
+
+        /// <summary>
+        /// Start capturing console messages. Safe to call multiple times.
+        /// Called automatically at editor load AND when the bridge server starts.
+        /// </summary>
+        public static void EnsureListening()
         {
             if (_isListening) return;
-            Application.logMessageReceived += OnLogMessage;
+            // Use logMessageReceivedThreaded to capture messages from ALL threads,
+            // not just the main thread. This catches async compilation errors,
+            // background job failures, etc.
+            Application.logMessageReceivedThreaded += OnLogMessage;
             _isListening = true;
         }
 
@@ -39,9 +54,9 @@ namespace UnityMCP.Editor
                     timestamp = DateTime.Now,
                 });
 
-                // Keep max 500 entries
-                if (_logEntries.Count > 500)
-                    _logEntries.RemoveRange(0, _logEntries.Count - 500);
+                // Keep max entries capped
+                if (_logEntries.Count > MaxEntries)
+                    _logEntries.RemoveRange(0, _logEntries.Count - MaxEntries);
             }
         }
 
@@ -55,14 +70,16 @@ namespace UnityMCP.Editor
             var entries = new List<Dictionary<string, object>>();
             lock (_logEntries)
             {
-                for (int i = Math.Max(0, _logEntries.Count - count); i < _logEntries.Count; i++)
+                // Walk backwards through all entries, collecting matches until we have enough.
+                // This ensures we get the most recent N entries that match the filter,
+                // rather than filtering only the last N entries (which missed most errors).
+                for (int i = _logEntries.Count - 1; i >= 0 && entries.Count < count; i--)
                 {
                     var entry = _logEntries[i];
-                    string logType = entry.type.ToString().ToLower();
 
                     if (typeFilter != "all")
                     {
-                        if (typeFilter == "error" && entry.type != LogType.Error && entry.type != LogType.Exception)
+                        if (typeFilter == "error" && entry.type != LogType.Error && entry.type != LogType.Exception && entry.type != LogType.Assert)
                             continue;
                         if (typeFilter == "warning" && entry.type != LogType.Warning)
                             continue;
@@ -73,12 +90,15 @@ namespace UnityMCP.Editor
                     entries.Add(new Dictionary<string, object>
                     {
                         { "message", entry.message },
-                        { "type", logType },
+                        { "type", entry.type.ToString().ToLower() },
                         { "timestamp", entry.timestamp.ToString("HH:mm:ss.fff") },
-                        { "stackTrace", entry.stackTrace },
+                        { "stackTrace", entry.stackTrace ?? "" },
                     });
                 }
             }
+
+            // Reverse so entries are in chronological order (oldest first)
+            entries.Reverse();
 
             return new Dictionary<string, object>
             {

@@ -52,6 +52,9 @@ namespace UnityMCP.Editor
         {
             if (_isRunning) return;
 
+            // Ensure console log capture is active before anything else
+            MCPConsoleCommands.EnsureListening();
+
             try
             {
                 _listener = new HttpListener();

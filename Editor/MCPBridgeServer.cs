@@ -767,6 +767,70 @@ namespace UnityMCP.Editor
                 case "texture/set-normalmap":
                     return MCPTextureCommands.SetAsNormalMap(ParseJson(body));
 
+                // ─── Navigation ───
+                case "navigation/bake":
+                    return MCPNavigationCommands.BakeNavMesh(ParseJson(body));
+                case "navigation/clear":
+                    return MCPNavigationCommands.ClearNavMesh(ParseJson(body));
+                case "navigation/add-agent":
+                    return MCPNavigationCommands.AddNavMeshAgent(ParseJson(body));
+                case "navigation/add-obstacle":
+                    return MCPNavigationCommands.AddNavMeshObstacle(ParseJson(body));
+                case "navigation/info":
+                    return MCPNavigationCommands.GetNavMeshInfo(ParseJson(body));
+                case "navigation/set-destination":
+                    return MCPNavigationCommands.SetAgentDestination(ParseJson(body));
+
+                // ─── UI ───
+                case "ui/create-canvas":
+                    return MCPUICommands.CreateCanvas(ParseJson(body));
+                case "ui/create-element":
+                    return MCPUICommands.CreateUIElement(ParseJson(body));
+                case "ui/info":
+                    return MCPUICommands.GetUIInfo(ParseJson(body));
+                case "ui/set-text":
+                    return MCPUICommands.SetUIText(ParseJson(body));
+                case "ui/set-image":
+                    return MCPUICommands.SetUIImage(ParseJson(body));
+
+                // ─── Package Manager ───
+                case "packages/list":
+                    return MCPPackageManagerCommands.ListPackages(ParseJson(body));
+                case "packages/add":
+                    return MCPPackageManagerCommands.AddPackage(ParseJson(body));
+                case "packages/remove":
+                    return MCPPackageManagerCommands.RemovePackage(ParseJson(body));
+                case "packages/search":
+                    return MCPPackageManagerCommands.SearchPackage(ParseJson(body));
+                case "packages/info":
+                    return MCPPackageManagerCommands.GetPackageInfo(ParseJson(body));
+
+                // ─── Constraints & LOD ───
+                case "constraint/add":
+                    return MCPConstraintCommands.AddConstraint(ParseJson(body));
+                case "constraint/info":
+                    return MCPConstraintCommands.GetConstraintInfo(ParseJson(body));
+                case "lod/create":
+                    return MCPConstraintCommands.CreateLODGroup(ParseJson(body));
+                case "lod/info":
+                    return MCPConstraintCommands.GetLODGroupInfo(ParseJson(body));
+
+                // ─── Prefs ───
+                case "editorprefs/get":
+                    return MCPPrefsCommands.GetEditorPref(ParseJson(body));
+                case "editorprefs/set":
+                    return MCPPrefsCommands.SetEditorPref(ParseJson(body));
+                case "editorprefs/delete":
+                    return MCPPrefsCommands.DeleteEditorPref(ParseJson(body));
+                case "playerprefs/get":
+                    return MCPPrefsCommands.GetPlayerPref(ParseJson(body));
+                case "playerprefs/set":
+                    return MCPPrefsCommands.SetPlayerPref(ParseJson(body));
+                case "playerprefs/delete":
+                    return MCPPrefsCommands.DeletePlayerPref(ParseJson(body));
+                case "playerprefs/delete-all":
+                    return MCPPrefsCommands.DeleteAllPlayerPrefs(ParseJson(body));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

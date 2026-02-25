@@ -33,7 +33,6 @@ namespace UnityMCP.Editor
                     { "displayName", pkg.displayName },
                     { "version", pkg.version },
                     { "source", pkg.source.ToString() },
-                    { "status", pkg.status.ToString() },
                     { "description", pkg.description ?? "" },
                 });
             }
@@ -156,7 +155,6 @@ namespace UnityMCP.Editor
                         { "displayName", pkg.displayName },
                         { "version", pkg.version },
                         { "source", pkg.source.ToString() },
-                        { "status", pkg.status.ToString() },
                         { "description", pkg.description ?? "" },
                         { "category", pkg.category ?? "" },
                         { "documentationUrl", pkg.documentationUrl ?? "" },

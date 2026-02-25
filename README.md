@@ -11,6 +11,10 @@
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
 
+<p align="center">
+  A project by <a href="https://anklebreaker-consulting.com"><strong>AnkleBreaker Consulting</strong></a> & <a href="https://anklebreaker-studio.com"><strong>AnkleBreaker Studio</strong></a>
+</p>
+
 ---
 
 ## How This Is Different From Typical MCP
@@ -193,17 +197,19 @@ Some features activate automatically when their packages are detected:
 
 ## Contributing
 
-Contributions are welcome! This is an open-source project by [AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio).
+Contributions are welcome! This is an open-source project by [AnkleBreaker Consulting](https://anklebreaker-consulting.com) & [AnkleBreaker Studio](https://anklebreaker-studio.com).
 
 1. Fork the repo
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
 
-Please also check out the companion server repo: [anklebreaker-unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
+Please also check out the companion server repo: [AnkleBreaker Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT License — Copyright (c) 2026 [AnkleBreaker Consulting](https://anklebreaker-consulting.com) & [AnkleBreaker Studio](https://anklebreaker-studio.com). All rights reserved.
+
+See [LICENSE](LICENSE) for the full text.

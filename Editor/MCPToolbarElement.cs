@@ -13,9 +13,11 @@ using UnityEngine.UIElements;
 namespace UnityMCP.Editor
 {
     /// <summary>
-    /// Adds MCP status elements to Unity's main editor toolbar.
+    /// Adds an MCP status dropdown to Unity's main editor toolbar.
     /// On Unity 6000.3+ uses the official MainToolbar API.
     /// On older versions, falls back to reflection-based injection.
+    /// Shows a colored status dot + "MCP" label + agent badge, and opens
+    /// a dropdown menu with server controls, categories, tests, and settings.
     /// </summary>
     public static class MCPToolbarElement
     {
@@ -25,12 +27,77 @@ namespace UnityMCP.Editor
         internal static bool HasFailures;
         internal static bool HasWarnings;
 
+        // ─── Colored dot icons ───────────────────────────────────────────
+        private static Texture2D _greenDot;
+        private static Texture2D _redDot;
+        private static Texture2D _yellowDot;
+        private static Texture2D _greyDot;
+
+        private static Texture2D MakeDot(Color color)
+        {
+            // Create a small circle texture (16x16 with transparent background)
+            int size = 16;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            tex.hideFlags = HideFlags.HideAndDontSave;
+
+            float center = (size - 1) / 2f;
+            float radius = size / 2f - 1f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - center;
+                    float dy = y - center;
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (dist <= radius - 0.5f)
+                        tex.SetPixel(x, y, color);
+                    else if (dist <= radius + 0.5f)
+                    {
+                        // Anti-alias edge
+                        float alpha = 1f - (dist - (radius - 0.5f));
+                        tex.SetPixel(x, y, new Color(color.r, color.g, color.b, alpha));
+                    }
+                    else
+                        tex.SetPixel(x, y, Color.clear);
+                }
+            }
+
+            tex.Apply();
+            return tex;
+        }
+
+        private static void EnsureDotTextures()
+        {
+            if (_greenDot == null)
+                _greenDot = MakeDot(new Color(0.30f, 0.85f, 0.40f));
+            if (_redDot == null)
+                _redDot = MakeDot(new Color(0.90f, 0.25f, 0.25f));
+            if (_yellowDot == null)
+                _yellowDot = MakeDot(new Color(0.90f, 0.80f, 0.10f));
+            if (_greyDot == null)
+                _greyDot = MakeDot(new Color(0.50f, 0.50f, 0.50f));
+        }
+
+        internal static Texture2D CurrentDotIcon
+        {
+            get
+            {
+                EnsureDotTextures();
+                if (!ServerRunning) return _redDot;
+                if (HasFailures) return _redDot;
+                if (HasWarnings) return _yellowDot;
+                return _greenDot;
+            }
+        }
+
         internal static string StatusText
         {
             get
             {
-                string prefix = ServerRunning ? "\u25CF" : "\u25CB"; // ● or ○
-                string label = $"{prefix} MCP";
+                string label = "MCP";
                 if (ActiveAgents > 0)
                     label += $" [{ActiveAgents}]";
                 return label;
@@ -42,7 +109,7 @@ namespace UnityMCP.Editor
             get
             {
                 if (!ServerRunning)
-                    return "MCP Bridge \u2014 Stopped\nClick to open Dashboard";
+                    return "MCP Bridge \u2014 Stopped\nClick for options";
 
                 string tip = $"MCP Bridge \u2014 Running on port {MCPSettingsManager.Port}";
                 if (ActiveAgents > 0)
@@ -51,12 +118,14 @@ namespace UnityMCP.Editor
                     tip += "\nSelf-test failures detected";
                 else if (HasWarnings)
                     tip += "\nSelf-test warnings detected";
-                tip += "\nClick to open Dashboard";
+                tip += "\nClick for options";
                 return tip;
             }
         }
 
         // ─── Periodic refresh ────────────────────────────────────────────
+
+        private const string kElementPath = "MCP/Status";
 
         [InitializeOnLoadMethod]
         private static void Initialize()
@@ -88,11 +157,7 @@ namespace UnityMCP.Editor
             if (changed)
             {
 #if UNITY_6000_3_OR_NEWER
-                try
-                {
-                    MainToolbar.Refresh("MCP/Status");
-                    MainToolbar.Refresh("MCP/Actions");
-                }
+                try { MainToolbar.Refresh(kElementPath); }
                 catch { /* MainToolbar may not be ready yet */ }
 #else
                 MCPToolbarFallback.RefreshMainToolbar();
@@ -100,17 +165,18 @@ namespace UnityMCP.Editor
             }
         }
 
-        // ─── Shared dropdown menu builder ────────────────────────────────
+        // ─── Dropdown menu builder ───────────────────────────────────────
 
-        internal static void BuildMenu(GenericMenu menu)
+        internal static void ShowMenu(Rect buttonRect)
         {
+            var menu = new GenericMenu();
             bool running = MCPBridgeServer.IsRunning;
 
             // Status header
             menu.AddDisabledItem(new GUIContent(
                 running
                     ? $"\u25CF  Running \u2014 Port {MCPSettingsManager.Port}"
-                    : "\u25CF  Stopped"));
+                    : "\u25CB  Stopped"));
 
             menu.AddSeparator("");
 
@@ -217,39 +283,31 @@ namespace UnityMCP.Editor
                         "OK");
                 });
             });
+
+            menu.DropDown(buttonRect);
         }
 
 #if UNITY_6000_3_OR_NEWER
         // ═══════════════════════════════════════════════════════════════════
-        // Unity 6000.3+: Official MainToolbar API
+        // Unity 6000.3+: Single MainToolbarDropdown with status + menu
         // ═══════════════════════════════════════════════════════════════════
 
-        [MainToolbarElement("MCP/Status",
+        [MainToolbarElement(kElementPath,
             defaultDockPosition = MainToolbarDockPosition.Right)]
-        public static MainToolbarElement CreateStatusButton()
+        public static MainToolbarElement CreateMCPDropdown()
         {
+            // Snapshot current state
             ServerRunning = MCPBridgeServer.IsRunning;
             ActiveAgents = MCPRequestQueue.ActiveSessionCount;
             HasFailures = MCPSelfTest.HasFailures;
             HasWarnings = MCPSelfTest.HasWarnings;
 
-            var content = new MainToolbarContent(StatusText, tooltip: StatusTooltip);
-            return new MainToolbarButton(content, () => MCPDashboardWindow.ShowWindow());
-        }
+            var content = new MainToolbarContent(
+                StatusText,
+                CurrentDotIcon,
+                StatusTooltip);
 
-        [MainToolbarElement("MCP/Actions",
-            defaultDockPosition = MainToolbarDockPosition.Right)]
-        public static MainToolbarElement CreateActionsDropdown()
-        {
-            var content = new MainToolbarContent("\u25BE", tooltip: "MCP Actions");
-            return new MainToolbarDropdown(content, ShowMenuFromRect);
-        }
-
-        private static void ShowMenuFromRect(Rect buttonRect)
-        {
-            var menu = new GenericMenu();
-            BuildMenu(menu);
-            menu.ShowAsContext();
+            return new MainToolbarDropdown(content, ShowMenu);
         }
 #endif
     }

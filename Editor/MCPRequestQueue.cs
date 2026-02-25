@@ -88,7 +88,7 @@ namespace UnityMCP.Editor
         private const int CleanupEveryNFrames        = 100;
         private const int CompletedCacheLifetimeSec   = 60;
         private const int TimedOutCacheLifetimeSec    = 30;
-        private const int SyncTimeoutMs               = 30_000;
+        public const int SyncTimeoutMs                = 30_000;
         private const int MaxReadBatchSize            = 5;
 
         // ═══════════════════════════════════════════════════════

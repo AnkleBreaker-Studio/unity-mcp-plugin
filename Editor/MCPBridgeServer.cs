@@ -829,8 +829,8 @@ namespace UnityMCP.Editor
                 });
             }
 
-            if (!resetEvent.Wait(25000))
-                return new { error = "Timeout waiting for Unity main thread" };
+            if (!resetEvent.Wait(MCPRequestQueue.SyncTimeoutMs))
+                return new { error = $"Timeout waiting for Unity main thread after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
 
             if (exception != null)
                 return new { error = exception.Message, stackTrace = exception.StackTrace };

@@ -116,6 +116,8 @@ namespace UnityMCP.Editor
             { "audio",      TestAudio },
             { "taglayer",   TestTagLayer },
             { "selection",  TestSelection },
+            { "input",      TestInput },
+            { "asmdef",     TestAssemblyDef },
         };
 
         // ─── Run tests ──────────────────────────────────────────────
@@ -500,6 +502,104 @@ namespace UnityMCP.Editor
             catch (Exception ex)
             {
                 return $"GetSelection threw: {ex.Message}";
+            }
+        }
+
+        // --- Input Actions ---
+        private static string TestInput()
+        {
+            try
+            {
+                // Test info on a non-existent file (should return error dict, not throw)
+                var args = new Dictionary<string, object> { { "path", "Assets/__mcp_test_nonexistent.inputactions" } };
+                var result = MCPInputCommands.GetInputActionsInfo(args);
+                if (result == null) return "GetInputActionsInfo returned null";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"GetInputActionsInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- Assembly Definitions ---
+        private static string TestAssemblyDef()
+        {
+            try
+            {
+                // 1. Test listing — safe read-only operation
+                var listResult = MCPAssemblyDefCommands.ListAssemblyDefs(EmptyArgs());
+                string listErr = AssertNotNull(listResult, "ListAssemblyDefs");
+                if (listErr != null) return listErr;
+
+                // 2. Test info on a non-existent path (should return error dict, not throw)
+                var infoArgs = new Dictionary<string, object> { { "path", "Assets/__mcp_test_nonexistent.asmdef" } };
+                var infoResult = MCPAssemblyDefCommands.GetAssemblyDefInfo(infoArgs);
+                if (infoResult == null) return "GetAssemblyDefInfo returned null";
+
+                // 3. Test create + add reference + info + cleanup (full round-trip)
+                string testPath = "Assets/__mcp_selftest_temp.asmdef";
+                try
+                {
+                    // Create
+                    var createArgs = new Dictionary<string, object>
+                    {
+                        { "path", testPath },
+                        { "name", "MCP.SelfTest.Temp" },
+                        { "rootNamespace", "MCP.SelfTest" },
+                    };
+                    var createResult = MCPAssemblyDefCommands.CreateAssemblyDef(createArgs);
+                    string createErr = AssertNotNull(createResult, "CreateAssemblyDef");
+                    if (createErr != null) return createErr;
+
+                    // Verify file exists
+                    if (!System.IO.File.Exists(testPath))
+                        return "CreateAssemblyDef did not create file on disk";
+
+                    // Read back info
+                    var readArgs = new Dictionary<string, object> { { "path", testPath } };
+                    var readResult = MCPAssemblyDefCommands.GetAssemblyDefInfo(readArgs) as Dictionary<string, object>;
+                    if (readResult == null) return "GetAssemblyDefInfo returned null for created file";
+                    if (!readResult.ContainsKey("name") || readResult["name"].ToString() != "MCP.SelfTest.Temp")
+                        return $"Name mismatch: expected 'MCP.SelfTest.Temp', got '{readResult["name"]}'";
+
+                    // Update settings
+                    var updateArgs = new Dictionary<string, object>
+                    {
+                        { "path", testPath },
+                        { "rootNamespace", "MCP.SelfTest.Updated" },
+                        { "allowUnsafeCode", true },
+                    };
+                    var updateResult = MCPAssemblyDefCommands.UpdateSettings(updateArgs);
+                    string updateErr = AssertNotNull(updateResult, "UpdateSettings");
+                    if (updateErr != null) return updateErr;
+
+                    // Verify update
+                    readResult = MCPAssemblyDefCommands.GetAssemblyDefInfo(readArgs) as Dictionary<string, object>;
+                    if (readResult == null) return "GetAssemblyDefInfo returned null after update";
+                    if (readResult.ContainsKey("rootNamespace") && readResult["rootNamespace"].ToString() != "MCP.SelfTest.Updated")
+                        return "rootNamespace was not updated";
+
+                    return null; // All passed
+                }
+                finally
+                {
+                    // Cleanup: delete test file
+                    if (System.IO.File.Exists(testPath))
+                    {
+                        AssetDatabase.DeleteAsset(testPath);
+                    }
+                    // Also clean up .meta
+                    string metaPath = testPath + ".meta";
+                    if (System.IO.File.Exists(metaPath))
+                    {
+                        System.IO.File.Delete(metaPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return $"AssemblyDef test threw: {ex.Message}";
             }
         }
     }

@@ -461,6 +461,31 @@ namespace UnityMCP.Editor
                 case "input/add-composite-binding":
                     return MCPInputCommands.AddCompositeBinding(ParseJson(body));
 
+                // ─── Assembly Definitions ───
+                case "asmdef/create":
+                    return MCPAssemblyDefCommands.CreateAssemblyDef(ParseJson(body));
+
+                case "asmdef/info":
+                    return MCPAssemblyDefCommands.GetAssemblyDefInfo(ParseJson(body));
+
+                case "asmdef/list":
+                    return MCPAssemblyDefCommands.ListAssemblyDefs(ParseJson(body));
+
+                case "asmdef/add-references":
+                    return MCPAssemblyDefCommands.AddReferences(ParseJson(body));
+
+                case "asmdef/remove-references":
+                    return MCPAssemblyDefCommands.RemoveReferences(ParseJson(body));
+
+                case "asmdef/set-platforms":
+                    return MCPAssemblyDefCommands.SetPlatforms(ParseJson(body));
+
+                case "asmdef/update-settings":
+                    return MCPAssemblyDefCommands.UpdateSettings(ParseJson(body));
+
+                case "asmdef/create-ref":
+                    return MCPAssemblyDefCommands.CreateAssemblyRef(ParseJson(body));
+
                 // ─── Agent Management ───
                 case "agents/list":
                     return MCPRequestQueue.GetActiveSessions();

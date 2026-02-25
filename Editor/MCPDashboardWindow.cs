@@ -15,11 +15,14 @@ namespace UnityMCP.Editor
         private bool _settingsFoldout = false;
         private bool _agentsFoldout = true;
         private bool _categoriesFoldout = true;
+        private bool _testsFoldout = true;
+        private string _expandedTestCategory = null;
 
         private static readonly Color ColorGreen  = new Color(0.2f, 0.8f, 0.2f);
         private static readonly Color ColorRed    = new Color(0.9f, 0.2f, 0.2f);
         private static readonly Color ColorYellow = new Color(0.9f, 0.8f, 0.1f);
         private static readonly Color ColorGrey   = new Color(0.5f, 0.5f, 0.5f);
+        private static readonly Color ColorBlue   = new Color(0.4f, 0.7f, 1.0f);
 
         private GUIStyle _headerStyle;
         private GUIStyle _subHeaderStyle;
@@ -156,30 +159,104 @@ namespace UnityMCP.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        // ─── Feature Categories ───
+        // ─── Feature Categories + Test Status ───
 
         private void DrawCategoryStatus()
         {
             _categoriesFoldout = EditorGUILayout.Foldout(_categoriesFoldout, "Feature Categories", true, EditorStyles.foldoutHeader);
             if (!_categoriesFoldout) return;
 
+            // Test controls bar
+            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+
+            // Summary
+            int passed = MCPSelfTest.PassedCount;
+            int failed = MCPSelfTest.FailedCount;
+            int warnings = MCPSelfTest.WarningCount;
+            int total = MCPSettingsManager.GetAllCategoryNames().Length;
+
+            if (MCPSelfTest.IsRunning)
+            {
+                EditorGUILayout.LabelField(
+                    $"Testing: {MCPSelfTest.CurrentCategory}...",
+                    EditorStyles.miniLabel);
+                var rect = GUILayoutUtility.GetRect(100, 16, GUILayout.ExpandWidth(true));
+                EditorGUI.ProgressBar(rect, MCPSelfTest.Progress, $"{(int)(MCPSelfTest.Progress * 100)}%");
+            }
+            else if (MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+            {
+                string summary = "";
+                if (failed > 0)
+                    summary += $"<color=#E63333>{failed} failed</color>  ";
+                if (warnings > 0)
+                    summary += $"<color=#E6CC11>{warnings} warn</color>  ";
+                summary += $"<color=#33CC33>{passed}/{total} passed</color>";
+
+                var richStyle = new GUIStyle(EditorStyles.miniLabel) { richText = true };
+                EditorGUILayout.LabelField(summary, richStyle, GUILayout.ExpandWidth(true));
+            }
+            else
+            {
+                EditorGUILayout.LabelField("No tests run yet", EditorStyles.miniLabel);
+            }
+
+            GUILayout.FlexibleSpace();
+
+            GUI.enabled = !MCPSelfTest.IsRunning && MCPBridgeServer.IsRunning;
+            if (GUILayout.Button("Run Tests", GUILayout.Width(80), GUILayout.Height(20)))
+            {
+                MCPSelfTest.RunAllAsync();
+            }
+            GUI.enabled = true;
+
+            EditorGUILayout.EndHorizontal();
+
+            // Category rows
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
             string[] categories = MCPSettingsManager.GetAllCategoryNames();
             foreach (var cat in categories)
             {
                 bool enabled = MCPSettingsManager.IsCategoryEnabled(cat);
+                var testResult = MCPSelfTest.GetResult(cat);
 
                 EditorGUILayout.BeginHorizontal();
 
+                // Status dot — reflects test status when available, else enabled/disabled
                 var prevColor = GUI.color;
-                GUI.color = enabled ? ColorGreen : ColorGrey;
+                Color dotColor = GetCategoryDotColor(enabled, testResult);
+                GUI.color = dotColor;
                 GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
                 GUI.color = prevColor;
 
                 // Pretty name
                 string displayName = char.ToUpper(cat[0]) + cat.Substring(1);
-                EditorGUILayout.LabelField(displayName, GUILayout.Width(120));
+                EditorGUILayout.LabelField(displayName, GUILayout.Width(100));
+
+                // Test status label
+                if (testResult != null && testResult.Status != MCPTestResult.TestStatus.Untested)
+                {
+                    string statusText = GetTestStatusText(testResult);
+                    var statusStyle = new GUIStyle(EditorStyles.miniLabel)
+                    {
+                        normal = { textColor = dotColor },
+                    };
+                    EditorGUILayout.LabelField(statusText, statusStyle, GUILayout.Width(90));
+
+                    // Details button if there's something to show
+                    if (testResult.Status == MCPTestResult.TestStatus.Failed ||
+                        testResult.Status == MCPTestResult.TestStatus.Warning)
+                    {
+                        if (GUILayout.Button("?", GUILayout.Width(20), GUILayout.Height(16)))
+                        {
+                            _expandedTestCategory = _expandedTestCategory == cat ? null : cat;
+                        }
+                    }
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("—", EditorStyles.miniLabel, GUILayout.Width(90));
+                }
 
                 GUILayout.FlexibleSpace();
 
@@ -188,9 +265,51 @@ namespace UnityMCP.Editor
                     MCPSettingsManager.SetCategoryEnabled(cat, newEnabled);
 
                 EditorGUILayout.EndHorizontal();
+
+                // Expanded error details
+                if (_expandedTestCategory == cat && testResult != null &&
+                    !string.IsNullOrEmpty(testResult.Details))
+                {
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.SelectableLabel(
+                        testResult.Details,
+                        EditorStyles.wordWrappedMiniLabel,
+                        GUILayout.MinHeight(36));
+                    EditorGUILayout.EndVertical();
+                }
             }
 
             EditorGUILayout.EndVertical();
+        }
+
+        private Color GetCategoryDotColor(bool enabled, MCPTestResult result)
+        {
+            if (!enabled) return ColorGrey;
+            if (result == null || result.Status == MCPTestResult.TestStatus.Untested)
+                return enabled ? ColorGreen : ColorGrey;
+
+            switch (result.Status)
+            {
+                case MCPTestResult.TestStatus.Passed:  return ColorGreen;
+                case MCPTestResult.TestStatus.Warning: return ColorYellow;
+                case MCPTestResult.TestStatus.Failed:  return ColorRed;
+                default: return ColorGrey;
+            }
+        }
+
+        private string GetTestStatusText(MCPTestResult result)
+        {
+            switch (result.Status)
+            {
+                case MCPTestResult.TestStatus.Passed:
+                    return $"\u2713 {result.DurationMs:0}ms";
+                case MCPTestResult.TestStatus.Warning:
+                    return $"\u26A0 {result.Message}";
+                case MCPTestResult.TestStatus.Failed:
+                    return $"\u2717 {result.Message}";
+                default:
+                    return "—";
+            }
         }
 
         // ─── Agent Sessions ───

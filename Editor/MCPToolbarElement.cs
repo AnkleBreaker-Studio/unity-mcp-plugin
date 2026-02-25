@@ -229,19 +229,41 @@ namespace UnityMCP.Editor
 
         // ─── Status Refresh ──────────────────────────────────────────
 
+        private static readonly Color kWarningColor = new Color(0.90f, 0.80f, 0.10f);
+
         private static void RefreshStatus()
         {
             if (_mcpRoot == null || !_injected) return;
 
             bool running = MCPBridgeServer.IsRunning;
 
-            // Status dot
-            _statusDot.style.backgroundColor = running ? kRunningColor : kStoppedColor;
+            // Status dot — reflects server + test health
+            Color dotColor;
+            if (!running)
+                dotColor = kStoppedColor;
+            else if (MCPSelfTest.HasFailures)
+                dotColor = kStoppedColor; // Red — something is broken
+            else if (MCPSelfTest.HasWarnings)
+                dotColor = kWarningColor; // Yellow — some warnings
+            else
+                dotColor = kRunningColor; // Green — all good
+            _statusDot.style.backgroundColor = dotColor;
 
-            // Status label tooltip
-            _mcpRoot.tooltip = running
+            // Tooltip with test summary
+            string tooltip = running
                 ? $"MCP Bridge — Running on port {MCPSettingsManager.Port}"
                 : "MCP Bridge — Stopped";
+
+            if (running && MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+            {
+                int p = MCPSelfTest.PassedCount;
+                int f = MCPSelfTest.FailedCount;
+                int w = MCPSelfTest.WarningCount;
+                tooltip += $"\nTests: {p} passed";
+                if (f > 0) tooltip += $", {f} failed";
+                if (w > 0) tooltip += $", {w} warnings";
+            }
+            _mcpRoot.tooltip = tooltip;
 
             // Agent count badge
             int agents = MCPRequestQueue.ActiveSessionCount;
@@ -332,6 +354,25 @@ namespace UnityMCP.Editor
                 {
                     MCPSettingsManager.SetCategoryEnabled(catCapture, !enabled);
                 });
+            }
+
+            menu.AddSeparator("");
+
+            // Tests
+            if (running && !MCPSelfTest.IsRunning)
+            {
+                string testLabel = "Run Tests";
+                if (MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+                {
+                    int f = MCPSelfTest.FailedCount;
+                    int p = MCPSelfTest.PassedCount;
+                    testLabel = f > 0 ? $"Run Tests  ({f} failed)" : $"Run Tests  ({p} passed)";
+                }
+                menu.AddItem(new GUIContent(testLabel), false, () => MCPSelfTest.RunAllAsync());
+            }
+            else if (MCPSelfTest.IsRunning)
+            {
+                menu.AddDisabledItem(new GUIContent("Tests running..."));
             }
 
             menu.AddSeparator("");

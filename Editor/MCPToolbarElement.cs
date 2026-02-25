@@ -88,7 +88,11 @@ namespace UnityMCP.Editor
             if (changed)
             {
 #if UNITY_6000_3_OR_NEWER
-                try { MainToolbar.Refresh(); }
+                try
+                {
+                    MainToolbar.Refresh("MCP/Status");
+                    MainToolbar.Refresh("MCP/Actions");
+                }
                 catch { /* MainToolbar may not be ready yet */ }
 #else
                 MCPToolbarFallback.RefreshMainToolbar();

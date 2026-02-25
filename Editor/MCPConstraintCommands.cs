@@ -169,15 +169,28 @@ namespace UnityMCP.Editor
                 lodGroup = go.GetComponent<LODGroup>();
             }
 
-            int levels = args.ContainsKey("levels") ? Convert.ToInt32(args["levels"]) : 3;
+            int levels = 3;
+            if (args.ContainsKey("levels"))
+            {
+                var levelsVal = args["levels"];
+                if (levelsVal is System.Collections.IList list)
+                    levels = list.Count;
+                else
+                    levels = Convert.ToInt32(levelsVal);
+            }
             levels = Mathf.Clamp(levels, 1, 8);
 
             var lods = new LOD[levels];
             var renderers = go.GetComponentsInChildren<Renderer>();
-            
+
+            // Check if levels array has screenRelativeHeight values
+            var levelsList = args.ContainsKey("levels") && args["levels"] is System.Collections.IList ? (System.Collections.IList)args["levels"] : null;
+
             for (int i = 0; i < levels; i++)
             {
                 float transition = 1f - ((float)(i + 1) / levels);
+                if (levelsList != null && i < levelsList.Count && levelsList[i] is System.Collections.IDictionary ld && ld.Contains("screenRelativeHeight"))
+                    transition = Convert.ToSingle(ld["screenRelativeHeight"]);
                 lods[i] = new LOD(transition, i == 0 ? renderers : new Renderer[0]);
             }
 

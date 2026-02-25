@@ -19,15 +19,19 @@ namespace UnityMCP.Editor
         private static HttpListener _listener;
         private static Thread _listenerThread;
         private static bool _isRunning;
-        private static readonly int Port = 7890;
+        private static int Port => MCPSettingsManager.Port;
         private static readonly Queue<Action> _mainThreadQueue = new Queue<Action>();
 
         static MCPBridgeServer()
         {
-            Start();
+            if (MCPSettingsManager.AutoStart)
+                Start();
             EditorApplication.update += ProcessMainThreadQueue;
             EditorApplication.quitting += Stop;
         }
+
+        /// <summary>Whether the server is currently running.</summary>
+        public static bool IsRunning => _isRunning;
 
         public static void Start()
         {

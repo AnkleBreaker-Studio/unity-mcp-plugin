@@ -104,7 +104,7 @@ namespace UnityMCP.Editor
                 return new { error = "savePath is required" };
 
             // Ensure directory exists
-            string dir = Path.GetDirectoryName(savePath);
+            string dir = Path.GetDirectoryName(savePath)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 string[] parts = dir.Split('/');
@@ -192,8 +192,8 @@ namespace UnityMCP.Editor
                 }
             }
 
-            // Ensure directory
-            string dir = Path.GetDirectoryName(path);
+            // Ensure directory exists (normalize backslashes from Path.GetDirectoryName on Windows)
+            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 string[] parts = dir.Split('/');

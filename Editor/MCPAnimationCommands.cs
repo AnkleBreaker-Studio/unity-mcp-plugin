@@ -22,7 +22,7 @@ namespace UnityMCP.Editor
                 return new { error = "path is required (e.g. 'Assets/Animations/PlayerController.controller')" };
 
             // Ensure directory exists
-            string dir = Path.GetDirectoryName(path);
+            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 string[] parts = dir.Split('/');
@@ -373,7 +373,7 @@ namespace UnityMCP.Editor
                 return new { error = "path is required (e.g. 'Assets/Animations/Walk.anim')" };
 
             // Ensure directory
-            string dir = Path.GetDirectoryName(path);
+            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 string[] parts = dir.Split('/');

@@ -376,7 +376,7 @@ namespace UnityMCP.Editor
 
         private static void EnsureDirectory(string assetPath)
         {
-            string dir = Path.GetDirectoryName(assetPath);
+            string dir = Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
             {
                 string[] parts = dir.Split('/');

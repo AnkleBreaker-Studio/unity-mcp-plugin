@@ -346,6 +346,16 @@ namespace UnityMCP.Editor
                 case "lighting/create-light-probe-group":
                     return ExecuteOnMainThread(() => MCPLightingCommands.CreateLightProbeGroup(ParseJson(body)));
 
+                // ─── Audio ───
+                case "audio/info":
+                    return ExecuteOnMainThread(() => MCPAudioCommands.GetAudioInfo(ParseJson(body)));
+
+                case "audio/create-source":
+                    return ExecuteOnMainThread(() => MCPAudioCommands.CreateAudioSource(ParseJson(body)));
+
+                case "audio/set-global":
+                    return ExecuteOnMainThread(() => MCPAudioCommands.SetGlobalAudio(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

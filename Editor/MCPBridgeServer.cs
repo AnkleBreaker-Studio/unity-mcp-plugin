@@ -132,8 +132,22 @@ namespace UnityMCP.Editor
         /// Route API requests to the appropriate handler.
         /// Many operations must run on the main thread, so we use ExecuteOnMainThread.
         /// </summary>
+        private static string ExtractCategory(string path)
+        {
+            int slash = path.IndexOf('/');
+            return slash > 0 ? path.Substring(0, slash) : path;
+        }
+
         private static object RouteRequest(string path, string method, string body)
         {
+            // Check if category is enabled (skip for ping and agents)
+            string category = ExtractCategory(path);
+            if (category != "ping" && category != "agents"
+                && !MCPSettingsManager.IsCategoryEnabled(category))
+            {
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > MCP Dashboard." };
+            }
+
             switch (path)
             {
                 // ─── Ping ───

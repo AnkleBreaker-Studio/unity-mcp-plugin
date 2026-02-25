@@ -315,6 +315,8 @@ namespace UnityMCP.Editor
 #if !UNITY_6000_3_OR_NEWER
     // ═══════════════════════════════════════════════════════════════════════
     // Pre-6000.3 Fallback: Reflection-based main toolbar injection
+    // Uses m_Root field on GUIView base type to access toolbar VisualElement
+    // tree, then injects into #ToolbarZoneRightAlign.
     // ═══════════════════════════════════════════════════════════════════════
 
     [InitializeOnLoad]
@@ -326,7 +328,7 @@ namespace UnityMCP.Editor
         private static Label _statusLabel;
         private static Label _agentBadge;
         private static int _retryCount;
-        private const int MaxRetries = 30;
+        private const int MaxRetries = 50;
 
         private static readonly Color kRunning = new Color(0.30f, 0.85f, 0.40f);
         private static readonly Color kStopped = new Color(0.90f, 0.25f, 0.25f);
@@ -351,6 +353,7 @@ namespace UnityMCP.Editor
 
             try
             {
+                // Find the Toolbar instance (it's a ScriptableObject, NOT an EditorWindow)
                 var toolbarType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.Toolbar");
                 if (toolbarType == null) return;
 
@@ -359,16 +362,45 @@ namespace UnityMCP.Editor
 
                 var toolbar = toolbars[0];
 
-                var rootProp = toolbarType.GetProperty("rootVisualElement",
-                    BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-                if (rootProp == null) return;
+                // Toolbar inherits: Toolbar -> ... -> GUIView -> View -> ScriptableObject
+                // The VisualElement root is accessed via the m_Root field on GUIView,
+                // NOT via rootVisualElement property (which doesn't exist on Toolbar).
+                VisualElement root = null;
 
-                var root = rootProp.GetValue(toolbar) as VisualElement;
+                // Try 1: m_Root field on GUIView base type
+                var guiViewType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.GUIView");
+                if (guiViewType != null)
+                {
+                    var rootField = guiViewType.GetField("m_Root",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (rootField != null)
+                        root = rootField.GetValue(toolbar) as VisualElement;
+                }
+
+                // Try 2: visualTree property (available on some Unity versions)
+                if (root == null && guiViewType != null)
+                {
+                    var visualTreeProp = guiViewType.GetProperty("visualTree",
+                        BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                    if (visualTreeProp != null)
+                        root = visualTreeProp.GetValue(toolbar) as VisualElement;
+                }
+
+                // Try 3: rootVisualElement property (older Unity versions)
+                if (root == null)
+                {
+                    var rootProp = toolbarType.GetProperty("rootVisualElement",
+                        BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                    if (rootProp != null)
+                        root = rootProp.GetValue(toolbar) as VisualElement;
+                }
+
                 if (root == null || root.childCount == 0) return;
 
+                // Find the right-align zone in the toolbar
                 var target = root.Q("ToolbarZoneRightAlign")
-                    ?? root.Q(className: "unity-toolbar-zone-align-right")
-                    ?? root.Q(className: "unity-editor-toolbar-container__right");
+                    ?? root.Q(className: "unity-editor-toolbar-container__zone")
+                    ?? root.Q(className: "unity-toolbar-zone-align-right");
 
                 if (target == null) return;
 
@@ -397,15 +429,24 @@ namespace UnityMCP.Editor
             container.style.marginRight = 4;
             container.style.paddingLeft = 6;
             container.style.paddingRight = 6;
+            container.style.height = new StyleLength(StyleKeyword.Auto);
             container.style.borderLeftWidth = 1;
             container.style.borderLeftColor = new Color(0.15f, 0.15f, 0.15f, 0.4f);
+            container.tooltip = MCPToolbarElement.StatusTooltip;
 
-            container.RegisterCallback<ClickEvent>(evt => MCPDashboardWindow.ShowWindow());
+            // Click opens the dropdown menu at the element's position
+            container.RegisterCallback<ClickEvent>(evt =>
+            {
+                var worldBound = container.worldBound;
+                var menuRect = new Rect(worldBound.x, worldBound.yMax, worldBound.width, 0);
+                MCPToolbarElement.ShowMenu(menuRect);
+            });
             container.RegisterCallback<MouseEnterEvent>(evt =>
                 container.style.backgroundColor = new Color(1f, 1f, 1f, 0.06f));
             container.RegisterCallback<MouseLeaveEvent>(evt =>
                 container.style.backgroundColor = Color.clear);
 
+            // Colored status dot
             _statusDot = new VisualElement();
             _statusDot.style.width = 8;
             _statusDot.style.height = 8;
@@ -417,12 +458,14 @@ namespace UnityMCP.Editor
             _statusDot.style.backgroundColor = kStopped;
             container.Add(_statusDot);
 
+            // "MCP" label
             _statusLabel = new Label("MCP");
             _statusLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
             _statusLabel.style.fontSize = 11;
             _statusLabel.style.color = new Color(0.78f, 0.78f, 0.78f);
             container.Add(_statusLabel);
 
+            // Agent count badge
             _agentBadge = new Label();
             _agentBadge.style.unityTextAlign = TextAnchor.MiddleCenter;
             _agentBadge.style.fontSize = 9;
@@ -440,6 +483,14 @@ namespace UnityMCP.Editor
             _agentBadge.style.display = DisplayStyle.None;
             container.Add(_agentBadge);
 
+            // Dropdown arrow
+            var arrow = new Label("\u25BE");
+            arrow.style.fontSize = 10;
+            arrow.style.color = new Color(0.60f, 0.60f, 0.60f);
+            arrow.style.marginLeft = 3;
+            arrow.style.unityTextAlign = TextAnchor.MiddleCenter;
+            container.Add(arrow);
+
             return container;
         }
 
@@ -453,6 +504,8 @@ namespace UnityMCP.Editor
                 : MCPToolbarElement.HasWarnings ? kWarning
                 : kRunning;
             _statusDot.style.backgroundColor = c;
+
+            _mcpRoot.tooltip = MCPToolbarElement.StatusTooltip;
 
             int agents = MCPToolbarElement.ActiveAgents;
             if (agents > 0)

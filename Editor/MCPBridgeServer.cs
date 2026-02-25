@@ -177,14 +177,14 @@ namespace UnityMCP.Editor
             {
                 // ─── Ping ───
                 case "ping":
-                    return new
+                    return ExecuteOnMainThread(() => new
                     {
                         status = "ok",
                         unityVersion = Application.unityVersion,
                         projectName = Application.productName,
                         projectPath = GetProjectPath(),
                         platform = Application.platform.ToString()
-                    };
+                    });
 
                 // ─── Editor State ───
                 case "editor/state":

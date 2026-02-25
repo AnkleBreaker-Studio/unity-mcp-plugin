@@ -15,14 +15,17 @@ namespace UnityMCP.Editor
         private static readonly object _globalLock = new object();
 
         /// <summary>
-        /// Execute an action with agent tracking and a global lock to prevent conflicts.
+        /// Execute an action with agent tracking. The action itself is NOT wrapped
+        /// in the global lock — Unity API calls are already serialized via
+        /// ExecuteOnMainThread (main thread queue). Holding the lock during execution
+        /// would cause deadlocks when main-thread code accesses session data.
         /// </summary>
         public static object ExecuteWithTracking(string agentId, string actionName, Func<object> action)
         {
             if (string.IsNullOrEmpty(agentId))
                 agentId = "anonymous";
 
-            MCPAgentSession session;
+            // Track the session (lock only for session bookkeeping)
             lock (_globalLock)
             {
                 if (!_sessions.ContainsKey(agentId))
@@ -33,16 +36,11 @@ namespace UnityMCP.Editor
                         ConnectedAt = DateTime.UtcNow,
                     };
                 }
-                session = _sessions[agentId];
-                session.LogAction(actionName);
+                _sessions[agentId].LogAction(actionName);
             }
 
-            // Execute with the global lock to serialize all agent actions.
-            // This prevents two agents from modifying the scene simultaneously.
-            lock (_globalLock)
-            {
-                return action();
-            }
+            // Execute WITHOUT holding the lock — prevents deadlocks
+            return action();
         }
 
         /// <summary>Returns info for all active agent sessions.</summary>

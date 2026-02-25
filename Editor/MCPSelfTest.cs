@@ -118,6 +118,8 @@ namespace UnityMCP.Editor
             { "selection",  TestSelection },
             { "input",      TestInput },
             { "asmdef",     TestAssemblyDef },
+            { "profiler",   TestProfiler },
+            { "debugger",   TestDebugger },
         };
 
         // ─── Run tests ──────────────────────────────────────────────
@@ -519,6 +521,44 @@ namespace UnityMCP.Editor
             catch (Exception ex)
             {
                 return $"GetInputActionsInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- Profiler ---
+        private static string TestProfiler()
+        {
+            try
+            {
+                // Test rendering stats (always available, no side effects)
+                var result = MCPProfilerCommands.GetRenderingStats(EmptyArgs());
+                string err = AssertNotNull(result, "GetRenderingStats");
+                if (err != null) return err;
+
+                // Test memory info (always available, no side effects)
+                result = MCPProfilerCommands.GetMemoryInfo(EmptyArgs());
+                return AssertNotNull(result, "GetMemoryInfo");
+            }
+            catch (Exception ex)
+            {
+                return $"Profiler test threw: {ex.Message}";
+            }
+        }
+
+        // --- Frame Debugger ---
+        private static string TestDebugger()
+        {
+            try
+            {
+                // Just verify the class loads and reflection resolves without error
+                // Don't actually enable/disable the debugger to avoid side effects
+                var result = MCPProfilerCommands.GetFrameEvents(EmptyArgs());
+                // This will likely return an error (debugger not enabled) which is fine
+                if (result == null) return "GetFrameEvents returned null";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Debugger test threw: {ex.Message}";
             }
         }
 

@@ -486,6 +486,32 @@ namespace UnityMCP.Editor
                 case "asmdef/create-ref":
                     return MCPAssemblyDefCommands.CreateAssemblyRef(ParseJson(body));
 
+                // ─── Profiler ───
+                case "profiler/enable":
+                    return MCPProfilerCommands.EnableProfiler(ParseJson(body));
+
+                case "profiler/stats":
+                    return MCPProfilerCommands.GetRenderingStats(ParseJson(body));
+
+                case "profiler/memory":
+                    return MCPProfilerCommands.GetMemoryInfo(ParseJson(body));
+
+                case "profiler/frame-data":
+                    return MCPProfilerCommands.GetFrameData(ParseJson(body));
+
+                case "profiler/analyze":
+                    return MCPProfilerCommands.AnalyzePerformance(ParseJson(body));
+
+                // ─── Frame Debugger ───
+                case "debugger/enable":
+                    return MCPProfilerCommands.EnableFrameDebugger(ParseJson(body));
+
+                case "debugger/events":
+                    return MCPProfilerCommands.GetFrameEvents(ParseJson(body));
+
+                case "debugger/event-details":
+                    return MCPProfilerCommands.GetFrameEventDetails(ParseJson(body));
+
                 // ─── Agent Management ───
                 case "agents/list":
                     return MCPRequestQueue.GetActiveSessions();

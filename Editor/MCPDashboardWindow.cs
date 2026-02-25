@@ -278,7 +278,7 @@ namespace UnityMCP.Editor
         private void DrawVersionInfo()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Plugin Version: 1.0.0", GUILayout.Width(150));
+            EditorGUILayout.LabelField("Plugin Version: 2.0.0", GUILayout.Width(150));
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))

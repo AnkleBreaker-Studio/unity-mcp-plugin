@@ -356,6 +356,22 @@ namespace UnityMCP.Editor
                 case "audio/set-global":
                     return ExecuteOnMainThread(() => MCPAudioCommands.SetGlobalAudio(ParseJson(body)));
 
+                // ─── Tags & Layers ───
+                case "taglayer/info":
+                    return ExecuteOnMainThread(() => MCPTagLayerCommands.GetTagsAndLayers(ParseJson(body)));
+
+                case "taglayer/add-tag":
+                    return ExecuteOnMainThread(() => MCPTagLayerCommands.AddTag(ParseJson(body)));
+
+                case "taglayer/set-tag":
+                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetTag(ParseJson(body)));
+
+                case "taglayer/set-layer":
+                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetLayer(ParseJson(body)));
+
+                case "taglayer/set-static":
+                    return ExecuteOnMainThread(() => MCPTagLayerCommands.SetStatic(ParseJson(body)));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

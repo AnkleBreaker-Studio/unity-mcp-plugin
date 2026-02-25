@@ -28,6 +28,17 @@ namespace UnityMCP.Editor
                 Start();
             EditorApplication.update += ProcessMainThreadQueue;
             EditorApplication.quitting += Stop;
+            AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+        }
+
+        /// <summary>
+        /// Gracefully stop the server before Unity reloads assemblies (script recompile).
+        /// This prevents ThreadAbortExceptions during domain reload.
+        /// </summary>
+        private static void OnBeforeAssemblyReload()
+        {
+            if (_isRunning)
+                Stop();
         }
 
         /// <summary>Whether the server is currently running.</summary>
@@ -83,6 +94,16 @@ namespace UnityMCP.Editor
                 }
                 catch (HttpListenerException) when (!_isRunning)
                 {
+                    break;
+                }
+                catch (ThreadAbortException)
+                {
+                    // Expected during domain reload or editor shutdown — exit silently
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Listener was disposed during shutdown — exit silently
                     break;
                 }
                 catch (Exception ex)

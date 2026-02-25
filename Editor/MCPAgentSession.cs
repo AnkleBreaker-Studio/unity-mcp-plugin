@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace UnityMCP.Editor
 {
     /// <summary>
-    /// Tracks a single agent's session: identity, activity, and action log.
+    /// Tracks a single agent's session: identity, activity, action log, queue stats, and performance metrics.
     /// </summary>
     public class MCPAgentSession
     {
@@ -13,12 +13,41 @@ namespace UnityMCP.Editor
         public DateTime LastActivityAt { get; set; }
         public string CurrentAction { get; set; }
         public int TotalActions { get; private set; }
+
+        // Queue and performance tracking
+        private int _queuedRequests = 0;
+        private int _completedRequests = 0;
+        private long _totalResponseTimeMs = 0;
+
         private readonly List<string> _actionLog = new List<string>();
 
         private const int MaxLogEntries = 100;
 
         /// <summary>Session is considered active if last activity was within 5 minutes.</summary>
         public bool IsActive => (DateTime.UtcNow - LastActivityAt).TotalSeconds < 300;
+
+        /// <summary>Number of requests currently queued for this agent.</summary>
+        public int QueuedRequests
+        {
+            get { return _queuedRequests; }
+        }
+
+        /// <summary>Total number of requests that have been completed by this agent.</summary>
+        public int CompletedRequests
+        {
+            get { return _completedRequests; }
+        }
+
+        /// <summary>Average response time in milliseconds for completed requests.</summary>
+        public double AverageResponseTimeMs
+        {
+            get
+            {
+                if (_completedRequests == 0)
+                    return 0;
+                return (double)_totalResponseTimeMs / _completedRequests;
+            }
+        }
 
         public void LogAction(string action)
         {
@@ -29,6 +58,27 @@ namespace UnityMCP.Editor
             _actionLog.Add($"[{DateTime.UtcNow:HH:mm:ss}] {action}");
             if (_actionLog.Count > MaxLogEntries)
                 _actionLog.RemoveAt(0);
+        }
+
+        /// <summary>
+        /// Increment the count of queued requests for this agent.
+        /// </summary>
+        public void IncrementQueuedRequest()
+        {
+            _queuedRequests++;
+        }
+
+        /// <summary>
+        /// Decrement the count of queued requests and record the response time.
+        /// </summary>
+        public void IncrementCompletedRequest(long responseTimeMs)
+        {
+            if (_queuedRequests > 0)
+                _queuedRequests--;
+
+            _completedRequests++;
+            if (responseTimeMs >= 0)
+                _totalResponseTimeMs += responseTimeMs;
         }
 
         public List<string> GetLog() => new List<string>(_actionLog);
@@ -43,6 +93,9 @@ namespace UnityMCP.Editor
                 { "currentAction", CurrentAction ?? "idle" },
                 { "totalActions", TotalActions },
                 { "isActive", IsActive },
+                { "queuedRequests", QueuedRequests },
+                { "completedRequests", CompletedRequests },
+                { "averageResponseTimeMs", Math.Round(AverageResponseTimeMs, 2) },
             };
         }
     }

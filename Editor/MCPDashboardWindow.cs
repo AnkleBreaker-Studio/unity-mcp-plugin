@@ -6,7 +6,7 @@ namespace UnityMCP.Editor
 {
     /// <summary>
     /// Editor window providing an overview of MCP Bridge status, feature categories,
-    /// server controls, settings, and active agent sessions.
+    /// server controls, queue monitoring, settings, and active agent sessions.
     /// Accessible via Window > MCP Dashboard.
     /// </summary>
     public class MCPDashboardWindow : EditorWindow
@@ -15,6 +15,7 @@ namespace UnityMCP.Editor
         private bool _settingsFoldout = false;
         private bool _agentsFoldout = true;
         private bool _categoriesFoldout = true;
+        private bool _queueFoldout = true;
         private bool _testsFoldout = true;
         private string _expandedTestCategory = null;
 
@@ -78,9 +79,11 @@ namespace UnityMCP.Editor
             EditorGUILayout.Space(4);
             DrawServerControls();
             EditorGUILayout.Space(8);
-            DrawCategoryStatus();
+            DrawQueueStatus();
             EditorGUILayout.Space(8);
             DrawAgentSessions();
+            EditorGUILayout.Space(8);
+            DrawCategoryStatus();
             EditorGUILayout.Space(8);
             DrawSettings();
             EditorGUILayout.Space(8);
@@ -122,12 +125,22 @@ namespace UnityMCP.Editor
             EditorGUILayout.LabelField($"Port {MCPSettingsManager.Port}", GUILayout.Width(70));
 
             int agents = MCPRequestQueue.ActiveSessionCount;
+            int queued = MCPRequestQueue.TotalQueuedCount;
+
             if (agents > 0)
             {
                 GUI.color = ColorGreen;
                 GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
                 GUI.color = prevColor;
                 EditorGUILayout.LabelField($"{agents} agent{(agents > 1 ? "s" : "")}", GUILayout.Width(65));
+            }
+
+            if (queued > 0)
+            {
+                GUI.color = ColorYellow;
+                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+                GUI.color = prevColor;
+                EditorGUILayout.LabelField($"{queued} queued", GUILayout.Width(65));
             }
 
             EditorGUILayout.EndHorizontal();
@@ -157,6 +170,76 @@ namespace UnityMCP.Editor
             }
 
             EditorGUILayout.EndHorizontal();
+        }
+
+        // ─── Queue Status (Multi-Agent) ───
+
+        private void DrawQueueStatus()
+        {
+            _queueFoldout = EditorGUILayout.Foldout(_queueFoldout, "Request Queue", true, EditorStyles.foldoutHeader);
+            if (!_queueFoldout) return;
+
+            var queueInfo = MCPRequestQueue.GetQueueInfo();
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // Summary row
+            EditorGUILayout.BeginHorizontal();
+
+            int totalQueued = 0;
+            if (queueInfo.ContainsKey("totalQueued"))
+                int.TryParse(queueInfo["totalQueued"].ToString(), out totalQueued);
+
+            int activeAgents = 0;
+            if (queueInfo.ContainsKey("activeAgents"))
+                int.TryParse(queueInfo["activeAgents"].ToString(), out activeAgents);
+
+            int cacheSize = 0;
+            if (queueInfo.ContainsKey("completedCacheSize"))
+                int.TryParse(queueInfo["completedCacheSize"].ToString(), out cacheSize);
+
+            var prevColor = GUI.color;
+            GUI.color = totalQueued > 0 ? ColorYellow : ColorGreen;
+            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+            GUI.color = prevColor;
+
+            string statusText = totalQueued > 0
+                ? $"{totalQueued} pending  |  {activeAgents} agents  |  {cacheSize} cached"
+                : $"Idle  |  {activeAgents} agents  |  {cacheSize} cached";
+            EditorGUILayout.LabelField(statusText, EditorStyles.miniLabel);
+
+            EditorGUILayout.EndHorizontal();
+
+            // Per-agent breakdown (if any queued)
+            if (queueInfo.ContainsKey("perAgentQueued") && queueInfo["perAgentQueued"] is Dictionary<string, object> perAgent)
+            {
+                if (perAgent.Count > 0)
+                {
+                    EditorGUILayout.Space(2);
+                    EditorGUILayout.LabelField("Per-Agent Queue Depth:", EditorStyles.miniLabel);
+
+                    foreach (var kvp in perAgent)
+                    {
+                        EditorGUILayout.BeginHorizontal();
+                        GUILayout.Space(24);
+
+                        int depth = 0;
+                        int.TryParse(kvp.Value.ToString(), out depth);
+
+                        var agentColor = depth > 0 ? ColorYellow : ColorGreen;
+                        GUI.color = agentColor;
+                        GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+                        GUI.color = prevColor;
+
+                        EditorGUILayout.LabelField(kvp.Key, GUILayout.Width(160));
+                        EditorGUILayout.LabelField($"{depth} pending", GUILayout.Width(80));
+
+                        EditorGUILayout.EndHorizontal();
+                    }
+                }
+            }
+
+            EditorGUILayout.EndVertical();
         }
 
         // ─── Feature Categories + Test Status ───
@@ -236,12 +319,12 @@ namespace UnityMCP.Editor
                 // Test status label
                 if (testResult != null && testResult.Status != MCPTestResult.TestStatus.Untested)
                 {
-                    string statusText = GetTestStatusText(testResult);
+                    string statusLabel = GetTestStatusText(testResult);
                     var statusStyle = new GUIStyle(EditorStyles.miniLabel)
                     {
                         normal = { textColor = dotColor },
                     };
-                    EditorGUILayout.LabelField(statusText, statusStyle, GUILayout.Width(90));
+                    EditorGUILayout.LabelField(statusLabel, statusStyle, GUILayout.Width(90));
 
                     // Details button if there's something to show
                     if (testResult.Status == MCPTestResult.TestStatus.Failed ||
@@ -255,7 +338,7 @@ namespace UnityMCP.Editor
                 }
                 else
                 {
-                    EditorGUILayout.LabelField("—", EditorStyles.miniLabel, GUILayout.Width(90));
+                    EditorGUILayout.LabelField("\u2014", EditorStyles.miniLabel, GUILayout.Width(90));
                 }
 
                 GUILayout.FlexibleSpace();
@@ -308,7 +391,7 @@ namespace UnityMCP.Editor
                 case MCPTestResult.TestStatus.Failed:
                     return $"\u2717 {result.Message}";
                 default:
-                    return "—";
+                    return "\u2014";
             }
         }
 
@@ -341,11 +424,26 @@ namespace UnityMCP.Editor
                 string agentId = session.ContainsKey("agentId") ? session["agentId"].ToString() : "?";
                 string action = session.ContainsKey("currentAction") ? session["currentAction"].ToString() : "idle";
                 object totalObj = session.ContainsKey("totalActions") ? session["totalActions"] : 0;
+                object queuedObj = session.ContainsKey("queuedRequests") ? session["queuedRequests"] : 0;
+                object completedObj = session.ContainsKey("completedRequests") ? session["completedRequests"] : 0;
+                object avgMs = session.ContainsKey("averageResponseTimeMs") ? session["averageResponseTimeMs"] : 0;
 
-                EditorGUILayout.LabelField(agentId, EditorStyles.boldLabel, GUILayout.Width(140));
-                EditorGUILayout.LabelField(action, GUILayout.MinWidth(100));
+                EditorGUILayout.LabelField(agentId, EditorStyles.boldLabel, GUILayout.Width(160));
+                EditorGUILayout.LabelField(action, GUILayout.MinWidth(80));
                 GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField($"{totalObj} actions", GUILayout.Width(70));
+
+                // Queue + completed stats
+                int queuedInt = 0;
+                int.TryParse(queuedObj.ToString(), out queuedInt);
+
+                var richStyle = new GUIStyle(EditorStyles.miniLabel) { richText = true };
+                string stats = $"{totalObj} total";
+                if (queuedInt > 0)
+                    stats += $"  <color=#E6CC11>{queuedInt}q</color>";
+                stats += $"  <color=#33CC33>{completedObj}ok</color>";
+                stats += $"  {avgMs}ms";
+
+                EditorGUILayout.LabelField(stats, richStyle, GUILayout.Width(170));
 
                 EditorGUILayout.EndHorizontal();
             }
@@ -397,7 +495,7 @@ namespace UnityMCP.Editor
         private void DrawVersionInfo()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Plugin Version: 2.0.3", GUILayout.Width(150));
+            EditorGUILayout.LabelField("Plugin Version: 2.8.0", GUILayout.Width(150));
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))

@@ -118,8 +118,12 @@ namespace UnityMCP.Editor
                     }
                 }
 
-                // Route the request
-                var result = RouteRequest(apiPath, request.HttpMethod, body);
+                // Extract agent identity from header
+                string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
+
+                // Route the request with agent tracking
+                var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
+                    () => RouteRequest(apiPath, request.HttpMethod, body));
                 SendJson(response, 200, result);
             }
             catch (Exception ex)
@@ -402,6 +406,21 @@ namespace UnityMCP.Editor
 
                 case "selection/find-by-type":
                     return ExecuteOnMainThread(() => MCPSelectionCommands.FindObjectsByType(ParseJson(body)));
+
+                // ─── Agent Management ───
+                case "agents/list":
+                    return MCPRequestQueue.GetActiveSessions();
+
+                case "agents/log":
+                {
+                    var agentArgs = ParseJson(body);
+                    string id = agentArgs.ContainsKey("agentId") ? agentArgs["agentId"].ToString() : "";
+                    return new Dictionary<string, object>
+                    {
+                        { "agentId", id },
+                        { "log", MCPRequestQueue.GetAgentLog(id) },
+                    };
+                }
 
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };

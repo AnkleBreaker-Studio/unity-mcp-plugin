@@ -176,7 +176,7 @@ namespace UnityMCP.Editor
                     Category = category,
                     Status = MCPTestResult.TestStatus.Failed,
                     Message = "Server not running",
-                    Details = "The Unity MCP server is stopped. Start it first.",
+                    Details = "The AB Unity MCP server is stopped. Start it first.",
                     Timestamp = DateTime.UtcNow,
                 };
                 return;

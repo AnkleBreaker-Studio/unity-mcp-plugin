@@ -109,9 +109,9 @@ namespace UnityMCP.Editor
             get
             {
                 if (!ServerRunning)
-                    return "Unity MCP \u2014 Stopped\nClick for options";
+                    return "AB Unity MCP \u2014 Stopped\nClick for options";
 
-                string tip = $"Unity MCP \u2014 Running on port {MCPSettingsManager.Port}";
+                string tip = $"AB Unity MCP \u2014 Running on port {MCPSettingsManager.Port}";
                 if (ActiveAgents > 0)
                     tip += $"\n{ActiveAgents} active agent{(ActiveAgents > 1 ? "s" : "")}";
                 if (HasFailures)
@@ -346,7 +346,7 @@ namespace UnityMCP.Editor
             {
                 EditorApplication.update -= TryInject;
                 if (!_injected && _retryCount >= MaxRetries)
-                    Debug.Log("[Unity MCP] Main toolbar injection not available on this Unity version. Use Unity 6000.3+ for native toolbar support.");
+                    Debug.Log("[AB-UMCP] Main toolbar injection not available on this Unity version. Use Unity 6000.3+ for native toolbar support.");
                 return;
             }
             _retryCount++;
@@ -410,12 +410,12 @@ namespace UnityMCP.Editor
                 EditorApplication.update -= TryInject;
 
                 _mcpRoot.schedule.Execute(() => RefreshMainToolbar()).Every(1000);
-                Debug.Log("[Unity MCP] Injected into main toolbar (legacy mode).");
+                Debug.Log("[AB-UMCP] Injected into main toolbar (legacy mode).");
             }
             catch (Exception ex)
             {
                 if (_retryCount >= MaxRetries)
-                    Debug.LogWarning($"[Unity MCP] Legacy injection failed: {ex.Message}");
+                    Debug.LogWarning($"[AB-UMCP] Legacy injection failed: {ex.Message}");
             }
         }
 

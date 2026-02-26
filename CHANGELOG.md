@@ -5,12 +5,11 @@ All notable changes to this package will be documented in this file.
 ## [2.9.1] - 2026-02-26
 
 ### Changed
-- **Renamed to "Unity MCP"** — cleaner name for better Cowork connector discovery
-  - Menu item: `Window > Unity MCP` (was `Window > AB Unity MCP`)
-  - Dashboard header: "Unity MCP" (was "AnkleBreaker Unity MCP")
-  - Log prefix: `[Unity MCP]` (was `[AB-UMCP]`)
-  - All UI strings and error messages updated
-- Updated README with clear two-part installation instructions
+- **MCP connector renamed to `unity-mcp`** for better Cowork discovery (technical name only)
+  - AnkleBreaker branding preserved in all user-facing UI (menu, dashboard, logs, tooltips)
+  - Menu item remains: `Window > AB Unity MCP`
+  - Log prefix remains: `[AB-UMCP]`
+- Updated README with clear two-part installation instructions and Cowork setup guide
 - Added Project Context to dashboard documentation
 
 ## [2.9.0] - 2026-02-26

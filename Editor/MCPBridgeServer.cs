@@ -65,15 +65,15 @@ namespace UnityMCP.Editor
                 _listenerThread = new Thread(ListenLoop)
                 {
                     IsBackground = true,
-                    Name = "Unity MCP Server"
+                    Name = "AB Unity MCP Server"
                 };
                 _listenerThread.Start();
 
-                Debug.Log($"[Unity MCP] Server started on port {Port}");
+                Debug.Log($"[AB-UMCP] Server started on port {Port}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Unity MCP] Failed to start: {ex.Message}");
+                Debug.LogError($"[AB-UMCP] Failed to start: {ex.Message}");
             }
         }
 
@@ -87,7 +87,7 @@ namespace UnityMCP.Editor
                 _listenerThread?.Join(1000);
             }
             catch { }
-            Debug.Log("[Unity MCP] Server stopped");
+            Debug.Log("[AB-UMCP] Server stopped");
         }
 
         // ─── EditorApplication.update — processes both legacy queue AND ticket queue ───
@@ -118,7 +118,7 @@ namespace UnityMCP.Editor
                 catch (Exception ex)
                 {
                     if (_isRunning)
-                        Debug.LogError($"[Unity MCP] Listener error: {ex.Message}");
+                        Debug.LogError($"[AB-UMCP] Listener error: {ex.Message}");
                 }
             }
         }
@@ -272,7 +272,7 @@ namespace UnityMCP.Editor
             if (category != "ping" && category != "agents" && category != "queue"
                 && !MCPSettingsManager.IsCategoryEnabled(category))
             {
-                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > Unity MCP." };
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP." };
             }
 
             switch (path)
@@ -864,7 +864,7 @@ namespace UnityMCP.Editor
                     try { action?.Invoke(); }
                     catch (Exception ex)
                     {
-                        Debug.LogError($"[Unity MCP] Main thread action error: {ex}");
+                        Debug.LogError($"[AB-UMCP] Main thread action error: {ex}");
                     }
                 }
             }

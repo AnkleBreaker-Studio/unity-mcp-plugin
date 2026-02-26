@@ -1,4 +1,4 @@
-# Unity MCP — Plugin
+# AnkleBreaker Unity MCP — Plugin
 
 <p align="center">
   <strong>Give AI agents direct control of the Unity Editor</strong><br>
@@ -21,9 +21,9 @@
 
 Most MCP integrations are designed for a **single AI assistant** talking to **one tool** in a simple request-response loop.
 
-**Unity MCP is built for something different.** It's designed for [Claude Cowork](https://claude.ai), where **multiple AI agents work in parallel** on the same Unity project — one agent building the scene, another writing scripts, another tweaking materials — all at the same time.
+**AnkleBreaker Unity MCP is built for something different.** It's designed for [Claude Cowork](https://claude.ai), where **multiple AI agents work in parallel** on the same Unity project — one agent building the scene, another writing scripts, another tweaking materials — all at the same time.
 
-This creates a unique challenge: **Unity is single-threaded.** You can't have five agents calling Unity APIs simultaneously. Unity MCP solves this with a **ticket-based async queue** that sits inside the Editor:
+This creates a unique challenge: **Unity is single-threaded.** You can't have five agents calling Unity APIs simultaneously. AnkleBreaker Unity MCP solves this with a **ticket-based async queue** that sits inside the Editor:
 
 1. Each agent submits a request and gets a ticket back immediately
 2. The queue processes requests fairly across agents (round-robin, no starvation)
@@ -112,7 +112,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 
 You should see in the Console:
 ```
-[Unity MCP] Server started on port 7890
+[AB-UMCP] Server started on port 7890
 ```
 
 ### Verify
@@ -127,9 +127,11 @@ You should see JSON with your Unity version and project name.
 
 This plugin is one half of the system. You also need the **Node.js MCP Server**:
 
-> **[Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)**
+> **[AnkleBreaker Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)**
 
 The server is what Claude (or Claude Cowork) actually talks to via MCP protocol. The server then communicates with this plugin's HTTP bridge.
+
+> **Note:** AI agents should **never call the HTTP bridge directly**. The bridge is an internal layer between the MCP server and Unity. Agents must use the `unity_*` MCP tools provided by the server connector, which handle multi-agent queuing, agent tracking, and safety mechanisms automatically.
 
 ```
 Claude Cowork Agents ←→ MCP Server (Node.js) ←→ This Plugin (HTTP bridge in Unity)
@@ -142,7 +144,7 @@ Claude Cowork Agents ←→ MCP Server (Node.js) ←→ This Plugin (HTTP bridge
 
 ## Dashboard
 
-Open **Window > Unity MCP** to access:
+Open **Window > AB Unity MCP** to access:
 
 - Server status with live indicator (green = running, red = stopped)
 - Start / Stop / Restart controls
@@ -157,7 +159,7 @@ Open **Window > Unity MCP** to access:
 
 ## Configuration
 
-Configuration is managed through the Dashboard (**Window > Unity MCP**):
+Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
 
 | Setting | Default | Description |
 |---------|---------|-------------|

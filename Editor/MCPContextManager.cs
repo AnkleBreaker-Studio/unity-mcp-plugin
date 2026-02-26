@@ -159,7 +159,7 @@ namespace UnityMCP.Editor
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[AB-UMCP] Failed to read context file {file.Category}: {ex.Message}");
+                    Debug.LogWarning($"[Unity MCP] Failed to read context file {file.Category}: {ex.Message}");
                 }
             }
 
@@ -176,7 +176,7 @@ namespace UnityMCP.Editor
                 return new Dictionary<string, object>
                 {
                     { "enabled", false },
-                    { "message", "Project context is disabled. Enable it in Window > AB Unity MCP." },
+                    { "message", "Project context is disabled. Enable it in Window > Unity MCP." },
                 };
             }
 
@@ -233,7 +233,7 @@ namespace UnityMCP.Editor
             if (allContext.Count == 0) return null;
 
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine("=== PROJECT CONTEXT (auto-provided by AB Unity MCP) ===");
+            sb.AppendLine("=== PROJECT CONTEXT (auto-provided by Unity MCP) ===");
             sb.AppendLine();
 
             foreach (var kvp in allContext)
@@ -315,10 +315,10 @@ namespace UnityMCP.Editor
 
         // ─── Template Content ───
 
-        private static string GetReadmeTemplate() => @"# AB Unity MCP — Project Context
+        private static string GetReadmeTemplate() => @"# Unity MCP — Project Context
 
 This folder contains project-specific context files that are automatically
-provided to AI agents when they connect via the AnkleBreaker Unity MCP plugin.
+provided to AI agents when they connect via the Unity MCP plugin.
 
 ## How It Works
 

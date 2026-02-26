@@ -227,7 +227,7 @@ namespace UnityMCP.Editor
                 {
                     ticket.Status       = RequestStatus.Failed;
                     ticket.ErrorMessage = ex.Message;
-                    Debug.LogError($"[AB-UMCP Queue] Ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
+                    Debug.LogError($"[Unity MCP Queue] Ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
                 }
                 ticket.CompletedAt = DateTime.UtcNow;
                 ticket.Action      = null; // Free the closure

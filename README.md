@@ -1,4 +1,4 @@
-# AnkleBreaker Unity MCP — Plugin
+# Unity MCP — Plugin
 
 <p align="center">
   <strong>Give AI agents direct control of the Unity Editor</strong><br>
@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.8.0-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.9.1-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -21,9 +21,9 @@
 
 Most MCP integrations are designed for a **single AI assistant** talking to **one tool** in a simple request-response loop.
 
-**AnkleBreaker Unity MCP is built for something different.** It's designed for [Claude Cowork](https://claude.ai), where **multiple AI agents work in parallel** on the same Unity project — one agent building the scene, another writing scripts, another tweaking materials — all at the same time.
+**Unity MCP is built for something different.** It's designed for [Claude Cowork](https://claude.ai), where **multiple AI agents work in parallel** on the same Unity project — one agent building the scene, another writing scripts, another tweaking materials — all at the same time.
 
-This creates a unique challenge: **Unity is single-threaded.** You can't have five agents calling Unity APIs simultaneously. AnkleBreaker Unity MCP solves this with a **ticket-based async queue** that sits inside the Editor:
+This creates a unique challenge: **Unity is single-threaded.** You can't have five agents calling Unity APIs simultaneously. Unity MCP solves this with a **ticket-based async queue** that sits inside the Editor:
 
 1. Each agent submits a request and gets a ticket back immediately
 2. The queue processes requests fairly across agents (round-robin, no starvation)
@@ -38,7 +38,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [AnkleBreaker Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI agents across **21 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI agents across **21 feature categories**.
 
 ### Core Capabilities
 
@@ -94,6 +94,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 | **Write Serialization** | Write operations serialized (1/frame) for safety |
 | **Dashboard** | Built-in Editor window showing queue state, agent sessions, categories |
 | **30s Timeout** | Queue timeout handles long operations like compilation |
+| **Project Context** | Auto-injected project documentation for agents |
 
 ---
 
@@ -111,7 +112,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 
 You should see in the Console:
 ```
-[AB-UMCP] Server started on port 7890
+[Unity MCP] Server started on port 7890
 ```
 
 ### Verify
@@ -126,7 +127,7 @@ You should see JSON with your Unity version and project name.
 
 This plugin is one half of the system. You also need the **Node.js MCP Server**:
 
-> **[AnkleBreaker Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)**
+> **[Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)**
 
 The server is what Claude (or Claude Cowork) actually talks to via MCP protocol. The server then communicates with this plugin's HTTP bridge.
 
@@ -141,12 +142,13 @@ Claude Cowork Agents ←→ MCP Server (Node.js) ←→ This Plugin (HTTP bridge
 
 ## Dashboard
 
-Open **Window > AB Unity MCP** to access:
+Open **Window > Unity MCP** to access:
 
 - Server status with live indicator (green = running, red = stopped)
 - Start / Stop / Restart controls
 - **Request Queue** — live view of pending tickets, active agents, per-agent queue depths
 - **Agent Sessions** — connected agents with action counts, queue stats, average response time
+- **Project Context** — configure auto-injected project documentation
 - Per-category feature toggles (enable/disable any of the 21 categories)
 - Port and auto-start settings
 - Version display with update checker
@@ -155,13 +157,14 @@ Open **Window > AB Unity MCP** to access:
 
 ## Configuration
 
-Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
+Configuration is managed through the Dashboard (**Window > Unity MCP**):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Port** | `7890` | HTTP server port |
 | **Auto-Start** | `true` | Start the bridge when Unity opens |
 | **Category Toggles** | All enabled | Enable/disable any of the 21 feature categories |
+| **Project Context** | Enabled | Auto-inject project docs to agents on first tool call |
 
 Settings are stored in `EditorPrefs` and persist across sessions.
 
@@ -204,7 +207,7 @@ Contributions are welcome! This is an open-source project by [AnkleBreaker Consu
 3. Make your changes
 4. Submit a pull request
 
-Please also check out the companion server repo: [AnkleBreaker Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
+Please also check out the companion server repo: [Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
 
 ---
 

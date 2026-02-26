@@ -58,7 +58,7 @@ namespace UnityMCP.Editor
 
             if (request.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogWarning($"[AB-UMCP Update] Failed: {request.error}");
+                Debug.LogWarning($"[Unity MCP Update] Failed: {request.error}");
                 callback?.Invoke(false, CurrentVersion);
                 request.Dispose();
                 return;
@@ -89,7 +89,7 @@ namespace UnityMCP.Editor
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[AB-UMCP Update] Parse error: {ex.Message}");
+                Debug.LogWarning($"[Unity MCP Update] Parse error: {ex.Message}");
                 callback?.Invoke(false, CurrentVersion);
             }
             finally

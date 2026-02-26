@@ -166,6 +166,19 @@ namespace UnityMCP.Editor
                     return;
                 }
 
+                // ═══ Project Context endpoints (read-only, no queue needed) ═══
+                if (apiPath == "context")
+                {
+                    SendJson(response, 200, MCPContextManager.GetContextResponse());
+                    return;
+                }
+                if (apiPath.StartsWith("context/"))
+                {
+                    string category = apiPath.Substring("context/".Length);
+                    SendJson(response, 200, MCPContextManager.GetContextResponse(category));
+                    return;
+                }
+
                 // ═══ Legacy synchronous path (blocks until main thread processes) ═══
                 var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
                     () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));

@@ -16,6 +16,7 @@ namespace UnityMCP.Editor
         private bool _agentsFoldout = true;
         private bool _categoriesFoldout = true;
         private bool _queueFoldout = true;
+        private bool _contextFoldout = true;
         private bool _testsFoldout = true;
         private string _expandedTestCategory = null;
 
@@ -80,6 +81,8 @@ namespace UnityMCP.Editor
             DrawServerControls();
             EditorGUILayout.Space(8);
             DrawQueueStatus();
+            EditorGUILayout.Space(8);
+            DrawProjectContext();
             EditorGUILayout.Space(8);
             DrawAgentSessions();
             EditorGUILayout.Space(8);
@@ -237,6 +240,109 @@ namespace UnityMCP.Editor
                         EditorGUILayout.EndHorizontal();
                     }
                 }
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        // ─── Project Context ───
+
+        private void DrawProjectContext()
+        {
+            _contextFoldout = EditorGUILayout.Foldout(_contextFoldout, "Project Context", true, EditorStyles.foldoutHeader);
+            if (!_contextFoldout) return;
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // Enabled toggle
+            EditorGUILayout.BeginHorizontal();
+            bool enabled = EditorGUILayout.Toggle("Enable Context", MCPSettingsManager.ContextEnabled);
+            if (enabled != MCPSettingsManager.ContextEnabled)
+                MCPSettingsManager.ContextEnabled = enabled;
+            GUILayout.FlexibleSpace();
+
+            // Buttons
+            if (GUILayout.Button("Create Templates", GUILayout.Width(110), GUILayout.Height(18)))
+            {
+                int created = MCPContextManager.CreateDefaultTemplates();
+                if (created > 0)
+                    EditorUtility.DisplayDialog("Templates Created",
+                        $"Created {created} template file(s) in:\n{MCPSettingsManager.ContextPath}", "OK");
+                else
+                    EditorUtility.DisplayDialog("Templates Exist",
+                        "All template files already exist.", "OK");
+            }
+
+            if (GUILayout.Button("Open Folder", GUILayout.Width(90), GUILayout.Height(18)))
+            {
+                string folderPath = MCPContextManager.GetContextFolderPath();
+                if (System.IO.Directory.Exists(folderPath))
+                    EditorUtility.RevealInFinder(folderPath);
+                else
+                    EditorUtility.DisplayDialog("Folder Not Found",
+                        $"Context folder does not exist yet.\nClick 'Create Templates' to set it up.\n\n{folderPath}", "OK");
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (!enabled)
+            {
+                EditorGUILayout.HelpBox("Project context is disabled. Agents will not receive project documentation.", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Path display
+            EditorGUILayout.LabelField("Path:", MCPSettingsManager.ContextPath, EditorStyles.miniLabel);
+
+            // File list
+            var files = MCPContextManager.GetContextFileList();
+            bool anyFiles = false;
+
+            foreach (var file in files)
+            {
+                if (!file.IsStandard && !file.Exists) continue; // Don't show missing custom files
+
+                anyFiles = true;
+                EditorGUILayout.BeginHorizontal();
+
+                var prevColor = GUI.color;
+                if (file.Exists && file.SizeBytes > 0)
+                    GUI.color = ColorGreen;
+                else if (file.Exists)
+                    GUI.color = ColorYellow;
+                else
+                    GUI.color = ColorGrey;
+
+                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+                GUI.color = prevColor;
+
+                string displayName = file.Category;
+                EditorGUILayout.LabelField(displayName, GUILayout.MinWidth(140));
+
+                if (file.Exists)
+                {
+                    string sizeLabel = file.SizeBytes > 1024
+                        ? $"{file.SizeBytes / 1024f:0.#} KB"
+                        : $"{file.SizeBytes} B";
+                    EditorGUILayout.LabelField(
+                        file.SizeBytes == 0 ? "empty" : sizeLabel,
+                        EditorStyles.miniLabel, GUILayout.Width(60));
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("not created", EditorStyles.miniLabel, GUILayout.Width(60));
+                }
+
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+            }
+
+            if (!anyFiles)
+            {
+                EditorGUILayout.HelpBox(
+                    "No context files found. Click 'Create Templates' to get started.",
+                    MessageType.Info);
             }
 
             EditorGUILayout.EndVertical();
@@ -495,7 +601,7 @@ namespace UnityMCP.Editor
         private void DrawVersionInfo()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Plugin Version: 2.8.0", GUILayout.Width(150));
+            EditorGUILayout.LabelField("Plugin Version: 2.9.0", GUILayout.Width(150));
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))

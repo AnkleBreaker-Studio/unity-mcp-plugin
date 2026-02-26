@@ -36,6 +36,20 @@ namespace UnityMCP.Editor
             set => EditorPrefs.SetBool(Prefix + "AutoStart", value);
         }
 
+        // ─── Project Context ───
+
+        public static bool ContextEnabled
+        {
+            get => EditorPrefs.GetBool(Prefix + "ContextEnabled", true);
+            set => EditorPrefs.SetBool(Prefix + "ContextEnabled", value);
+        }
+
+        public static string ContextPath
+        {
+            get => EditorPrefs.GetString(Prefix + "ContextPath", "Assets/MCP/Context");
+            set => EditorPrefs.SetString(Prefix + "ContextPath", value);
+        }
+
         // ─── Category Management ───
 
         public static string[] GetAllCategoryNames() => AllCategories;
@@ -99,6 +113,8 @@ namespace UnityMCP.Editor
         {
             Port = 7890;
             AutoStart = true;
+            ContextEnabled = true;
+            ContextPath = "Assets/MCP/Context";
             _enabledCategories = null;
             EditorPrefs.DeleteKey(Prefix + "EnabledCategories");
         }

@@ -127,24 +127,30 @@ namespace UnityMCP.Editor
             GUILayout.FlexibleSpace();
             EditorGUILayout.LabelField($"Port {MCPSettingsManager.Port}", GUILayout.Width(70));
 
+            // Cache values once per event to prevent Layout/Repaint mismatch.
+            // Using local bools ensures the same controls exist in both passes.
             int agents = MCPRequestQueue.ActiveSessionCount;
             int queued = MCPRequestQueue.TotalQueuedCount;
+            bool showAgents = agents > 0;
+            bool showQueued = queued > 0;
 
-            if (agents > 0)
-            {
-                GUI.color = ColorGreen;
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-                EditorGUILayout.LabelField($"{agents} agent{(agents > 1 ? "s" : "")}", GUILayout.Width(65));
-            }
+            // Always draw the same number of controls regardless of state —
+            // hide them with alpha when inactive to avoid IMGUI control count mismatch.
+            var savedAlpha = GUI.color.a;
 
-            if (queued > 0)
-            {
-                GUI.color = ColorYellow;
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-                EditorGUILayout.LabelField($"{queued} queued", GUILayout.Width(65));
-            }
+            // Agent count indicator
+            GUI.color = showAgents ? ColorGreen : new Color(0, 0, 0, 0);
+            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+            GUI.color = showAgents ? new Color(prevColor.r, prevColor.g, prevColor.b, savedAlpha) : new Color(0, 0, 0, 0);
+            EditorGUILayout.LabelField(showAgents ? $"{agents} agent{(agents > 1 ? "s" : "")}" : "", GUILayout.Width(65));
+
+            // Queue count indicator
+            GUI.color = showQueued ? ColorYellow : new Color(0, 0, 0, 0);
+            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+            GUI.color = showQueued ? new Color(prevColor.r, prevColor.g, prevColor.b, savedAlpha) : new Color(0, 0, 0, 0);
+            EditorGUILayout.LabelField(showQueued ? $"{queued} queued" : "", GUILayout.Width(65));
+
+            GUI.color = prevColor;
 
             EditorGUILayout.EndHorizontal();
         }
@@ -422,8 +428,12 @@ namespace UnityMCP.Editor
                 string displayName = char.ToUpper(cat[0]) + cat.Substring(1);
                 EditorGUILayout.LabelField(displayName, GUILayout.Width(100));
 
-                // Test status label
-                if (testResult != null && testResult.Status != MCPTestResult.TestStatus.Untested)
+                // Test status label — always draw both controls to avoid IMGUI control count mismatch
+                bool hasTested = testResult != null && testResult.Status != MCPTestResult.TestStatus.Untested;
+                bool hasDetails = hasTested && (testResult.Status == MCPTestResult.TestStatus.Failed ||
+                    testResult.Status == MCPTestResult.TestStatus.Warning);
+
+                if (hasTested)
                 {
                     string statusLabel = GetTestStatusText(testResult);
                     var statusStyle = new GUIStyle(EditorStyles.miniLabel)
@@ -431,20 +441,27 @@ namespace UnityMCP.Editor
                         normal = { textColor = dotColor },
                     };
                     EditorGUILayout.LabelField(statusLabel, statusStyle, GUILayout.Width(90));
-
-                    // Details button if there's something to show
-                    if (testResult.Status == MCPTestResult.TestStatus.Failed ||
-                        testResult.Status == MCPTestResult.TestStatus.Warning)
-                    {
-                        if (GUILayout.Button("?", GUILayout.Width(20), GUILayout.Height(16)))
-                        {
-                            _expandedTestCategory = _expandedTestCategory == cat ? null : cat;
-                        }
-                    }
                 }
                 else
                 {
                     EditorGUILayout.LabelField("\u2014", EditorStyles.miniLabel, GUILayout.Width(90));
+                }
+
+                // Always draw the details button to keep control count stable
+                if (hasDetails)
+                {
+                    if (GUILayout.Button("?", GUILayout.Width(20), GUILayout.Height(16)))
+                    {
+                        _expandedTestCategory = _expandedTestCategory == cat ? null : cat;
+                    }
+                }
+                else
+                {
+                    // Invisible placeholder — same control, no visual
+                    var transparent = GUI.color;
+                    GUI.color = new Color(0, 0, 0, 0);
+                    GUILayout.Button("", GUILayout.Width(20), GUILayout.Height(16));
+                    GUI.color = transparent;
                 }
 
                 GUILayout.FlexibleSpace();

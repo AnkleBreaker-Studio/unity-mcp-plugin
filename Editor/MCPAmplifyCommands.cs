@@ -516,12 +516,14 @@ namespace UnityMCP.Editor
         // ═══════════════════════════════════════════════════════════
 
         private static Assembly _amplifyAssembly;
+        private static bool _amplifyAssemblyChecked;
         private static Type _parentNodeType;
         private static Type _parentGraphType;
 
         private static Assembly GetAmplifyAssembly()
         {
-            if (_amplifyAssembly != null) return _amplifyAssembly;
+            if (_amplifyAssemblyChecked) return _amplifyAssembly;
+            _amplifyAssemblyChecked = true;
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 if (asm.GetName().Name == "AmplifyShaderEditor" || asm.GetName().Name.Contains("AmplifyShaderEditor"))

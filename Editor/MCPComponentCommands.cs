@@ -497,7 +497,7 @@ namespace UnityMCP.Editor
             return path;
         }
 
-        private static object GetSerializedValue(SerializedProperty prop)
+        internal static object GetSerializedValue(SerializedProperty prop)
         {
             switch (prop.propertyType)
             {
@@ -561,7 +561,7 @@ namespace UnityMCP.Editor
             }
         }
 
-        private static void SetSerializedValue(SerializedProperty prop, object value)
+        internal static void SetSerializedValue(SerializedProperty prop, object value)
         {
             switch (prop.propertyType)
             {
@@ -648,7 +648,7 @@ namespace UnityMCP.Editor
         /// - JSON string that parses to a dictionary (e.g. from MCP tool params)
         /// - Plain string → try as asset path, then scene hierarchy path, then GameObject.Find
         /// </summary>
-        private static UnityEngine.Object ResolveObjectReference(object value)
+        internal static UnityEngine.Object ResolveObjectReference(object value)
         {
             // Null / empty → clear
             if (value == null) return null;

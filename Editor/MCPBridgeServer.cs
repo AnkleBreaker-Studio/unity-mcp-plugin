@@ -446,6 +446,24 @@ namespace UnityMCP.Editor
                 case "prefab/reparent":
                     return MCPPrefabCommands.Reparent(ParseJson(body));
 
+                // ─── Prefab Asset (Direct Editing) ───
+                case "prefab-asset/hierarchy":
+                    return MCPPrefabAssetCommands.GetHierarchy(ParseJson(body));
+                case "prefab-asset/get-properties":
+                    return MCPPrefabAssetCommands.GetComponentProperties(ParseJson(body));
+                case "prefab-asset/set-property":
+                    return MCPPrefabAssetCommands.SetComponentProperty(ParseJson(body));
+                case "prefab-asset/add-component":
+                    return MCPPrefabAssetCommands.AddComponent(ParseJson(body));
+                case "prefab-asset/remove-component":
+                    return MCPPrefabAssetCommands.RemoveComponent(ParseJson(body));
+                case "prefab-asset/set-reference":
+                    return MCPPrefabAssetCommands.SetReference(ParseJson(body));
+                case "prefab-asset/add-gameobject":
+                    return MCPPrefabAssetCommands.AddGameObject(ParseJson(body));
+                case "prefab-asset/remove-gameobject":
+                    return MCPPrefabAssetCommands.RemoveGameObject(ParseJson(body));
+
                 // ─── Physics ───
                 case "physics/raycast":
                     return MCPPhysicsCommands.Raycast(ParseJson(body));

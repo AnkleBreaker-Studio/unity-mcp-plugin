@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.10.6-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.11.0-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -215,6 +215,12 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.11.0
+
+- **Direct prefab asset editing** — New `MCPPrefabAssetCommands` class with 8 tools for editing prefab assets directly on disk, without instantiating into a scene. Browse hierarchy, read/write properties, add/remove components, wire ObjectReference properties, add/remove child GameObjects — all via atomic load-modify-save operations using `PrefabUtility.LoadPrefabContents`.
+- Routes: `prefab-asset/hierarchy`, `prefab-asset/get-properties`, `prefab-asset/set-property`, `prefab-asset/add-component`, `prefab-asset/remove-component`, `prefab-asset/set-reference`, `prefab-asset/add-gameobject`, `prefab-asset/remove-gameobject`.
+- Reuses `MCPComponentCommands` helpers (now `internal static`): `GetSerializedValue`, `SetSerializedValue`, `ResolveObjectReference`, `FindType`.
 
 ### v2.10.6
 

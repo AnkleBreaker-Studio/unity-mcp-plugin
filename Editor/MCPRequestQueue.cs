@@ -72,6 +72,11 @@ namespace UnityMCP.Editor
         private static readonly Dictionary<long, RequestTicket> _completedTickets
             = new Dictionary<long, RequestTicket>();
 
+        // In-flight tickets (dequeued, currently executing on main thread)
+        // Prevents 404 race condition when polling during slow executions (e.g. execute_code)
+        private static readonly Dictionary<long, RequestTicket> _executingTickets
+            = new Dictionary<long, RequestTicket>();
+
         // Synchronous waiters (backward compat)
         private static readonly Dictionary<long, ManualResetEventSlim> _waiters
             = new Dictionary<long, ManualResetEventSlim>();
@@ -211,8 +216,12 @@ namespace UnityMCP.Editor
                 batch = DequeueNextBatch();
                 if (batch == null || batch.Count == 0) return;
 
-                // Mark all as executing
-                foreach (var t in batch) t.Status = RequestStatus.Executing;
+                // Mark all as executing and track in-flight
+                foreach (var t in batch)
+                {
+                    t.Status = RequestStatus.Executing;
+                    _executingTickets[t.TicketId] = t;
+                }
             }
 
             // --- Execute OUTSIDE lock (main thread) ---
@@ -270,9 +279,10 @@ namespace UnityMCP.Editor
                     Debug.LogWarning($"[Unity MCP Queue] Failed to record action history: {ex.Message}");
                 }
 
-                // Move to completed cache and signal waiters
+                // Move to completed cache, remove from in-flight, and signal waiters
                 lock (_queueLock)
                 {
+                    _executingTickets.Remove(ticket.TicketId);
                     _completedTickets[ticket.TicketId] = ticket;
 
                     if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
@@ -296,6 +306,10 @@ namespace UnityMCP.Editor
                 // Check completed cache first
                 if (_completedTickets.TryGetValue(ticketId, out var done))
                     return TicketToDict(done);
+
+                // Check in-flight (currently executing on main thread)
+                if (_executingTickets.TryGetValue(ticketId, out var executing))
+                    return TicketToDict(executing);
 
                 // Check active queues
                 foreach (var q in _agentQueues.Values)
@@ -325,6 +339,7 @@ namespace UnityMCP.Editor
                 {
                     { "totalQueued",          totalQueued },
                     { "activeAgents",         _agentQueues.Count },
+                    { "executingCount",       _executingTickets.Count },
                     { "completedCacheSize",   _completedTickets.Count },
                     { "perAgentQueued",        perAgent },
                     { "totalSessionsTracked", _sessions.Count },
@@ -534,6 +549,17 @@ namespace UnityMCP.Editor
 
                 foreach (var id in kill)
                     _completedTickets.Remove(id);
+
+                // Safety valve: clean up stale executing tickets (stuck > 120s)
+                var staleExecuting = new List<long>();
+                foreach (var kvp in _executingTickets)
+                {
+                    double age = (now - kvp.Value.SubmittedAt).TotalSeconds;
+                    if (age > 120)
+                        staleExecuting.Add(kvp.Key);
+                }
+                foreach (var id in staleExecuting)
+                    _executingTickets.Remove(id);
             }
         }
 

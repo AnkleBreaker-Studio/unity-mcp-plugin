@@ -72,52 +72,41 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Write all assembly references to a response file (.rsp) and pass it via CompilerOptions.
+        /// Allowed base framework assemblies — these provide the core BCL types
+        /// (System.Object, Dictionary, LINQ, etc.) without conflicting with each other.
+        /// All other System.* assemblies are facades that re-export types from these
+        /// and cause "type defined multiple times" errors with the CodeDom/mcs compiler.
+        /// </summary>
+        private static readonly HashSet<string> _allowedBaseAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "mscorlib",           // Core types: Object, String, Dictionary, List, etc.
+            "System",             // Uri, Regex, Net, etc.
+            "System.Core",        // LINQ, Expressions, HashSet<T>
+            "System.Data",        // DataSet, DataTable
+            "System.Xml",         // XmlDocument, XPath
+            "System.Xml.Linq",    // XDocument, XElement
+            "System.Numerics",    // BigInteger, Complex
+            "System.Drawing",     // Color (non-Unity), Point, etc.
+            "System.Runtime.Serialization", // DataContract, DataMember
+            "System.Configuration",
+        };
+
+        /// <summary>
+        /// Write assembly references to a response file (.rsp) and pass it via CompilerOptions.
         /// This bypasses the Windows command line length limit (~32KB) which CodeDom hits when
         /// putting hundreds of -r:"long/unity/path/assembly.dll" flags directly on the command line.
-        /// The response file can be any length, so all assemblies are available for user code.
+        ///
+        /// STRATEGY: Only reference the core BCL assemblies (mscorlib, System, System.Core)
+        /// plus all non-System assemblies (Unity, user, plugin). Skip all System.* facade
+        /// assemblies that just type-forward to mscorlib — these cause duplicate type errors.
         /// </summary>
         private static void WriteAssemblyReferencesToResponseFile(System.CodeDom.Compiler.CompilerParameters parameters, string tempDir)
         {
             var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string rspPath = Path.Combine(tempDir, "refs.rsp");
 
-            // Facade assemblies that just forward types — including them causes
-            // "type defined multiple times" errors with Mono's mcs compiler.
-            var facadeAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "netstandard", "System.Runtime", "System.Private.CoreLib",
-                "System.Collections", "System.Collections.Concurrent",
-                "System.Collections.Specialized", "System.Collections.NonGeneric",
-                "System.ComponentModel", "System.ComponentModel.Primitives",
-                "System.ComponentModel.TypeConverter", "System.Console",
-                "System.Diagnostics.Debug", "System.Diagnostics.Process",
-                "System.Diagnostics.TraceSource", "System.Drawing.Primitives",
-                "System.Globalization", "System.IO", "System.IO.Compression",
-                "System.IO.FileSystem", "System.Linq", "System.Linq.Expressions",
-                "System.Linq.Queryable", "System.Net.Http", "System.Net.Primitives",
-                "System.Net.Sockets", "System.Net.WebClient",
-                "System.ObjectModel", "System.Reflection", "System.Reflection.Emit",
-                "System.Reflection.Extensions", "System.Reflection.Primitives",
-                "System.Resources.ResourceManager", "System.Runtime.Extensions",
-                "System.Runtime.InteropServices", "System.Runtime.Numerics",
-                "System.Runtime.Serialization.Formatters",
-                "System.Runtime.Serialization.Json", "System.Runtime.Serialization.Xml",
-                "System.Security.Cryptography.Algorithms",
-                "System.Security.Cryptography.Primitives",
-                "System.Text.Encoding", "System.Text.Encoding.Extensions",
-                "System.Text.RegularExpressions", "System.Threading",
-                "System.Threading.Tasks", "System.Threading.Tasks.Parallel",
-                "System.Threading.Thread", "System.Threading.Timer",
-                "System.ValueTuple", "System.Xml.ReaderWriter",
-                "System.Xml.XDocument", "System.Xml.XmlDocument",
-            };
-
             using (var writer = new StreamWriter(rspPath, false, System.Text.Encoding.UTF8))
             {
-                // Use /nostdlib so mcs doesn't auto-reference mscorlib — we control all refs
-                writer.WriteLine("-nostdlib");
-
                 foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     try
@@ -133,8 +122,18 @@ namespace UnityMCP.Editor
                         if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
                             continue;
 
-                        // Skip facade/redirect assemblies that conflict with mscorlib
-                        if (facadeAssemblies.Contains(asmName))
+                        // DECISION LOGIC:
+                        // - "netstandard" → SKIP (facade that conflicts with mscorlib)
+                        // - "System.Private.CoreLib" → SKIP (.NET Core internal, conflicts with mscorlib)
+                        // - Assemblies in _allowedBaseAssemblies → INCLUDE (core BCL)
+                        // - Other "System.*" assemblies → SKIP (facades that re-export from mscorlib)
+                        // - Everything else (Unity*, user assemblies, plugins) → INCLUDE
+
+                        if (asmName == "netstandard" || asmName == "System.Private.CoreLib")
+                            continue;
+
+                        bool isSystemAssembly = asmName == "System" || asmName.StartsWith("System.");
+                        if (isSystemAssembly && !_allowedBaseAssemblies.Contains(asmName))
                             continue;
 
                         addedNames.Add(asmName);

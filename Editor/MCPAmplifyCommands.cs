@@ -2148,13 +2148,31 @@ namespace UnityMCP.Editor
         {
             try
             {
-                var graphProp = window.GetType().GetProperty("CurrentGraph") ??
-                                window.GetType().GetProperty("ParentGraph");
-                if (graphProp != null) return graphProp.GetValue(window);
+                var flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance;
 
-                var graphField = window.GetType().GetField("m_currentGraph", BindingFlags.NonPublic | BindingFlags.Instance) ??
-                                 window.GetType().GetField("m_graph", BindingFlags.NonPublic | BindingFlags.Instance);
-                if (graphField != null) return graphField.GetValue(window);
+                // Try properties first (most reliable)
+                string[] propNames = { "CurrentGraph", "MainGraphInstance", "CustomGraph", "ParentGraph" };
+                foreach (var name in propNames)
+                {
+                    var prop = window.GetType().GetProperty(name, flags);
+                    if (prop != null)
+                    {
+                        var val = prop.GetValue(window);
+                        if (val != null) return val;
+                    }
+                }
+
+                // Fall back to fields
+                string[] fieldNames = { "m_mainGraphInstance", "m_customGraph", "m_currentGraph", "m_graph" };
+                foreach (var name in fieldNames)
+                {
+                    var field = window.GetType().GetField(name, flags);
+                    if (field != null)
+                    {
+                        var val = field.GetValue(window);
+                        if (val != null) return val;
+                    }
+                }
             }
             catch { }
             return null;

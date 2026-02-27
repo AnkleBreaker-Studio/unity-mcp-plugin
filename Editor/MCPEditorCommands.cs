@@ -82,8 +82,42 @@ namespace UnityMCP.Editor
             var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string rspPath = Path.Combine(tempDir, "refs.rsp");
 
+            // Facade assemblies that just forward types — including them causes
+            // "type defined multiple times" errors with Mono's mcs compiler.
+            var facadeAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "netstandard", "System.Runtime", "System.Private.CoreLib",
+                "System.Collections", "System.Collections.Concurrent",
+                "System.Collections.Specialized", "System.Collections.NonGeneric",
+                "System.ComponentModel", "System.ComponentModel.Primitives",
+                "System.ComponentModel.TypeConverter", "System.Console",
+                "System.Diagnostics.Debug", "System.Diagnostics.Process",
+                "System.Diagnostics.TraceSource", "System.Drawing.Primitives",
+                "System.Globalization", "System.IO", "System.IO.Compression",
+                "System.IO.FileSystem", "System.Linq", "System.Linq.Expressions",
+                "System.Linq.Queryable", "System.Net.Http", "System.Net.Primitives",
+                "System.Net.Sockets", "System.Net.WebClient",
+                "System.ObjectModel", "System.Reflection", "System.Reflection.Emit",
+                "System.Reflection.Extensions", "System.Reflection.Primitives",
+                "System.Resources.ResourceManager", "System.Runtime.Extensions",
+                "System.Runtime.InteropServices", "System.Runtime.Numerics",
+                "System.Runtime.Serialization.Formatters",
+                "System.Runtime.Serialization.Json", "System.Runtime.Serialization.Xml",
+                "System.Security.Cryptography.Algorithms",
+                "System.Security.Cryptography.Primitives",
+                "System.Text.Encoding", "System.Text.Encoding.Extensions",
+                "System.Text.RegularExpressions", "System.Threading",
+                "System.Threading.Tasks", "System.Threading.Tasks.Parallel",
+                "System.Threading.Thread", "System.Threading.Timer",
+                "System.ValueTuple", "System.Xml.ReaderWriter",
+                "System.Xml.XDocument", "System.Xml.XmlDocument",
+            };
+
             using (var writer = new StreamWriter(rspPath, false, System.Text.Encoding.UTF8))
             {
+                // Use /nostdlib so mcs doesn't auto-reference mscorlib — we control all refs
+                writer.WriteLine("-nostdlib");
+
                 foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     try
@@ -100,9 +134,7 @@ namespace UnityMCP.Editor
                             continue;
 
                         // Skip facade/redirect assemblies that conflict with mscorlib
-                        // (netstandard, System.Runtime, etc. re-export types already in mscorlib)
-                        if (asmName == "netstandard" || asmName == "System.Runtime" ||
-                            asmName == "System.Private.CoreLib")
+                        if (facadeAssemblies.Contains(asmName))
                             continue;
 
                         addedNames.Add(asmName);

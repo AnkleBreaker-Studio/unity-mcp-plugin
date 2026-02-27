@@ -464,6 +464,18 @@ namespace UnityMCP.Editor
                 case "prefab-asset/remove-gameobject":
                     return MCPPrefabAssetCommands.RemoveGameObject(ParseJson(body));
 
+                // ─── Prefab Variant Management ───
+                case "prefab-asset/variant-info":
+                    return MCPPrefabAssetCommands.GetVariantInfo(ParseJson(body));
+                case "prefab-asset/compare-variant":
+                    return MCPPrefabAssetCommands.CompareVariantToBase(ParseJson(body));
+                case "prefab-asset/apply-variant-override":
+                    return MCPPrefabAssetCommands.ApplyVariantOverride(ParseJson(body));
+                case "prefab-asset/revert-variant-override":
+                    return MCPPrefabAssetCommands.RevertVariantOverride(ParseJson(body));
+                case "prefab-asset/transfer-variant-overrides":
+                    return MCPPrefabAssetCommands.TransferVariantOverrides(ParseJson(body));
+
                 // ─── Physics ───
                 case "physics/raycast":
                     return MCPPhysicsCommands.Raycast(ParseJson(body));

@@ -38,7 +38,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI agents across **21 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **150+ tools** to AI agents across **23 feature categories**.
 
 ### Core Capabilities
 
@@ -215,6 +215,11 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.12.0
+
+- **Prefab variant management** — 5 new tools for inspecting and managing prefab variant relationships. Get variant info and find all variants of a base, compare variant overrides to base, apply overrides to base, revert overrides, and transfer overrides between variants.
+- Routes: `prefab-asset/variant-info`, `prefab-asset/compare-variant`, `prefab-asset/apply-variant-override`, `prefab-asset/revert-variant-override`, `prefab-asset/transfer-variant-overrides`.
 
 ### v2.11.0
 

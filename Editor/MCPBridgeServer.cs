@@ -329,6 +329,12 @@ namespace UnityMCP.Editor
                     return MCPComponentCommands.GetProperties(ParseJson(body));
                 case "component/set-property":
                     return MCPComponentCommands.SetProperty(ParseJson(body));
+                case "component/set-reference":
+                    return MCPComponentCommands.SetReference(ParseJson(body));
+                case "component/batch-wire":
+                    return MCPComponentCommands.BatchWireReferences(ParseJson(body));
+                case "component/get-referenceable":
+                    return MCPComponentCommands.GetReferenceableObjects(ParseJson(body));
 
                 // ─── Assets ───
                 case "asset/list":

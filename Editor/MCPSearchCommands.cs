@@ -15,6 +15,9 @@ namespace UnityMCP.Editor
     {
         // ─── Find By Component ───
 
+        // Default result limit for search commands — prevents oversized responses on large projects
+        private const int DefaultSearchLimit = 500;
+
         public static object FindByComponent(Dictionary<string, object> args)
         {
             string typeName = args.ContainsKey("componentType") ? args["componentType"].ToString() : "";
@@ -22,6 +25,7 @@ namespace UnityMCP.Editor
                 return new { error = "componentType is required" };
 
             bool includeInactive = args.ContainsKey("includeInactive") && Convert.ToBoolean(args["includeInactive"]);
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
 
             // Try to find the type
             Type componentType = null;
@@ -41,26 +45,36 @@ namespace UnityMCP.Editor
             var results = new List<Dictionary<string, object>>();
             var objects = UnityEngine.Object.FindObjectsByType(componentType, includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude, FindObjectsSortMode.None);
 
+            int totalFound = 0;
             foreach (var obj in objects)
             {
                 var comp = obj as Component;
                 if (comp == null) continue;
-                results.Add(new Dictionary<string, object>
+                totalFound++;
+                if (results.Count < limit)
                 {
-                    { "name", comp.gameObject.name },
-                    { "path", GetGameObjectPath(comp.gameObject) },
-                    { "instanceId", comp.gameObject.GetInstanceID() },
-                    { "active", comp.gameObject.activeInHierarchy },
-                    { "scene", comp.gameObject.scene.name },
-                });
+                    results.Add(new Dictionary<string, object>
+                    {
+                        { "name", comp.gameObject.name },
+                        { "path", GetGameObjectPath(comp.gameObject) },
+                        { "instanceId", comp.gameObject.GetInstanceID() },
+                        { "active", comp.gameObject.activeInHierarchy },
+                        { "scene", comp.gameObject.scene.name },
+                    });
+                }
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "componentType", typeName },
-                { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Find By Tag ───
@@ -71,13 +85,17 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(tag))
                 return new { error = "tag is required" };
 
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
+
             GameObject[] objects;
             try { objects = GameObject.FindGameObjectsWithTag(tag); }
             catch (Exception e) { return new { error = e.Message }; }
 
             var results = new List<Dictionary<string, object>>();
-            foreach (var go in objects)
+            int count = Math.Min(objects.Length, limit);
+            for (int i = 0; i < count; i++)
             {
+                var go = objects[i];
                 results.Add(new Dictionary<string, object>
                 {
                     { "name", go.name },
@@ -88,12 +106,17 @@ namespace UnityMCP.Editor
                 });
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "tag", tag },
-                { "count", results.Count },
+                { "totalFound", objects.Length },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (objects.Length > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Find By Layer ───
@@ -110,30 +133,42 @@ namespace UnityMCP.Editor
             if (layer < 0)
                 return new { error = "Valid layer index or name is required" };
 
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
+
             var results = new List<Dictionary<string, object>>();
             var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            int totalFound = 0;
             foreach (var go in allObjects)
             {
                 if (go.layer == layer)
                 {
-                    results.Add(new Dictionary<string, object>
+                    totalFound++;
+                    if (results.Count < limit)
                     {
-                        { "name", go.name },
-                        { "path", GetGameObjectPath(go) },
-                        { "instanceId", go.GetInstanceID() },
-                        { "active", go.activeInHierarchy },
-                        { "tag", go.tag },
-                    });
+                        results.Add(new Dictionary<string, object>
+                        {
+                            { "name", go.name },
+                            { "path", GetGameObjectPath(go) },
+                            { "instanceId", go.GetInstanceID() },
+                            { "active", go.activeInHierarchy },
+                            { "tag", go.tag },
+                        });
+                    }
                 }
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "layer", LayerMask.LayerToName(layer) },
                 { "layerIndex", layer },
-                { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Find By Name ───
@@ -146,12 +181,14 @@ namespace UnityMCP.Editor
 
             bool useRegex = args.ContainsKey("regex") && Convert.ToBoolean(args["regex"]);
             bool includeInactive = args.ContainsKey("includeInactive") && Convert.ToBoolean(args["includeInactive"]);
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
 
             var results = new List<Dictionary<string, object>>();
             var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(
                 includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude,
                 FindObjectsSortMode.None);
 
+            int totalFound = 0;
             foreach (var go in allObjects)
             {
                 bool match = false;
@@ -167,25 +204,34 @@ namespace UnityMCP.Editor
 
                 if (match)
                 {
-                    results.Add(new Dictionary<string, object>
+                    totalFound++;
+                    if (results.Count < limit)
                     {
-                        { "name", go.name },
-                        { "path", GetGameObjectPath(go) },
-                        { "instanceId", go.GetInstanceID() },
-                        { "active", go.activeInHierarchy },
-                        { "tag", go.tag },
-                        { "layer", LayerMask.LayerToName(go.layer) },
-                    });
+                        results.Add(new Dictionary<string, object>
+                        {
+                            { "name", go.name },
+                            { "path", GetGameObjectPath(go) },
+                            { "instanceId", go.GetInstanceID() },
+                            { "active", go.activeInHierarchy },
+                            { "tag", go.tag },
+                            { "layer", LayerMask.LayerToName(go.layer) },
+                        });
+                    }
                 }
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "pattern", pattern },
                 { "regex", useRegex },
-                { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Find By Shader ───
@@ -196,9 +242,12 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(shaderName))
                 return new { error = "shader is required" };
 
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
+
             var results = new List<Dictionary<string, object>>();
             var renderers = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
+            int totalFound = 0;
             foreach (var renderer in renderers)
             {
                 foreach (var mat in renderer.sharedMaterials)
@@ -206,25 +255,34 @@ namespace UnityMCP.Editor
                     if (mat != null && mat.shader != null &&
                         mat.shader.name.IndexOf(shaderName, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        results.Add(new Dictionary<string, object>
+                        totalFound++;
+                        if (results.Count < limit)
                         {
-                            { "name", renderer.gameObject.name },
-                            { "path", GetGameObjectPath(renderer.gameObject) },
-                            { "instanceId", renderer.gameObject.GetInstanceID() },
-                            { "material", mat.name },
-                            { "shader", mat.shader.name },
-                        });
+                            results.Add(new Dictionary<string, object>
+                            {
+                                { "name", renderer.gameObject.name },
+                                { "path", GetGameObjectPath(renderer.gameObject) },
+                                { "instanceId", renderer.gameObject.GetInstanceID() },
+                                { "material", mat.name },
+                                { "shader", mat.shader.name },
+                            });
+                        }
                         break; // One entry per object
                     }
                 }
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "shader", shaderName },
-                { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Search Assets ───
@@ -273,26 +331,34 @@ namespace UnityMCP.Editor
         public static object FindMissingReferences(Dictionary<string, object> args)
         {
             bool searchScene = !args.ContainsKey("scope") || args["scope"].ToString() != "assets";
+            int limit = args.ContainsKey("limit") ? Convert.ToInt32(args["limit"]) : DefaultSearchLimit;
 
             var results = new List<Dictionary<string, object>>();
+            int totalFound = 0;
 
             if (searchScene)
             {
                 var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
                 foreach (var go in allObjects)
                 {
+                    if (totalFound >= limit) break;
+
                     var components = go.GetComponents<Component>();
                     for (int i = 0; i < components.Length; i++)
                     {
                         if (components[i] == null)
                         {
-                            results.Add(new Dictionary<string, object>
+                            totalFound++;
+                            if (results.Count < limit)
                             {
-                                { "gameObject", go.name },
-                                { "path", GetGameObjectPath(go) },
-                                { "issue", "Missing script (component is null)" },
-                                { "componentIndex", i },
-                            });
+                                results.Add(new Dictionary<string, object>
+                                {
+                                    { "gameObject", go.name },
+                                    { "path", GetGameObjectPath(go) },
+                                    { "issue", "Missing script (component is null)" },
+                                    { "componentIndex", i },
+                                });
+                            }
                             continue;
                         }
 
@@ -304,26 +370,35 @@ namespace UnityMCP.Editor
                                 sp.objectReferenceValue == null &&
                                 sp.objectReferenceInstanceIDValue != 0)
                             {
-                                results.Add(new Dictionary<string, object>
+                                totalFound++;
+                                if (results.Count < limit)
                                 {
-                                    { "gameObject", go.name },
-                                    { "path", GetGameObjectPath(go) },
-                                    { "component", components[i].GetType().Name },
-                                    { "property", sp.displayName },
-                                    { "issue", "Missing object reference" },
-                                });
+                                    results.Add(new Dictionary<string, object>
+                                    {
+                                        { "gameObject", go.name },
+                                        { "path", GetGameObjectPath(go) },
+                                        { "component", components[i].GetType().Name },
+                                        { "property", sp.displayName },
+                                        { "issue", "Missing object reference" },
+                                    });
+                                }
                             }
                         }
                     }
                 }
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "scope", searchScene ? "scene" : "assets" },
-                { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "results", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
 
         // ─── Scene Stats ───

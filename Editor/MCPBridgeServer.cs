@@ -1002,12 +1002,37 @@ namespace UnityMCP.Editor
             }
         }
 
+        // Response size limits (bytes) — prevents oversized payloads from crashing the MCP stdio pipe
+        private const int ResponseSoftLimitBytes = 8 * 1024 * 1024;  // 8 MB — log warning
+        private const int ResponseHardLimitBytes = 16 * 1024 * 1024; // 16 MB — replace with error
+
         private static void SendJson(HttpListenerResponse response, int statusCode, object data)
         {
             response.StatusCode = statusCode;
             response.ContentType = "application/json";
             string json = MiniJson.Serialize(data);
             byte[] buffer = Encoding.UTF8.GetBytes(json);
+
+            // Size validation — protect against Write EOF on large projects
+            if (buffer.Length > ResponseHardLimitBytes)
+            {
+                Debug.LogWarning($"[AB-UMCP] Response too large ({buffer.Length / (1024 * 1024)}MB), replacing with error. Use pagination parameters.");
+                var errorData = new Dictionary<string, object>
+                {
+                    { "error", "response_too_large" },
+                    { "size", buffer.Length },
+                    { "limit", ResponseHardLimitBytes },
+                    { "message", "Response exceeded size limit. Use pagination parameters (maxNodes, limit, maxResults) to request smaller chunks." },
+                };
+                json = MiniJson.Serialize(errorData);
+                buffer = Encoding.UTF8.GetBytes(json);
+                response.StatusCode = 413; // Payload Too Large
+            }
+            else if (buffer.Length > ResponseSoftLimitBytes)
+            {
+                Debug.LogWarning($"[AB-UMCP] Large response ({buffer.Length / (1024 * 1024)}MB). Consider using pagination parameters.");
+            }
+
             response.ContentLength64 = buffer.Length;
             response.OutputStream.Write(buffer, 0, buffer.Length);
             response.OutputStream.Close();

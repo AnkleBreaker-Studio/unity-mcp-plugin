@@ -78,23 +78,93 @@ namespace UnityMCP.Editor
             if (args != null && args.ContainsKey("maxDepth"))
                 maxDepth = System.Convert.ToInt32(args["maxDepth"]);
 
-            var scene = SceneManager.GetActiveScene();
-            var hierarchy = new List<object>();
+            // Max total nodes to return — prevents Write EOF on large scenes (79K+ objects)
+            int maxNodes = 5000;
+            if (args != null && args.ContainsKey("maxNodes"))
+                maxNodes = System.Convert.ToInt32(args["maxNodes"]);
 
-            foreach (var root in scene.GetRootGameObjects())
+            // Optional: only return hierarchy under a specific parent path
+            string parentPath = null;
+            if (args != null && args.ContainsKey("parentPath"))
+                parentPath = args["parentPath"]?.ToString();
+
+            var scene = SceneManager.GetActiveScene();
+            var rootObjects = scene.GetRootGameObjects();
+
+            // Count total objects in scene for metadata
+            int totalSceneObjects = CountAllObjects(rootObjects);
+
+            // If parentPath specified, find that object and only return its subtree
+            GameObject[] startObjects = rootObjects;
+            if (!string.IsNullOrEmpty(parentPath))
             {
-                hierarchy.Add(BuildHierarchyNode(root, 0, maxDepth));
+                var found = GameObject.Find(parentPath);
+                if (found == null)
+                    return new Dictionary<string, object>
+                    {
+                        { "error", $"GameObject not found at path: {parentPath}" },
+                    };
+                startObjects = new[] { found };
             }
 
-            return new Dictionary<string, object>
+            int nodeCount = 0;
+            var hierarchy = new List<object>();
+
+            foreach (var root in startObjects)
+            {
+                var node = BuildHierarchyNode(root, 0, maxDepth, ref nodeCount, maxNodes);
+                if (node != null)
+                    hierarchy.Add(node);
+                if (nodeCount >= maxNodes)
+                    break;
+            }
+
+            var result = new Dictionary<string, object>
             {
                 { "scene", scene.name },
                 { "hierarchy", hierarchy },
+                { "totalSceneObjects", totalSceneObjects },
+                { "returnedNodes", nodeCount },
+                { "maxNodes", maxNodes },
             };
+
+            if (nodeCount >= maxNodes)
+            {
+                result["truncated"] = true;
+                result["message"] = $"Hierarchy truncated at {maxNodes} nodes (scene has {totalSceneObjects} total objects). " +
+                    "Use parentPath to explore specific subtrees, or increase maxNodes.";
+            }
+
+            if (!string.IsNullOrEmpty(parentPath))
+                result["parentPath"] = parentPath;
+
+            return result;
         }
 
-        private static Dictionary<string, object> BuildHierarchyNode(GameObject go, int depth, int maxDepth)
+        /// <summary>Count all GameObjects recursively without building the full hierarchy.</summary>
+        private static int CountAllObjects(GameObject[] roots)
         {
+            int count = 0;
+            foreach (var root in roots)
+                CountRecursive(root, ref count);
+            return count;
+        }
+
+        private static void CountRecursive(GameObject go, ref int count)
+        {
+            count++;
+            foreach (Transform child in go.transform)
+                CountRecursive(child.gameObject, ref count);
+        }
+
+        private static Dictionary<string, object> BuildHierarchyNode(
+            GameObject go, int depth, int maxDepth, ref int nodeCount, int maxNodes)
+        {
+            if (nodeCount >= maxNodes)
+                return null;
+
+            nodeCount++;
+
             var components = new List<string>();
             foreach (var comp in go.GetComponents<Component>())
             {
@@ -118,10 +188,22 @@ namespace UnityMCP.Editor
                 var children = new List<object>();
                 for (int i = 0; i < go.transform.childCount; i++)
                 {
-                    children.Add(BuildHierarchyNode(go.transform.GetChild(i).gameObject, depth + 1, maxDepth));
+                    if (nodeCount >= maxNodes)
+                    {
+                        // Record how many children we couldn't include
+                        node["childCount"] = go.transform.childCount;
+                        node["childrenIncluded"] = children.Count;
+                        node["childrenTruncated"] = true;
+                        break;
+                    }
+                    var childNode = BuildHierarchyNode(go.transform.GetChild(i).gameObject, depth + 1, maxDepth, ref nodeCount, maxNodes);
+                    if (childNode != null)
+                        children.Add(childNode);
                 }
-                node["children"] = children;
-                node["childCount"] = go.transform.childCount;
+                if (children.Count > 0)
+                    node["children"] = children;
+                if (!node.ContainsKey("childCount"))
+                    node["childCount"] = go.transform.childCount;
             }
             else if (go.transform.childCount > 0)
             {

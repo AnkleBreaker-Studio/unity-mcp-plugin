@@ -1512,12 +1512,25 @@ namespace UnityMCP.Editor
                 if (window == null)
                     return new Dictionary<string, object> { { "success", true }, { "note", "No Amplify editor window was open" } };
 
-                bool save = args.ContainsKey("save") ? Convert.ToBoolean(args["save"]) : false;
+                // Default to save=true to avoid ASE's unsaved changes dialog
+                bool save = args.ContainsKey("save") ? Convert.ToBoolean(args["save"]) : true;
                 if (save)
                 {
                     var saveMethod = window.GetType().GetMethod("SaveToDisk",
                         BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
                     saveMethod?.Invoke(window, new object[] { false });
+                }
+                else
+                {
+                    // Mark graph as not dirty to prevent save dialog
+                    var graph = GetCurrentGraph(window);
+                    if (graph != null)
+                    {
+                        var dirtyField = graph.GetType().GetField("m_isDirty", BindingFlags.NonPublic | BindingFlags.Instance);
+                        dirtyField?.SetValue(graph, false);
+                        var saveIsDirtyField = graph.GetType().GetField("m_saveIsDirty", BindingFlags.NonPublic | BindingFlags.Instance);
+                        saveIsDirtyField?.SetValue(graph, false);
+                    }
                 }
 
                 window.Close();

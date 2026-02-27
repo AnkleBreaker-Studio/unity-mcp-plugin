@@ -288,6 +288,9 @@ namespace UnityMCP.Editor
             int successCount = 0;
             int errorCount = 0;
 
+            // Inherit parent-level path/instanceId/componentType into each ref entry
+            string[] inheritKeys = { "path", "instanceId", "componentType" };
+
             foreach (var item in refList)
             {
                 var refArgs = item as Dictionary<string, object>;
@@ -296,6 +299,13 @@ namespace UnityMCP.Editor
                     results.Add(new Dictionary<string, object> { { "error", "Invalid reference entry" } });
                     errorCount++;
                     continue;
+                }
+
+                // Merge parent keys into each ref if not already specified
+                foreach (var key in inheritKeys)
+                {
+                    if (!refArgs.ContainsKey(key) && args.ContainsKey(key))
+                        refArgs[key] = args[key];
                 }
 
                 var result = SetReference(refArgs);

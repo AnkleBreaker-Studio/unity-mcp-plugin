@@ -1474,16 +1474,75 @@ namespace UnityMCP.Editor
                 if (window == null)
                     return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
 
-                var saveMethod = window.GetType().GetMethod("SaveToDisk",
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                var flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic;
+
+                // If the shader has no save path yet, set one from the optional path arg or auto-generate
+                var lastPathField = window.GetType().GetField("m_lastpath", flags);
+                string currentPath = lastPathField?.GetValue(window) as string;
+
+                if (string.IsNullOrEmpty(currentPath) || !File.Exists(Path.Combine(Application.dataPath, "..", currentPath)))
+                {
+                    string savePath = args.ContainsKey("path") ? args["path"].ToString() : null;
+
+                    if (string.IsNullOrEmpty(savePath))
+                    {
+                        // Auto-generate a path based on shader name from the graph
+                        var graph = GetCurrentGraph(window);
+                        if (graph != null)
+                        {
+                            var masterNode = graph.GetType().GetProperty("CurrentMasterNode", flags)?.GetValue(graph);
+                            if (masterNode != null)
+                            {
+                                var nameProp = masterNode.GetType().GetProperty("ShaderName", flags);
+                                string shaderName = nameProp?.GetValue(masterNode)?.ToString();
+                                if (!string.IsNullOrEmpty(shaderName))
+                                {
+                                    string safeName = shaderName.Replace("/", "_").Replace("\\", "_");
+                                    savePath = $"Assets/Shaders/{safeName}.shader";
+                                }
+                            }
+                        }
+                        if (string.IsNullOrEmpty(savePath))
+                            savePath = $"Assets/Shaders/NewAmplifyShader_{DateTime.Now:yyyyMMdd_HHmmss}.shader";
+                    }
+
+                    // Ensure directory exists
+                    string dir = Path.GetDirectoryName(savePath)?.Replace('\\', '/');
+                    if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
+                    {
+                        string[] parts = dir.Split('/');
+                        string curr = parts[0];
+                        for (int i = 1; i < parts.Length; i++)
+                        {
+                            string next = curr + "/" + parts[i];
+                            if (!AssetDatabase.IsValidFolder(next))
+                                AssetDatabase.CreateFolder(curr, parts[i]);
+                            curr = next;
+                        }
+                    }
+
+                    // Write minimal file so SaveToDisk can overwrite it
+                    string fullPath = Path.Combine(Application.dataPath, "..", savePath);
+                    if (!File.Exists(fullPath))
+                    {
+                        File.WriteAllText(fullPath, "// Amplify Shader placeholder");
+                        AssetDatabase.ImportAsset(savePath);
+                    }
+
+                    // Set the last path on the window so SaveToDisk knows where to write
+                    lastPathField?.SetValue(window, savePath);
+                }
+
+                var saveMethod = window.GetType().GetMethod("SaveToDisk", flags);
                 if (saveMethod != null)
                 {
                     saveMethod.Invoke(window, new object[] { false });
-                    return new Dictionary<string, object> { { "success", true }, { "note", "Graph saved to disk" } };
+                    string savedPath = lastPathField?.GetValue(window) as string ?? currentPath;
+                    return new Dictionary<string, object> { { "success", true }, { "path", savedPath }, { "note", "Graph saved to disk" } };
                 }
 
                 // Fallback: RequestSave
-                var requestSave = window.GetType().GetMethod("RequestSave", BindingFlags.Public | BindingFlags.Instance);
+                var requestSave = window.GetType().GetMethod("RequestSave", flags);
                 if (requestSave != null)
                 {
                     requestSave.Invoke(window, null);

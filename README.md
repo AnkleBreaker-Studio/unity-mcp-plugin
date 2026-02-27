@@ -38,7 +38,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor. Each instance auto-selects a port from the range `7890–7899` and registers itself in a shared file, so the MCP Server can discover and route to any running Unity Editor — even when multiple instances are open simultaneously (e.g. different projects, or [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones for multiplayer testing). The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI agents across **24 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor. Each instance auto-selects a port from the range `7890–7899` and registers itself in a shared file, so the MCP Server can discover and route to any running Unity Editor — even when multiple instances are open simultaneously (e.g. different projects, or [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones for multiplayer testing). The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **259 tools** to AI agents across **24 feature categories**.
 
 ### Core Capabilities
 

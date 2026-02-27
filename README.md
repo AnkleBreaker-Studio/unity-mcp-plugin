@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.11.0-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.14.5-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -38,7 +38,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **150+ tools** to AI agents across **23 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI agents across **24 feature categories**.
 
 ### Core Capabilities
 
@@ -82,7 +82,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 |-----------------|-------------------|
 | `com.unity.shadergraph` | Shader Graph create, inspect, open; Sub Graphs |
 | `com.unity.visualeffectgraph` | VFX Graph listing and opening |
-| Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
+| Amplify Shader Editor (Asset Store) | Full Amplify Shader Editor integration — create, inspect, graph manipulation: add/remove/connect/disconnect/duplicate nodes, set properties, templates |
 
 ### Multi-Agent Infrastructure
 
@@ -151,7 +151,7 @@ Open **Window > AB Unity MCP** to access:
 - **Request Queue** — live view of pending tickets, active agents, per-agent queue depths
 - **Agent Sessions** — connected agents with action counts, queue stats, average response time
 - **Project Context** — configure auto-injected project documentation
-- Per-category feature toggles (enable/disable any of the 21 categories)
+- Per-category feature toggles (enable/disable any of the 24 categories)
 - Port and auto-start settings
 - Version display with update checker
 
@@ -165,7 +165,7 @@ Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
 |---------|---------|-------------|
 | **Port** | `7890` | HTTP server port |
 | **Auto-Start** | `true` | Start the bridge when Unity opens |
-| **Category Toggles** | All enabled | Enable/disable any of the 21 feature categories |
+| **Category Toggles** | All enabled | Enable/disable any of the 24 feature categories |
 | **Project Context** | Enabled | Auto-inject project docs to agents on first tool call |
 
 Settings are stored in `EditorPrefs` and persist across sessions.
@@ -188,7 +188,7 @@ Some features activate automatically when their packages are detected:
 | `com.unity.shadergraph` | Shader Graph create, inspect, open |
 | `com.unity.visualeffectgraph` | VFX Graph listing and opening |
 | `com.unity.inputsystem` | Input Action maps and bindings |
-| Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
+| Amplify Shader Editor (Asset Store) | Full Amplify Shader Editor integration — create, inspect, graph manipulation: add/remove/connect/disconnect/duplicate nodes, set properties, templates |
 
 ---
 
@@ -215,6 +215,29 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.14.5
+
+- **Non-Amplify project optimization** — `GetAmplifyAssembly()` now caches its result with a `_amplifyAssemblyChecked` flag, preventing repeated assembly scans in projects that don't have Amplify Shader Editor installed.
+
+### v2.14.3
+
+- **CloseAmplifyEditor save fix** — `CloseAmplifyEditor` now defaults to `save=true` (auto-saves before closing). When `save=false`, the graph is marked as not-dirty to prevent ASE's built-in unsaved changes dialog from appearing.
+- **SaveAmplifyGraph smart path detection** — `SaveAmplifyGraph` now handles shaders that haven't been saved to disk yet. Auto-generates a save path from the shader name in the master node. Accepts an optional `path` parameter.
+
+### v2.14.2
+
+- **Reflection type initialization fix** — `GetOpenAmplifyWindow()` now ensures `_parentGraphType` and other reflection types are initialized before use, fixing "Object reference not set" errors when calling graph-dependent tools.
+
+### v2.14.1
+
+- **GetCurrentGraph rewrite** — Fixed graph retrieval to try properties first (`CurrentGraph`, `MainGraphInstance`, `CustomGraph`, `ParentGraph`), then fields (`m_mainGraphInstance`, `m_customGraph`), skipping null values. Fixes graph access failures when ASE loads shaders from disk.
+
+### v2.14.0
+
+- **14 new Amplify Shader Editor graph manipulation commands** — `AddAmplifyNode`, `RemoveAmplifyNode`, `ConnectAmplifyNodes`, `DisconnectAmplifyNodes`, `GetAmplifyNodeInfo`, `SetAmplifyNodeProperty`, `MoveAmplifyNode`, `SaveAmplifyGraph`, `CloseAmplifyEditor`, `CreateAmplifyFromTemplate`, `FocusAmplifyNode`, `GetAmplifyMasterNodeInfo`, `DisconnectAllAmplifyNode`, `DuplicateAmplifyNode`. Full graph manipulation: add/remove/connect/disconnect/duplicate nodes, set node properties via reflection, move nodes, save/close editor, create shaders from templates (surface, unlit, URP lit, transparent, post-process), inspect master node, and focus view on nodes.
+- Amplify toolset expanded from 9 to 23 commands.
+- Requires server v2.14.0+.
 
 ### v2.13.2
 

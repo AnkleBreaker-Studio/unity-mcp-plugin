@@ -73,6 +73,24 @@ namespace UnityMCP.Editor
                     "amplify/info",
                     "amplify/open",
                     "amplify/list-functions",
+                    "amplify/get-node-types",
+                    "amplify/get-nodes",
+                    "amplify/get-connections",
+                    "amplify/create-shader",
+                    "amplify/add-node",
+                    "amplify/remove-node",
+                    "amplify/connect",
+                    "amplify/disconnect",
+                    "amplify/node-info",
+                    "amplify/set-node-property",
+                    "amplify/move-node",
+                    "amplify/save",
+                    "amplify/close",
+                    "amplify/create-from-template",
+                    "amplify/focus-node",
+                    "amplify/master-node-info",
+                    "amplify/disconnect-all",
+                    "amplify/duplicate-node",
                 };
 
                 // Count amplify shaders
@@ -886,7 +904,1183 @@ namespace UnityMCP.Editor
             }
         }
 
-        // ─── Helpers ───
+        // ═══════════════════════════════════════════════════════════
+        // ─── Graph Manipulation Methods (NEW) ───
+        // ═══════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Add a node to the currently open Amplify graph.
+        /// </summary>
+        public static object AddAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeType"))
+                return new Dictionary<string, object> { { "error", "nodeType is required (e.g. 'ColorNode', 'SamplerNode', 'SimpleMultiplyOpNode')" } };
+
+            string nodeTypeName = args["nodeType"].ToString();
+            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
+            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify Shader Editor window is open. Open a shader first with amplify/open." } };
+
+                var asm = GetAmplifyAssembly();
+                if (asm == null)
+                    return new Dictionary<string, object> { { "error", "Amplify assembly not found" } };
+
+                // Find the node type
+                Type type = asm.GetType("AmplifyShaderEditor." + nodeTypeName);
+                if (type == null)
+                {
+                    // Try fuzzy search
+                    foreach (var t in asm.GetTypes())
+                    {
+                        if (t.Name.Equals(nodeTypeName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            type = t;
+                            break;
+                        }
+                    }
+                }
+
+                if (type == null)
+                    return new Dictionary<string, object> { { "error", $"Node type '{nodeTypeName}' not found. Use amplify/get-node-types to see available types." } };
+
+                // Use the window's CreateNode method
+                var createMethod = window.GetType().GetMethod("CreateNode",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(Type), typeof(Vector2), typeof(object), typeof(bool) },
+                    null);
+
+                object newNode = null;
+                if (createMethod != null)
+                {
+                    newNode = createMethod.Invoke(window, new object[] { type, new Vector2(posX, posY), null, true });
+                }
+                else
+                {
+                    // Fallback: try via ParentGraph.CreateNode
+                    var graph = GetCurrentGraph(window);
+                    if (graph == null)
+                        return new Dictionary<string, object> { { "error", "No graph loaded in the Amplify editor" } };
+
+                    var graphCreate = graph.GetType().GetMethod("CreateNode",
+                        BindingFlags.Public | BindingFlags.Instance,
+                        null,
+                        new Type[] { typeof(Type), typeof(bool), typeof(Vector2), typeof(int), typeof(bool) },
+                        null);
+
+                    if (graphCreate != null)
+                        newNode = graphCreate.Invoke(graph, new object[] { type, true, new Vector2(posX, posY), -1, true });
+                }
+
+                if (newNode == null)
+                    return new Dictionary<string, object> { { "error", "Failed to create node" } };
+
+                // Get the node's UniqueId
+                var uniqueIdProp = newNode.GetType().GetProperty("UniqueId");
+                string nodeId = uniqueIdProp?.GetValue(newNode)?.ToString() ?? "-1";
+
+                // Force repaint
+                var repaintMethod = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaintMethod?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "nodeId", nodeId },
+                    { "nodeType", type.Name },
+                    { "position", new Dictionary<string, object> { { "x", posX }, { "y", posY } } },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to add node: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Remove a node from the currently open Amplify graph.
+        /// </summary>
+        public static object RemoveAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                // Get the node by ID
+                var getNodeMethod = graph.GetType().GetMethod("GetNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new Type[] { typeof(int) }, null);
+
+                if (getNodeMethod == null)
+                    return new Dictionary<string, object> { { "error", "GetNode method not found" } };
+
+                var node = getNodeMethod.Invoke(graph, new object[] { nodeId });
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node with id {nodeId} not found" } };
+
+                // Check if it's a master node
+                var isMasterMethod = graph.GetType().GetMethod("IsMasterNode",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (isMasterMethod != null)
+                {
+                    bool isMaster = (bool)isMasterMethod.Invoke(graph, new object[] { node });
+                    if (isMaster)
+                        return new Dictionary<string, object> { { "error", "Cannot remove the master/output node" } };
+                }
+
+                // Destroy node via window
+                var destroyMethod = window.GetType().GetMethod("DestroyNode",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic,
+                    null, new Type[] { _parentNodeType, typeof(bool) }, null);
+
+                if (destroyMethod != null)
+                {
+                    destroyMethod.Invoke(window, new object[] { node, true });
+                }
+                else
+                {
+                    // Fallback: graph.DestroyNode(int)
+                    var graphDestroyMethod = graph.GetType().GetMethod("DestroyNode",
+                        BindingFlags.Public | BindingFlags.Instance,
+                        null, new Type[] { typeof(int) }, null);
+                    if (graphDestroyMethod != null)
+                        graphDestroyMethod.Invoke(graph, new object[] { nodeId });
+                    else
+                        return new Dictionary<string, object> { { "error", "DestroyNode method not found" } };
+                }
+
+                var repaintMethod = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaintMethod?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "removedNodeId", nodeId },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to remove node: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Connect two nodes in the currently open Amplify graph.
+        /// </summary>
+        public static object ConnectAmplifyNodes(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("outputNodeId") || !args.ContainsKey("inputNodeId"))
+                return new Dictionary<string, object> { { "error", "outputNodeId and inputNodeId are required" } };
+
+            int outNodeId = Convert.ToInt32(args["outputNodeId"]);
+            int outPortId = args.ContainsKey("outputPortId") ? Convert.ToInt32(args["outputPortId"]) : 0;
+            int inNodeId = Convert.ToInt32(args["inputNodeId"]);
+            int inPortId = args.ContainsKey("inputPortId") ? Convert.ToInt32(args["inputPortId"]) : 0;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                // Use window's ConnectInputToOutput method
+                var connectMethod = window.GetType().GetMethod("ConnectInputToOutput",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+
+                if (connectMethod != null)
+                {
+                    connectMethod.Invoke(window, new object[] { inNodeId, inPortId, outNodeId, outPortId, true });
+                }
+                else
+                {
+                    // Fallback: graph.CreateConnection
+                    var graph = GetCurrentGraph(window);
+                    if (graph == null)
+                        return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                    var createConn = graph.GetType().GetMethod("CreateConnection",
+                        BindingFlags.Public | BindingFlags.Instance);
+                    if (createConn != null)
+                        createConn.Invoke(graph, new object[] { inNodeId, inPortId, outNodeId, outPortId, true });
+                    else
+                        return new Dictionary<string, object> { { "error", "Connection method not found" } };
+                }
+
+                var repaintMethod = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaintMethod?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "outputNodeId", outNodeId },
+                    { "outputPortId", outPortId },
+                    { "inputNodeId", inNodeId },
+                    { "inputPortId", inPortId },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to connect nodes: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Disconnect a connection in the currently open Amplify graph.
+        /// </summary>
+        public static object DisconnectAmplifyNodes(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId") || !args.ContainsKey("portId"))
+                return new Dictionary<string, object> { { "error", "nodeId and portId are required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+            int portId = Convert.ToInt32(args["portId"]);
+            bool isInput = args.ContainsKey("isInput") ? Convert.ToBoolean(args["isInput"]) : true;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var deleteConnMethod = window.GetType().GetMethod("DeleteConnection",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(bool), typeof(int), typeof(int), typeof(bool), typeof(bool) },
+                    null);
+
+                if (deleteConnMethod != null)
+                {
+                    deleteConnMethod.Invoke(window, new object[] { isInput, nodeId, portId, true, true });
+                }
+                else
+                {
+                    var graph = GetCurrentGraph(window);
+                    if (graph == null)
+                        return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                    var graphDelete = graph.GetType().GetMethod("DeleteConnection",
+                        BindingFlags.Public | BindingFlags.Instance,
+                        null,
+                        new Type[] { typeof(bool), typeof(int), typeof(int), typeof(bool), typeof(bool), typeof(bool) },
+                        null);
+                    if (graphDelete != null)
+                        graphDelete.Invoke(graph, new object[] { isInput, nodeId, portId, true, true, true });
+                    else
+                        return new Dictionary<string, object> { { "error", "DeleteConnection method not found" } };
+                }
+
+                var repaintMethod = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaintMethod?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "nodeId", nodeId },
+                    { "portId", portId },
+                    { "isInput", isInput },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to disconnect: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Get detailed info about a specific node in the currently open Amplify graph.
+        /// </summary>
+        public static object GetAmplifyNodeInfo(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var getNodeMethod = graph.GetType().GetMethod("GetNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new Type[] { typeof(int) }, null);
+
+                if (getNodeMethod == null)
+                    return new Dictionary<string, object> { { "error", "GetNode method not found" } };
+
+                var node = getNodeMethod.Invoke(graph, new object[] { nodeId });
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node with id {nodeId} not found" } };
+
+                return ExtractNodeDetails(node);
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to get node info: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Set a property on a node in the currently open Amplify graph.
+        /// </summary>
+        public static object SetAmplifyNodeProperty(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId") || !args.ContainsKey("propertyName"))
+                return new Dictionary<string, object> { { "error", "nodeId and propertyName are required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+            string propName = args["propertyName"].ToString();
+            object value = args.ContainsKey("value") ? args["value"] : null;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var getNodeMethod = graph.GetType().GetMethod("GetNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new Type[] { typeof(int) }, null);
+
+                var node = getNodeMethod?.Invoke(graph, new object[] { nodeId });
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node with id {nodeId} not found" } };
+
+                // Try property first, then field
+                var prop = node.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (prop != null && prop.CanWrite)
+                {
+                    object converted = Convert.ChangeType(value, prop.PropertyType);
+                    prop.SetValue(node, converted);
+                }
+                else
+                {
+                    var field = node.GetType().GetField(propName,
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    if (field != null)
+                    {
+                        object converted = Convert.ChangeType(value, field.FieldType);
+                        field.SetValue(node, converted);
+                    }
+                    else
+                    {
+                        // List available properties for help
+                        var props = new List<string>();
+                        foreach (var p in node.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                        {
+                            if (p.CanWrite) props.Add(p.Name);
+                        }
+                        return new Dictionary<string, object>
+                        {
+                            { "error", $"Property '{propName}' not found or not writable on {node.GetType().Name}" },
+                            { "availableProperties", props.Take(30).ToArray() },
+                        };
+                    }
+                }
+
+                // Mark dirty and repaint
+                var setDirty = window.GetType().GetMethod("SetSaveIsDirty", BindingFlags.Public | BindingFlags.Instance);
+                setDirty?.Invoke(window, null);
+                var repaint = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaint?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "nodeId", nodeId },
+                    { "propertyName", propName },
+                    { "value", value?.ToString() ?? "null" },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to set property: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Move a node to a new position in the Amplify graph.
+        /// </summary>
+        public static object MoveAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
+            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var getNodeMethod = graph.GetType().GetMethod("GetNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new Type[] { typeof(int) }, null);
+
+                var node = getNodeMethod?.Invoke(graph, new object[] { nodeId });
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node with id {nodeId} not found" } };
+
+                // Set position via the Position property (returns a Rect)
+                var posProp = node.GetType().GetProperty("Position", BindingFlags.Public | BindingFlags.Instance);
+                if (posProp != null && posProp.CanWrite)
+                {
+                    var currentPos = (Rect)posProp.GetValue(node);
+                    currentPos.x = posX;
+                    currentPos.y = posY;
+                    posProp.SetValue(node, currentPos);
+                }
+                else
+                {
+                    // Try Vec2Position
+                    var vec2Prop = node.GetType().GetProperty("Vec2Position", BindingFlags.Public | BindingFlags.Instance);
+                    if (vec2Prop != null && vec2Prop.CanWrite)
+                        vec2Prop.SetValue(node, new Vector2(posX, posY));
+                    else
+                        return new Dictionary<string, object> { { "error", "Cannot set node position" } };
+                }
+
+                var repaint = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaint?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "nodeId", nodeId },
+                    { "position", new Dictionary<string, object> { { "x", posX }, { "y", posY } } },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to move node: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Save the currently open Amplify shader graph to disk.
+        /// </summary>
+        public static object SaveAmplifyGraph(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var saveMethod = window.GetType().GetMethod("SaveToDisk",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                if (saveMethod != null)
+                {
+                    saveMethod.Invoke(window, new object[] { false });
+                    return new Dictionary<string, object> { { "success", true }, { "note", "Graph saved to disk" } };
+                }
+
+                // Fallback: RequestSave
+                var requestSave = window.GetType().GetMethod("RequestSave", BindingFlags.Public | BindingFlags.Instance);
+                if (requestSave != null)
+                {
+                    requestSave.Invoke(window, null);
+                    return new Dictionary<string, object> { { "success", true }, { "note", "Save requested" } };
+                }
+
+                return new Dictionary<string, object> { { "error", "Save method not found" } };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to save: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Close the Amplify Shader Editor window.
+        /// </summary>
+        public static object CloseAmplifyEditor(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "success", true }, { "note", "No Amplify editor window was open" } };
+
+                bool save = args.ContainsKey("save") ? Convert.ToBoolean(args["save"]) : false;
+                if (save)
+                {
+                    var saveMethod = window.GetType().GetMethod("SaveToDisk",
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                    saveMethod?.Invoke(window, new object[] { false });
+                }
+
+                window.Close();
+                return new Dictionary<string, object> { { "success", true }, { "saved", save } };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to close: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Create a new Amplify shader from a template (Standard Surface, URP Lit, etc.).
+        /// </summary>
+        public static object CreateAmplifyFromTemplate(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("path"))
+                return new Dictionary<string, object> { { "error", "path is required" } };
+
+            string path = args["path"].ToString();
+            string shaderName = args.ContainsKey("shaderName") ? args["shaderName"].ToString() : Path.GetFileNameWithoutExtension(path);
+            string template = args.ContainsKey("template") ? args["template"].ToString().ToLower() : "surface";
+
+            try
+            {
+                // Ensure directory exists
+                string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
+                if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
+                {
+                    string[] parts = dir.Split('/');
+                    string curr = parts[0];
+                    for (int i = 1; i < parts.Length; i++)
+                    {
+                        string next = curr + "/" + parts[i];
+                        if (!AssetDatabase.IsValidFolder(next))
+                            AssetDatabase.CreateFolder(curr, parts[i]);
+                        curr = next;
+                    }
+                }
+
+                string shaderContent;
+                string templateUsed;
+
+                switch (template)
+                {
+                    case "unlit":
+                        shaderContent = GenerateAmplifyUnlitShader(shaderName);
+                        templateUsed = "Unlit";
+                        break;
+                    case "urp":
+                    case "urp_lit":
+                        shaderContent = GenerateAmplifyURPLitShader(shaderName);
+                        templateUsed = "URP Lit";
+                        break;
+                    case "transparent":
+                        shaderContent = GenerateAmplifyTransparentShader(shaderName);
+                        templateUsed = "Transparent";
+                        break;
+                    case "post_process":
+                    case "postprocess":
+                        shaderContent = GenerateAmplifyPostProcessShader(shaderName);
+                        templateUsed = "Post Process";
+                        break;
+                    default:
+                        shaderContent = GenerateMinimalAmplifyShader(shaderName);
+                        templateUsed = "Standard Surface";
+                        break;
+                }
+
+                string fullPath = Path.Combine(Application.dataPath, "..", path);
+                File.WriteAllText(fullPath, shaderContent);
+                AssetDatabase.ImportAsset(path);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "assetPath", path },
+                    { "shaderName", shaderName },
+                    { "template", templateUsed },
+                    { "note", "Shader created. Open it with amplify/open to start editing." },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to create shader: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Focus on a specific node in the Amplify editor (centers the view on it).
+        /// </summary>
+        public static object FocusAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+            float zoom = args.ContainsKey("zoom") ? Convert.ToSingle(args["zoom"]) : 1.0f;
+            bool select = args.ContainsKey("select") ? Convert.ToBoolean(args["select"]) : true;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var focusMethod = window.GetType().GetMethod("FocusOnNode",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(int), typeof(float), typeof(bool), typeof(bool) },
+                    null);
+
+                if (focusMethod != null)
+                {
+                    focusMethod.Invoke(window, new object[] { nodeId, zoom, select, false });
+                    return new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "nodeId", nodeId },
+                        { "zoom", zoom },
+                    };
+                }
+
+                return new Dictionary<string, object> { { "error", "FocusOnNode method not found" } };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to focus node: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Get info about the master/output node of the currently open shader.
+        /// </summary>
+        public static object GetAmplifyMasterNodeInfo(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var masterProp = graph.GetType().GetProperty("CurrentMasterNode");
+                if (masterProp == null)
+                    masterProp = graph.GetType().GetProperty("CurrentOutputNode");
+
+                var masterNode = masterProp?.GetValue(graph);
+                if (masterNode == null)
+                    return new Dictionary<string, object> { { "error", "Master node not found" } };
+
+                return ExtractNodeDetails(masterNode);
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to get master node: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Delete all connections from a specific node.
+        /// </summary>
+        public static object DisconnectAllAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var deleteAll = graph.GetType().GetMethod("DeleteAllConnectionFromNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(int), typeof(bool), typeof(bool), typeof(bool) },
+                    null);
+
+                if (deleteAll != null)
+                {
+                    deleteAll.Invoke(graph, new object[] { nodeId, true, true, true });
+                    var repaint = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                    repaint?.Invoke(window, null);
+
+                    return new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "nodeId", nodeId },
+                        { "note", "All connections removed from node" },
+                    };
+                }
+
+                return new Dictionary<string, object> { { "error", "DeleteAllConnectionFromNode method not found" } };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to disconnect all: {ex.Message}" } };
+            }
+        }
+
+        /// <summary>
+        /// Duplicate a node in the currently open Amplify graph.
+        /// </summary>
+        public static object DuplicateAmplifyNode(Dictionary<string, object> args)
+        {
+            if (!IsAmplifyInstalled())
+                return NotInstalledError();
+
+            if (!args.ContainsKey("nodeId"))
+                return new Dictionary<string, object> { { "error", "nodeId is required" } };
+
+            int nodeId = Convert.ToInt32(args["nodeId"]);
+            float offsetX = args.ContainsKey("offsetX") ? Convert.ToSingle(args["offsetX"]) : 50f;
+            float offsetY = args.ContainsKey("offsetY") ? Convert.ToSingle(args["offsetY"]) : 50f;
+
+            try
+            {
+                var window = GetOpenAmplifyWindow();
+                if (window == null)
+                    return new Dictionary<string, object> { { "error", "No Amplify editor window is open" } };
+
+                var graph = GetCurrentGraph(window);
+                if (graph == null)
+                    return new Dictionary<string, object> { { "error", "No graph loaded" } };
+
+                var getNodeMethod = graph.GetType().GetMethod("GetNode",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null, new Type[] { typeof(int) }, null);
+
+                var sourceNode = getNodeMethod?.Invoke(graph, new object[] { nodeId });
+                if (sourceNode == null)
+                    return new Dictionary<string, object> { { "error", $"Node with id {nodeId} not found" } };
+
+                // Get the source position and type
+                Type nodeT = sourceNode.GetType();
+                var posProp = sourceNode.GetType().GetProperty("Position", BindingFlags.Public | BindingFlags.Instance);
+                Rect sourcePos = posProp != null ? (Rect)posProp.GetValue(sourceNode) : new Rect(0, 0, 100, 100);
+
+                Vector2 newPos = new Vector2(sourcePos.x + offsetX, sourcePos.y + offsetY);
+
+                // Create new node of same type at offset position
+                var createMethod = window.GetType().GetMethod("CreateNode",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(Type), typeof(Vector2), typeof(object), typeof(bool) },
+                    null);
+
+                object newNode = null;
+                if (createMethod != null)
+                    newNode = createMethod.Invoke(window, new object[] { nodeT, newPos, null, true });
+                else
+                {
+                    var graphCreate = graph.GetType().GetMethod("CreateNode",
+                        BindingFlags.Public | BindingFlags.Instance,
+                        null,
+                        new Type[] { typeof(Type), typeof(bool), typeof(Vector2), typeof(int), typeof(bool) },
+                        null);
+                    if (graphCreate != null)
+                        newNode = graphCreate.Invoke(graph, new object[] { nodeT, true, newPos, -1, true });
+                }
+
+                if (newNode == null)
+                    return new Dictionary<string, object> { { "error", "Failed to create duplicate node" } };
+
+                var uniqueIdProp = newNode.GetType().GetProperty("UniqueId");
+                string newId = uniqueIdProp?.GetValue(newNode)?.ToString() ?? "-1";
+
+                var repaint = window.GetType().GetMethod("ForceRepaint", BindingFlags.Public | BindingFlags.Instance);
+                repaint?.Invoke(window, null);
+
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "sourceNodeId", nodeId },
+                    { "newNodeId", newId },
+                    { "nodeType", nodeT.Name },
+                    { "position", new Dictionary<string, object> { { "x", newPos.x }, { "y", newPos.y } } },
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object> { { "error", $"Failed to duplicate node: {ex.Message}" } };
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ─── Node Detail Extraction Helper ───
+        // ═══════════════════════════════════════════════════════════
+
+        private static Dictionary<string, object> ExtractNodeDetails(object node)
+        {
+            var info = new Dictionary<string, object>();
+            var nodeType = node.GetType();
+
+            info["typeName"] = nodeType.Name;
+
+            // UniqueId
+            var uidProp = nodeType.GetProperty("UniqueId");
+            if (uidProp != null) info["uniqueId"] = uidProp.GetValue(node)?.ToString() ?? "-1";
+
+            // Position
+            var posProp = nodeType.GetProperty("Position");
+            if (posProp != null)
+            {
+                var pos = posProp.GetValue(node);
+                if (pos is Rect r)
+                    info["position"] = new Dictionary<string, object> { { "x", r.x }, { "y", r.y }, { "width", r.width }, { "height", r.height } };
+            }
+
+            // Input ports
+            var inputsProp = nodeType.GetProperty("InputPorts");
+            if (inputsProp != null)
+            {
+                var inputs = inputsProp.GetValue(node);
+                if (inputs != null)
+                {
+                    var portList = new List<Dictionary<string, object>>();
+                    var enumerator = inputs.GetType().GetMethod("GetEnumerator")?.Invoke(inputs, null);
+                    if (enumerator != null)
+                    {
+                        var moveNext = enumerator.GetType().GetMethod("MoveNext");
+                        var current = enumerator.GetType().GetProperty("Current");
+                        int idx = 0;
+                        while ((bool)moveNext.Invoke(enumerator, null))
+                        {
+                            var port = current.GetValue(enumerator);
+                            if (port == null) { idx++; continue; }
+
+                            var portInfo = new Dictionary<string, object> { { "index", idx } };
+
+                            var nameProp = port.GetType().GetProperty("Name");
+                            if (nameProp != null) portInfo["name"] = nameProp.GetValue(port)?.ToString() ?? "";
+
+                            var dataTypeProp = port.GetType().GetProperty("DataType");
+                            if (dataTypeProp != null) portInfo["dataType"] = dataTypeProp.GetValue(port)?.ToString() ?? "";
+
+                            var isConnProp = port.GetType().GetProperty("IsConnected");
+                            if (isConnProp != null) portInfo["isConnected"] = isConnProp.GetValue(port);
+
+                            var portIdProp = port.GetType().GetProperty("PortId");
+                            if (portIdProp != null) portInfo["portId"] = portIdProp.GetValue(port)?.ToString() ?? "";
+
+                            portList.Add(portInfo);
+                            idx++;
+                        }
+                    }
+                    info["inputPorts"] = portList.ToArray();
+                }
+            }
+
+            // Output ports
+            var outputsProp = nodeType.GetProperty("OutputPorts");
+            if (outputsProp != null)
+            {
+                var outputs = outputsProp.GetValue(node);
+                if (outputs != null)
+                {
+                    var portList = new List<Dictionary<string, object>>();
+                    var enumerator = outputs.GetType().GetMethod("GetEnumerator")?.Invoke(outputs, null);
+                    if (enumerator != null)
+                    {
+                        var moveNext = enumerator.GetType().GetMethod("MoveNext");
+                        var current = enumerator.GetType().GetProperty("Current");
+                        int idx = 0;
+                        while ((bool)moveNext.Invoke(enumerator, null))
+                        {
+                            var port = current.GetValue(enumerator);
+                            if (port == null) { idx++; continue; }
+
+                            var portInfo = new Dictionary<string, object> { { "index", idx } };
+
+                            var nameProp = port.GetType().GetProperty("Name");
+                            if (nameProp != null) portInfo["name"] = nameProp.GetValue(port)?.ToString() ?? "";
+
+                            var dataTypeProp = port.GetType().GetProperty("DataType");
+                            if (dataTypeProp != null) portInfo["dataType"] = dataTypeProp.GetValue(port)?.ToString() ?? "";
+
+                            var isConnProp = port.GetType().GetProperty("IsConnected");
+                            if (isConnProp != null) portInfo["isConnected"] = isConnProp.GetValue(port);
+
+                            var portIdProp = port.GetType().GetProperty("PortId");
+                            if (portIdProp != null) portInfo["portId"] = portIdProp.GetValue(port)?.ToString() ?? "";
+
+                            portList.Add(portInfo);
+                            idx++;
+                        }
+                    }
+                    info["outputPorts"] = portList.ToArray();
+                }
+            }
+
+            return info;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ─── Template Generators ───
+        // ═══════════════════════════════════════════════════════════
+
+        private static string GenerateAmplifyUnlitShader(string shaderName)
+        {
+            return $@"Shader ""{shaderName}""
+{{
+    Properties
+    {{
+        _MainTex (""Texture"", 2D) = ""white"" {{}}
+        _Color (""Color"", Color) = (1,1,1,1)
+    }}
+    SubShader
+    {{
+        Tags {{ ""RenderType""=""Opaque"" }}
+        LOD 100
+        Pass
+        {{
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include ""UnityCG.cginc""
+
+            struct appdata {{ float4 vertex : POSITION; float2 uv : TEXCOORD0; }};
+            struct v2f {{ float2 uv : TEXCOORD0; float4 vertex : SV_POSITION; }};
+
+            sampler2D _MainTex;
+            float4 _MainTex_ST;
+            fixed4 _Color;
+
+            v2f vert (appdata v)
+            {{
+                v2f o;
+                o.vertex = UnityObjectToClipPos(v.vertex);
+                o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                return o;
+            }}
+
+            fixed4 frag (v2f i) : SV_Target
+            {{
+                return tex2D(_MainTex, i.uv) * _Color;
+            }}
+            ENDCG
+        }}
+    }}
+    FallBack ""Unlit/Texture""
+    //ASEBEGIN
+    //ASEEND
+    CustomEditor ""AmplifyShaderEditor.MaterialInspector""
+}}";
+        }
+
+        private static string GenerateAmplifyURPLitShader(string shaderName)
+        {
+            return $@"Shader ""{shaderName}""
+{{
+    Properties
+    {{
+        _BaseColor (""Base Color"", Color) = (1,1,1,1)
+        _BaseMap (""Base Map"", 2D) = ""white"" {{}}
+        _Smoothness (""Smoothness"", Range(0,1)) = 0.5
+        _Metallic (""Metallic"", Range(0,1)) = 0.0
+        [Normal] _BumpMap (""Normal Map"", 2D) = ""bump"" {{}}
+    }}
+    SubShader
+    {{
+        Tags {{ ""RenderType""=""Opaque"" ""RenderPipeline""=""UniversalPipeline"" }}
+        LOD 300
+
+        CGPROGRAM
+        #pragma surface surf Standard fullforwardshadows
+        #pragma target 3.0
+
+        sampler2D _BaseMap;
+        sampler2D _BumpMap;
+        half4 _BaseColor;
+        half _Smoothness;
+        half _Metallic;
+
+        struct Input
+        {{
+            float2 uv_BaseMap;
+            float2 uv_BumpMap;
+        }};
+
+        void surf (Input IN, inout SurfaceOutputStandard o)
+        {{
+            fixed4 c = tex2D(_BaseMap, IN.uv_BaseMap) * _BaseColor;
+            o.Albedo = c.rgb;
+            o.Normal = UnpackNormal(tex2D(_BumpMap, IN.uv_BumpMap));
+            o.Metallic = _Metallic;
+            o.Smoothness = _Smoothness;
+            o.Alpha = c.a;
+        }}
+        ENDCG
+    }}
+    FallBack ""Universal Render Pipeline/Lit""
+    //ASEBEGIN
+    //ASEEND
+    CustomEditor ""AmplifyShaderEditor.MaterialInspector""
+}}";
+        }
+
+        private static string GenerateAmplifyTransparentShader(string shaderName)
+        {
+            return $@"Shader ""{shaderName}""
+{{
+    Properties
+    {{
+        _Color (""Color"", Color) = (1,1,1,0.5)
+        _MainTex (""Texture"", 2D) = ""white"" {{}}
+    }}
+    SubShader
+    {{
+        Tags {{ ""Queue""=""Transparent"" ""RenderType""=""Transparent"" }}
+        LOD 200
+        Blend SrcAlpha OneMinusSrcAlpha
+        ZWrite Off
+
+        CGPROGRAM
+        #pragma surface surf Standard alpha:fade fullforwardshadows
+        #pragma target 3.0
+
+        sampler2D _MainTex;
+        fixed4 _Color;
+
+        struct Input
+        {{
+            float2 uv_MainTex;
+        }};
+
+        void surf (Input IN, inout SurfaceOutputStandard o)
+        {{
+            fixed4 c = tex2D(_MainTex, IN.uv_MainTex) * _Color;
+            o.Albedo = c.rgb;
+            o.Alpha = c.a;
+        }}
+        ENDCG
+    }}
+    FallBack ""Transparent/Diffuse""
+    //ASEBEGIN
+    //ASEEND
+    CustomEditor ""AmplifyShaderEditor.MaterialInspector""
+}}";
+        }
+
+        private static string GenerateAmplifyPostProcessShader(string shaderName)
+        {
+            return $@"Shader ""{shaderName}""
+{{
+    Properties
+    {{
+        _MainTex (""Texture"", 2D) = ""white"" {{}}
+        _Intensity (""Effect Intensity"", Range(0,1)) = 1.0
+    }}
+    SubShader
+    {{
+        Tags {{ ""RenderType""=""Opaque"" }}
+        LOD 100
+        ZTest Always ZWrite Off Cull Off
+
+        Pass
+        {{
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include ""UnityCG.cginc""
+
+            struct appdata {{ float4 vertex : POSITION; float2 uv : TEXCOORD0; }};
+            struct v2f {{ float2 uv : TEXCOORD0; float4 vertex : SV_POSITION; }};
+
+            sampler2D _MainTex;
+            float _Intensity;
+
+            v2f vert (appdata v)
+            {{
+                v2f o;
+                o.vertex = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                return o;
+            }}
+
+            fixed4 frag (v2f i) : SV_Target
+            {{
+                return tex2D(_MainTex, i.uv) * _Intensity;
+            }}
+            ENDCG
+        }}
+    }}
+    FallBack Off
+    //ASEBEGIN
+    //ASEEND
+    CustomEditor ""AmplifyShaderEditor.MaterialInspector""
+}}";
+        }
+
+        // ─── Original Helpers ───
 
         private static EditorWindow GetOpenAmplifyWindow()
         {

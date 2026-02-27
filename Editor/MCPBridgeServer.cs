@@ -655,6 +655,34 @@ namespace UnityMCP.Editor
                     return MCPAmplifyCommands.GetAmplifyGraphConnections(ParseJson(body));
                 case "amplify/create-shader":
                     return MCPAmplifyCommands.CreateAmplifyShader(ParseJson(body));
+                case "amplify/add-node":
+                    return MCPAmplifyCommands.AddAmplifyNode(ParseJson(body));
+                case "amplify/remove-node":
+                    return MCPAmplifyCommands.RemoveAmplifyNode(ParseJson(body));
+                case "amplify/connect":
+                    return MCPAmplifyCommands.ConnectAmplifyNodes(ParseJson(body));
+                case "amplify/disconnect":
+                    return MCPAmplifyCommands.DisconnectAmplifyNodes(ParseJson(body));
+                case "amplify/node-info":
+                    return MCPAmplifyCommands.GetAmplifyNodeInfo(ParseJson(body));
+                case "amplify/set-node-property":
+                    return MCPAmplifyCommands.SetAmplifyNodeProperty(ParseJson(body));
+                case "amplify/move-node":
+                    return MCPAmplifyCommands.MoveAmplifyNode(ParseJson(body));
+                case "amplify/save":
+                    return MCPAmplifyCommands.SaveAmplifyGraph(ParseJson(body));
+                case "amplify/close":
+                    return MCPAmplifyCommands.CloseAmplifyEditor(ParseJson(body));
+                case "amplify/create-from-template":
+                    return MCPAmplifyCommands.CreateAmplifyFromTemplate(ParseJson(body));
+                case "amplify/focus-node":
+                    return MCPAmplifyCommands.FocusAmplifyNode(ParseJson(body));
+                case "amplify/master-node-info":
+                    return MCPAmplifyCommands.GetAmplifyMasterNodeInfo(ParseJson(body));
+                case "amplify/disconnect-all":
+                    return MCPAmplifyCommands.DisconnectAllAmplifyNode(ParseJson(body));
+                case "amplify/duplicate-node":
+                    return MCPAmplifyCommands.DuplicateAmplifyNode(ParseJson(body));
 
                 // ─── Agent Management ───
                 case "agents/list":

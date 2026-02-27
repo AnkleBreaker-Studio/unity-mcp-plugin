@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.9.1-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.10.6-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -46,13 +46,13 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 |----------|-------------------|
 | **Scenes** | Open, save, create scenes; browse full hierarchy tree |
 | **GameObjects** | Create primitives or empties, delete, inspect, set transforms |
-| **Components** | Add/remove components, get/set any serialized property |
+| **Components** | Add/remove components, get/set any serialized property, wire ObjectReferences between components |
 | **Assets** | List, import, delete assets; create prefabs and materials |
 | **Scripts** | Create, read, update C# scripts |
 | **Builds** | Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL) |
 | **Console** | Read errors/warnings/logs, clear console |
 | **Play Mode** | Play, pause, stop |
-| **Editor** | Execute menu items, run arbitrary C# code, check state, get project info |
+| **Editor** | Execute menu items, run arbitrary C# code (Roslyn compiler), check state, get project info |
 
 ### Extended Capabilities
 
@@ -176,6 +176,7 @@ Settings are stored in `EditorPrefs` and persist across sessions.
 
 - **Unity 2021.3 LTS** or newer (tested on 2022.3 LTS and Unity 6)
 - .NET Standard 2.1 or .NET Framework
+- Unity 6000+ (CoreCLR) fully supported — uses Roslyn compiler for `execute_code`
 
 ### Optional Packages
 
@@ -210,6 +211,24 @@ Contributions are welcome! This is an open-source project by [AnkleBreaker Consu
 4. Submit a pull request
 
 Please also check out the companion server repo: [Unity MCP — Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
+
+---
+
+## Changelog
+
+### v2.10.6
+
+- **Roslyn compiler for `execute_code`** — Replaced CodeDom/mcs with Microsoft.CodeAnalysis.CSharp (Roslyn). This fixes Windows path-length errors and .NET Standard facade conflicts on Unity 6000+ (CoreCLR). Complex code using Dictionary, LINQ, scene queries, and full Unity API now compiles reliably.
+- **ObjectReference wiring via `set_property`** — The `set_property` command now resolves ObjectReference values from JSON objects (`{"instanceId": ...}`, `{"assetPath": ...}`, `{"gameObject": ..., "componentType": ...}`), plain asset paths, scene hierarchy paths, or GameObject names.
+- **New: `set_reference` tool** — Dedicated tool for wiring ObjectReference properties between components, GameObjects, and assets. Supports resolution by asset path, scene object name/path, component type, or instance ID. Auto-searches all components when `componentType` is omitted.
+- **New: `batch_wire` tool** — Wire multiple ObjectReference properties in a single call. Inherits parent-level `path` and `componentType` into each reference entry for convenience.
+- **New: `get_referenceable` tool** — Discover what objects can be assigned to an ObjectReference property. Returns matching scene objects and assets filtered by the property's expected type.
+
+### v2.9.1
+
+- Multi-agent async queue system with ticket-based scheduling
+- Dashboard GUI with live queue state, agent sessions, and category toggles
+- Desktop Extension (.mcpb) packaging support
 
 ---
 

@@ -216,6 +216,11 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 
 ## Changelog
 
+### v2.13.0
+
+- **Graphics & visual intelligence** — New `MCPGraphicsCommands` class with 9 tools for visual inspection and graphical metadata. Asset preview thumbnails, Scene View capture, Game View capture, prefab rendering from configurable angles — all returned as base64 PNG for inline MCP image content blocks. Plus deep metadata: mesh geometry (vertices, triangles, UVs, blend shapes, bones), material shader properties (all property types, keywords, texture slots), texture analysis (format, compression, mipmaps, memory estimate), renderer settings (materials, bounds, shadows, sorting), and scene lighting summary.
+- Routes: `graphics/asset-preview`, `graphics/scene-capture`, `graphics/game-capture`, `graphics/prefab-render`, `graphics/mesh-info`, `graphics/material-info`, `graphics/texture-info`, `graphics/renderer-info`, `graphics/lighting-summary`.
+
 ### v2.12.0
 
 - **Prefab variant management** — 5 new tools for inspecting and managing prefab variant relationships. Get variant info and find all variants of a base, compare variant overrides to base, apply overrides to base, revert overrides, and transfer overrides between variants.

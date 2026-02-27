@@ -728,6 +728,26 @@ namespace UnityMCP.Editor
                 case "sceneview/set-camera":
                     return MCPScreenshotCommands.SetSceneViewCamera(ParseJson(body));
 
+                // ─── Graphics & Visuals ───
+                case "graphics/asset-preview":
+                    return MCPGraphicsCommands.CaptureAssetPreview(ParseJson(body));
+                case "graphics/scene-capture":
+                    return MCPGraphicsCommands.CaptureSceneView(ParseJson(body));
+                case "graphics/game-capture":
+                    return MCPGraphicsCommands.CaptureGameView(ParseJson(body));
+                case "graphics/prefab-render":
+                    return MCPGraphicsCommands.RenderPrefabPreview(ParseJson(body));
+                case "graphics/mesh-info":
+                    return MCPGraphicsCommands.GetMeshInfo(ParseJson(body));
+                case "graphics/material-info":
+                    return MCPGraphicsCommands.GetMaterialInfo(ParseJson(body));
+                case "graphics/texture-info":
+                    return MCPGraphicsCommands.GetTextureInfo(ParseJson(body));
+                case "graphics/renderer-info":
+                    return MCPGraphicsCommands.GetRendererInfo(ParseJson(body));
+                case "graphics/lighting-summary":
+                    return MCPGraphicsCommands.GetLightingSummary(ParseJson(body));
+
                 // ─── Terrain ───
                 case "terrain/create":
                     return MCPTerrainCommands.CreateTerrain(ParseJson(body));

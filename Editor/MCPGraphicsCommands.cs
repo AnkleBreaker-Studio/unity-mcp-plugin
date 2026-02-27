@@ -241,26 +241,52 @@ namespace UnityMCP.Editor
             if (prefab == null)
                 return new { error = $"Prefab not found at '{assetPath}'" };
 
-            // Instantiate in an isolated context
+            // SAFETY: Deactivate prefab before instantiation to prevent Awake/OnEnable
+            // from firing on runtime scripts (NavMeshAgent, NetworkBehaviour, etc.)
+            // that can crash the editor when called outside of Play mode.
+            bool wasActive = prefab.activeSelf;
             GameObject instance = null;
+            GameObject lightGO = null;
             GameObject cameraGO = null;
             RenderTexture rt = null;
             Texture2D tex = null;
             try
             {
+                prefab.SetActive(false);
                 instance = UnityEngine.Object.Instantiate(prefab);
+                prefab.SetActive(wasActive); // Restore immediately
+
+                instance.hideFlags = HideFlags.HideAndDontSave;
                 instance.transform.position = Vector3.zero;
                 instance.transform.rotation = Quaternion.identity;
-                instance.hideFlags = HideFlags.HideAndDontSave;
+
+                // Strip ALL MonoBehaviours to prevent any editor-time side effects
+                var behaviours = instance.GetComponentsInChildren<MonoBehaviour>(true);
+                foreach (var b in behaviours)
+                {
+                    if (b != null)
+                        UnityEngine.Object.DestroyImmediate(b);
+                }
+
+                // Now safely activate the stripped instance so renderers are visible
+                instance.SetActive(true);
+                // Also activate all children (they may have been inactive)
+                foreach (Transform child in instance.GetComponentsInChildren<Transform>(true))
+                    child.gameObject.SetActive(true);
 
                 // Compute bounds of all renderers
                 var renderers = instance.GetComponentsInChildren<Renderer>();
                 if (renderers.Length == 0)
-                    return new { error = "Prefab has no renderers — nothing to capture" };
+                    return new Dictionary<string, object> { { "error", "Prefab has no renderers — nothing to capture" } };
 
                 Bounds bounds = renderers[0].bounds;
                 for (int i = 1; i < renderers.Length; i++)
                     bounds.Encapsulate(renderers[i].bounds);
+
+                // Guard against degenerate bounds (e.g. particles with no mesh)
+                float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
+                if (maxExtent < 0.001f)
+                    maxExtent = 1f;
 
                 // Create a temporary camera
                 cameraGO = new GameObject("__MCP_PreviewCam__");
@@ -270,16 +296,33 @@ namespace UnityMCP.Editor
                 cam.backgroundColor = new Color(0.2f, 0.2f, 0.2f, 1f);
                 cam.nearClipPlane = 0.01f;
                 cam.farClipPlane = 1000f;
+                cam.enabled = false; // We call Render() manually
+
+                // Add URP camera data if available (avoids pink/broken rendering)
+#if UNITY_2019_3_OR_NEWER
+                var urpCamDataType = System.Type.GetType("UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
+                if (urpCamDataType != null)
+                    cameraGO.AddComponent(urpCamDataType);
+#endif
+
+                // Add a temporary directional light so the model isn't pitch black
+                lightGO = new GameObject("__MCP_PreviewLight__");
+                lightGO.hideFlags = HideFlags.HideAndDontSave;
+                var light = lightGO.AddComponent<Light>();
+                light.type = LightType.Directional;
+                light.color = Color.white;
+                light.intensity = 1.0f;
+                lightGO.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
 
                 // Position camera at angle looking at bounds center
-                float maxExtent = Mathf.Max(bounds.extents.x, bounds.extents.y, bounds.extents.z);
                 float distance = maxExtent * padding / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
                 Quaternion rotation = Quaternion.Euler(rotX, rotY, 0);
                 cam.transform.position = bounds.center + rotation * (Vector3.back * distance);
                 cam.transform.LookAt(bounds.center);
 
                 // Render
-                rt = new RenderTexture(width, height, 24);
+                rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+                rt.Create();
                 cam.targetTexture = rt;
                 cam.Render();
 
@@ -288,6 +331,7 @@ namespace UnityMCP.Editor
                 tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 tex.Apply();
 
+                cam.targetTexture = null;
                 string base64 = TextureToBase64(tex);
 
                 return new Dictionary<string, object>
@@ -300,11 +344,23 @@ namespace UnityMCP.Editor
                     { "rendererCount", renderers.Length },
                 };
             }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"RenderPrefabPreview failed: {ex.Message}" },
+                };
+            }
             finally
             {
+                // Restore prefab state in case of early exit
+                if (!wasActive) { /* was already inactive, leave it */ }
+                else if (prefab != null) prefab.SetActive(true);
+
                 RenderTexture.active = null;
                 if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
-                if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
+                if (rt != null) { rt.Release(); UnityEngine.Object.DestroyImmediate(rt); }
+                if (lightGO != null) UnityEngine.Object.DestroyImmediate(lightGO);
                 if (cameraGO != null) UnityEngine.Object.DestroyImmediate(cameraGO);
                 if (instance != null) UnityEngine.Object.DestroyImmediate(instance);
             }

@@ -72,36 +72,44 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Filter assembly references to only essential ones, using short paths where possible.
-        /// The Windows path length bug occurs because CodeDom builds a command line with ALL
-        /// assembly paths as -r: flags. With 200+ assemblies in long Unity paths, it overflows.
+        /// Write all assembly references to a response file (.rsp) and pass it via CompilerOptions.
+        /// This bypasses the Windows command line length limit (~32KB) which CodeDom hits when
+        /// putting hundreds of -r:"long/unity/path/assembly.dll" flags directly on the command line.
+        /// The response file can be any length, so all assemblies are available for user code.
         /// </summary>
-        private static void AddFilteredAssemblyReferences(System.CodeDom.Compiler.CompilerParameters parameters)
+        private static void WriteAssemblyReferencesToResponseFile(System.CodeDom.Compiler.CompilerParameters parameters, string tempDir)
         {
             var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string rspPath = Path.Combine(tempDir, "refs.rsp");
 
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            using (var writer = new StreamWriter(rspPath, false, System.Text.Encoding.UTF8))
             {
-                try
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    // Skip dynamic assemblies (no location)
-                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
-                        continue;
+                    try
+                    {
+                        if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
+                            continue;
 
-                    // Skip duplicate assembly names
-                    string asmName = assembly.GetName().Name;
-                    if (addedNames.Contains(asmName))
-                        continue;
+                        string asmName = assembly.GetName().Name;
+                        if (addedNames.Contains(asmName))
+                            continue;
 
-                    // Skip test/editor-only assemblies that are rarely needed
-                    if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
-                        continue;
+                        // Skip test assemblies that are rarely needed
+                        if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
+                            continue;
 
-                    addedNames.Add(asmName);
-                    parameters.ReferencedAssemblies.Add(assembly.Location);
+                        addedNames.Add(asmName);
+                        writer.WriteLine($"-r:\"{assembly.Location}\"");
+                    }
+                    catch { }
                 }
-                catch { }
             }
+
+            // Pass response file via CompilerOptions — avoids putting refs on the command line
+            // Do NOT add anything to parameters.ReferencedAssemblies (that would go on command line)
+            string existingOptions = parameters.CompilerOptions ?? "";
+            parameters.CompilerOptions = $"{existingOptions} @\"{rspPath}\"".Trim();
         }
 
         public static object ExecuteCode(Dictionary<string, object> args)
@@ -134,12 +142,13 @@ public static class MCPDynamicCode
                 var provider = new Microsoft.CSharp.CSharpCodeProvider();
                 var parameters = new System.CodeDom.Compiler.CompilerParameters();
 
-                // Use short temp directory to avoid Windows 260-char path limit
+                // Use short temp directory to avoid Windows path length issues
                 string tempDir = GetShortTempDir();
                 parameters.TempFiles = new System.CodeDom.Compiler.TempFileCollection(tempDir, false);
 
-                // Add filtered assembly references (skip duplicates and test assemblies)
-                AddFilteredAssemblyReferences(parameters);
+                // Write assembly references to a .rsp response file instead of command line
+                // This bypasses Windows' ~32KB command line limit that CodeDom hits with 200+ assemblies
+                WriteAssemblyReferencesToResponseFile(parameters, tempDir);
 
                 parameters.GenerateInMemory = true;
                 parameters.GenerateExecutable = false;

@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.17.0-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.18.0-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
   <a href="https://discord.gg/Q2XmedUctz"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white"></a>
@@ -39,7 +39,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor. Each instance auto-selects a port from the range `7890–7899` and registers itself in a shared file, so the MCP Server can discover and route to any running Unity Editor — even when multiple instances are open simultaneously (e.g. different projects, or [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones for multiplayer testing). The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **259 tools** to AI agents across **24 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor. Each instance auto-selects a port from the range `7890–7899` and registers itself in a shared file, so the MCP Server can discover and route to any running Unity Editor — even when multiple instances are open simultaneously (e.g. different projects, or [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones for multiplayer testing). The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **285 tools** to AI agents across **25 feature categories**.
 
 ### Core Capabilities
 
@@ -68,6 +68,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor. Each instan
 | **Selection** | Get/set editor selection, find objects by name/tag/component |
 | **Input Actions** | List action maps, actions, and bindings (Input System) |
 | **Assembly Defs** | List, inspect, create, update .asmdef files |
+| **Terrain** | Create terrains, heightmaps (raise/lower, smooth, noise, import/export), splat layers (add/remove/paint/fill), trees (prototypes, place, clear), details/grass (paint, scatter), holes, settings, resize, multi-terrain grids, neighbor stitching, steepness |
 
 ### Profiling & Debugging
 
@@ -159,7 +160,7 @@ Open **Window > AB Unity MCP** to access:
 - **Agent Sessions** — connected agents with action counts, queue stats, average response time
 - **Recent Actions** — last 8 actions across all agents with status, timing, and category
 - **Project Context** — configure auto-injected project documentation
-- Per-category feature toggles (enable/disable any of the 24 categories)
+- Per-category feature toggles (enable/disable any of the 25 categories)
 - Port display (auto-selected or manual) with ParrelSync clone indicator
 - Auto-start, manual port, and action history persistence settings
 - Version display with update checker
@@ -272,6 +273,14 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.18.0
+
+- **Comprehensive terrain tools** — 32 new terrain command methods in `MCPTerrainCommands.cs` (up from 6). Full terrain manipulation: create terrains, get info, list terrains, heightmap operations (set height, flatten, raise/lower, smooth, noise, region get/set, import/export RAW16), splat layer management (add/remove/paint/fill), tree system (add/remove prototypes, place/clear trees, get instances), detail/grass (add prototypes, paint/scatter/clear), hole painting, terrain settings, resize, multi-terrain grid creation, neighbor stitching, and steepness queries.
+- **26 new routes** registered in `MCPBridgeServer.cs` for all terrain operations.
+- **`_meta/routes` endpoint** — New meta endpoint that returns all registered routes grouped by category. Enables dynamic tool discovery by the MCP server without requiring a server restart when new tools are added.
+- **Terrain category** added to `MCPSettingsManager` — terrain tools can be toggled on/off from the dashboard. Total categories: 25.
+- Requires server v2.19.0+.
 
 ### v2.17.0
 

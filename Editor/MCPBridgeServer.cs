@@ -309,12 +309,119 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
+        /// Returns all registered routes for dynamic tool discovery.
+        /// Used by the MCP server's lazy loading system to discover tools
+        /// added to the plugin without needing a server restart.
+        /// </summary>
+        private static object GetRegisteredRoutes()
+        {
+            // We collect routes by reflecting on the switch cases in RouteRequest.
+            // Since C# doesn't easily let us introspect switch cases at runtime,
+            // we maintain a static list of all registered route prefixes/categories.
+            var routes = new List<string>
+            {
+                "ping",
+                "editor/state", "editor/play-mode", "editor/execute-menu-item", "editor/undo", "editor/redo", "editor/undo-history",
+                "scene/info", "scene/open", "scene/save", "scene/new", "scene/hierarchy", "scene/stats",
+                "gameobject/create", "gameobject/delete", "gameobject/info", "gameobject/set-transform",
+                "gameobject/duplicate", "gameobject/set-active", "gameobject/reparent",
+                "component/add", "component/remove", "component/get-properties", "component/set-property",
+                "component/set-reference", "component/batch-wire", "component/get-referenceable",
+                "asset/list", "asset/import", "asset/delete", "asset/create-prefab", "asset/instantiate-prefab",
+                "script/create", "script/read", "script/update", "script/execute-code",
+                "material/create", "material/set-material",
+                "build/build", "build/play-mode",
+                "console/log", "console/clear",
+                "selection/get", "selection/set", "selection/focus-scene-view", "selection/find-by-type",
+                "search/by-component", "search/by-tag", "search/by-layer", "search/by-name",
+                "search/assets", "search/missing-references",
+                "screenshot/game", "screenshot/scene",
+                "prefab/info", "prefab/set-object-reference",
+                "packages/list", "packages/add", "packages/remove", "packages/search", "packages/info",
+                "project/info",
+                // Animation
+                "animation/create-controller", "animation/get-controller", "animation/add-state",
+                "animation/remove-state", "animation/add-transition", "animation/remove-transition",
+                "animation/set-parameter", "animation/remove-parameter", "animation/get-parameters",
+                "animation/create-clip", "animation/set-clip-curve", "animation/get-clip-info",
+                "animation/set-state-motion", "animation/add-layer", "animation/remove-layer",
+                "animation/get-layers", "animation/set-default-state", "animation/add-blend-tree",
+                // Physics
+                "physics/raycast", "physics/overlap-sphere", "physics/settings",
+                "physics/add-joint", "physics/get-joint", "physics/set-joint",
+                // Audio
+                "audio/play", "audio/stop", "audio/get-info", "audio/set-property",
+                // UI
+                "ui/create-canvas", "ui/add-element", "ui/set-rect", "ui/set-text",
+                "ui/set-image", "ui/set-button", "ui/get-hierarchy",
+                // Lighting
+                "lighting/create", "lighting/set-property", "lighting/bake", "lighting/get-settings",
+                "lighting/set-settings", "lighting/get-probes",
+                // NavMesh
+                "navmesh/bake", "navmesh/add-agent", "navmesh/set-area", "navmesh/get-info",
+                "navmesh/add-obstacle", "navmesh/add-link",
+                // ShaderGraph
+                "shadergraph/create", "shadergraph/get-info", "shadergraph/add-node",
+                "shadergraph/remove-node", "shadergraph/connect", "shadergraph/disconnect",
+                "shadergraph/set-property", "shadergraph/list-nodes", "shadergraph/get-connections",
+                // Amplify
+                "amplify/list", "amplify/info", "amplify/open", "amplify/list-functions",
+                "amplify/get-node-types", "amplify/get-nodes", "amplify/get-connections",
+                "amplify/create-shader", "amplify/add-node", "amplify/remove-node",
+                "amplify/connect", "amplify/disconnect", "amplify/node-info",
+                "amplify/set-node-property", "amplify/move-node",
+                // Graphics
+                "graphics/camera-info", "graphics/render-settings", "graphics/set-render-settings",
+                "graphics/texture-info", "graphics/renderer-info", "graphics/lighting-summary",
+                // Terrain
+                "terrain/create", "terrain/info", "terrain/set-height", "terrain/flatten",
+                "terrain/add-layer", "terrain/get-height", "terrain/list",
+                "terrain/raise-lower", "terrain/smooth", "terrain/noise",
+                "terrain/set-heights-region", "terrain/get-heights-region",
+                "terrain/remove-layer", "terrain/paint-layer", "terrain/fill-layer",
+                "terrain/add-tree-prototype", "terrain/remove-tree-prototype",
+                "terrain/place-trees", "terrain/clear-trees", "terrain/get-tree-instances",
+                "terrain/add-detail-prototype", "terrain/paint-detail",
+                "terrain/scatter-detail", "terrain/clear-detail",
+                "terrain/set-holes", "terrain/set-settings", "terrain/resize",
+                "terrain/create-grid", "terrain/set-neighbors",
+                "terrain/import-heightmap", "terrain/export-heightmap", "terrain/get-steepness",
+                // Particle System
+                "particle/create", "particle/info", "particle/set-main", "particle/set-emission",
+                "particle/set-shape", "particle/set-velocity", "particle/set-color",
+                "particle/set-size", "particle/set-renderer",
+            };
+
+            // Group by category
+            var grouped = new Dictionary<string, List<string>>();
+            foreach (var route in routes)
+            {
+                string cat = ExtractCategory(route);
+                if (!grouped.ContainsKey(cat)) grouped[cat] = new List<string>();
+                grouped[cat].Add(route);
+            }
+
+            return new Dictionary<string, object>
+            {
+                { "routes", routes },
+                { "categories", grouped },
+                { "totalRoutes", routes.Count }
+            };
+        }
+
+        /// <summary>
         /// Route API requests to the appropriate handler.
         /// NOTE: This entire method runs on the main thread (dispatched by HandleRequest
         /// or by MCPRequestQueue.ProcessNextRequests), so all Unity APIs work correctly.
         /// </summary>
         private static object RouteRequest(string path, string method, string body)
         {
+            // ─── Meta endpoints (no category check) ───
+            if (path == "_meta/routes")
+            {
+                return GetRegisteredRoutes();
+            }
+
             // Check if category is enabled
             string category = ExtractCategory(path);
             if (category != "ping" && category != "agents" && category != "queue"

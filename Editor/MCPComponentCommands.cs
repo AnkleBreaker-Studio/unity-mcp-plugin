@@ -482,6 +482,20 @@ namespace UnityMCP.Editor
                 if (t != null) return t;
             }
 
+            // Fallback: search by short class name across all assemblies
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    foreach (var type in assembly.GetTypes())
+                    {
+                        if (type.Name == name)
+                            return type;
+                    }
+                }
+                catch { }
+            }
+
             return null;
         }
 

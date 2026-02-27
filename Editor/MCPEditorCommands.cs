@@ -135,6 +135,21 @@ namespace UnityMCP.Editor
                 BindingFlags.Public | BindingFlags.Static,
                 null, new[] { typeof(string) }, null);
 
+            // Fallback: find CreateFromFile with string as first param (may have optional params)
+            if (createFromFile == null)
+            {
+                foreach (var m in metadataRefType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (m.Name != "CreateFromFile") continue;
+                    var pars = m.GetParameters();
+                    if (pars.Length >= 1 && pars[0].ParameterType == typeof(string))
+                    {
+                        createFromFile = m;
+                        break;
+                    }
+                }
+            }
+
             // We need to find the base type for the list — use the abstract PortableExecutableReference or MetadataReference
             var listType = typeof(List<>).MakeGenericType(metadataRefType);
             var refs = (System.Collections.IList)Activator.CreateInstance(listType);
@@ -153,7 +168,12 @@ namespace UnityMCP.Editor
                         continue;
 
                     addedPaths.Add(assembly.Location);
-                    var metaRef = createFromFile.Invoke(null, new object[] { assembly.Location });
+                    var cfPars = createFromFile.GetParameters();
+                    var cfArgs = new object[cfPars.Length];
+                    cfArgs[0] = assembly.Location;
+                    for (int i = 1; i < cfPars.Length; i++)
+                        cfArgs[i] = cfPars[i].HasDefaultValue ? cfPars[i].DefaultValue : null;
+                    var metaRef = createFromFile.Invoke(null, cfArgs);
                     refs.Add(metaRef);
                 }
                 catch { }
@@ -353,10 +373,16 @@ public static class MCPDynamicCode
                         var lineSpan = location.GetType().GetMethod("GetMappedLineSpan").Invoke(location, null);
                         var startPos = lineSpan.GetType().GetProperty("StartLinePosition").GetValue(lineSpan);
                         int line = (int)startPos.GetType().GetProperty("Line").GetValue(startPos);
-                        string message = (string)diag.GetType().GetMethod("GetMessage", new Type[] { }).Invoke(diag, null)
-                            ?? diag.GetType().GetMethod("GetMessage", new[] { typeof(System.Globalization.CultureInfo) })
-                                ?.Invoke(diag, new object[] { null })?.ToString()
-                            ?? diag.ToString();
+                        string message;
+                        try
+                        {
+                            // GetMessage has signature GetMessage(IFormatProvider = null)
+                            var getMsg = diag.GetType().GetMethod("GetMessage");
+                            message = getMsg != null
+                                ? (string)getMsg.Invoke(diag, new object[] { null })
+                                : diag.ToString();
+                        }
+                        catch { message = diag.ToString(); }
 
                         errors.Add($"Line {line + 1}: {message}");
                     }

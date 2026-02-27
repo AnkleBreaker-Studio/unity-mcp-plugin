@@ -98,27 +98,35 @@ namespace UnityMCP.Editor
                 string editorDir = Path.GetDirectoryName(EditorApplication.applicationPath);
                 string managedDir = Path.Combine(editorDir, "Data", "Managed");
                 string toolsDir = Path.Combine(editorDir, "Data", "Tools", "Roslyn");
+                // Mono-compatible Roslyn assemblies (preferred for Unity's Mono runtime)
+                string monoDir = Path.Combine(editorDir, "Data", "MonoBleedingEdge", "lib", "mono", "4.5");
+                string msbuildRoslynDir = Path.Combine(editorDir, "Data", "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn");
+                // ApiUpdater has full Roslyn assemblies
+                string apiUpdaterDir = Path.Combine(editorDir, "Data", "Tools", "BuildPipeline", "Compilation", "ApiUpdater");
+                // DotNetSdkRoslyn contains .NET Core assemblies — may fail on Mono, tried last
                 string sdkRoslynDir = Path.Combine(editorDir, "Data", "DotNetSdkRoslyn");
 
-                foreach (var searchDir in new[] { managedDir, toolsDir, sdkRoslynDir, editorDir })
+                foreach (var searchDir in new[] { managedDir, toolsDir, monoDir, msbuildRoslynDir, apiUpdaterDir, sdkRoslynDir, editorDir })
                 {
                     if (!Directory.Exists(searchDir)) continue;
-                    try
+                    if (_roslynCoreAsm == null)
                     {
-                        if (_roslynCoreAsm == null)
+                        string corePath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.dll");
+                        if (File.Exists(corePath))
                         {
-                            string corePath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.dll");
-                            if (File.Exists(corePath))
-                                _roslynCoreAsm = Assembly.LoadFrom(corePath);
-                        }
-                        if (_roslynCSharpAsm == null)
-                        {
-                            string csharpPath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.CSharp.dll");
-                            if (File.Exists(csharpPath))
-                                _roslynCSharpAsm = Assembly.LoadFrom(csharpPath);
+                            try { _roslynCoreAsm = Assembly.LoadFrom(corePath); }
+                            catch { /* .NET Core assemblies fail on Mono — skip */ }
                         }
                     }
-                    catch { }
+                    if (_roslynCSharpAsm == null)
+                    {
+                        string csharpPath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.CSharp.dll");
+                        if (File.Exists(csharpPath))
+                        {
+                            try { _roslynCSharpAsm = Assembly.LoadFrom(csharpPath); }
+                            catch { /* .NET Core assemblies fail on Mono — skip */ }
+                        }
+                    }
                 }
             }
 

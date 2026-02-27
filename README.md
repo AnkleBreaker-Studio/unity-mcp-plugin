@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.15.0-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.16.0-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -92,8 +92,9 @@ This package runs a lightweight HTTP bridge inside the Unity Editor. Each instan
 | **Agent Sessions** | Per-agent identity tracking, action logging, queue stats |
 | **Read Batching** | Read-only operations batched (up to 5/frame) for throughput |
 | **Write Serialization** | Write operations serialized (1/frame) for safety |
-| **Dashboard** | Built-in Editor window showing queue state, agent sessions, categories |
-| **30s Timeout** | Queue timeout handles long operations like compilation |
+| **Dashboard** | Built-in Editor window showing queue state, agent sessions, recent actions, categories |
+| **Action History** | Structured action log (last 500 entries) — filter by agent/category, click to select target objects, undo actions, copy details, optional disk persistence |
+| **60s Timeout** | Queue timeout handles long operations like compilation |
 | **Project Context** | Auto-injected project documentation for agents |
 | **Multi-Instance** | Auto-port selection (7890–7899), shared instance registry, ParrelSync clone detection |
 
@@ -155,11 +156,24 @@ Open **Window > AB Unity MCP** to access:
 - Start / Stop / Restart controls
 - **Request Queue** — live view of pending tickets, active agents, per-agent queue depths
 - **Agent Sessions** — connected agents with action counts, queue stats, average response time
+- **Recent Actions** — last 8 actions across all agents with status, timing, and category
 - **Project Context** — configure auto-injected project documentation
 - Per-category feature toggles (enable/disable any of the 24 categories)
 - Port display (auto-selected or manual) with ParrelSync clone indicator
-- Auto-start and manual port settings
+- Auto-start, manual port, and action history persistence settings
 - Version display with update checker
+
+### Action History Window
+
+Open **Window > AB Unity MCP > Action History** for the full history view:
+
+- Browse the last 500 MCP actions with timestamps, agent badges, and status indicators
+- **Filter** by agent ID, action category, or free-text search
+- **Click** a target object to select it in the Hierarchy and ping it
+- **Double-click** to frame the object in the Scene view
+- **Undo** any action via its captured Undo group
+- **Copy** full action details to clipboard
+- **Optional disk persistence** — toggle in settings to survive domain reloads
 
 ---
 
@@ -174,6 +188,8 @@ Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
 | **Auto-Start** | `true` | Start the bridge when Unity opens |
 | **Category Toggles** | All enabled | Enable/disable any of the 24 feature categories |
 | **Project Context** | Enabled | Auto-inject project docs to agents on first tool call |
+| **Action History Persistence** | `false` | Save action history to `Library/MCPActionHistory.json` so it survives domain reloads |
+| **Action History Max Entries** | `500` | Maximum actions stored in the ring buffer |
 
 Settings are stored in `EditorPrefs` and persist across sessions.
 
@@ -240,6 +256,19 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.16.0
+
+- **Action History** — New structured action logging system that records every MCP operation with full metadata: timestamp, agent ID, action name, category, target object, execution time, status, parameters, and Undo group. Ring buffer stores the last 500 actions (configurable). Includes:
+  - **`MCPActionRecord`** — Structured data class for each action, with target object tracking (`TargetInstanceId`, `TargetPath`, `TargetType`) for interactive features.
+  - **`MCPActionHistory`** — Static thread-safe manager with global ring buffer, filtering by agent/category/time, optional disk persistence to `Library/MCPActionHistory.json`, and `OnActionRecorded` event for UI refresh.
+  - **`MCPActionHistoryWindow`** — Full standalone EditorWindow (`Window > AB Unity MCP > Action History`) with toolbar filters, scrollable action list, detail panel, and interactive features: click to select target in Hierarchy, double-click to frame in Scene view, undo via captured Undo group, copy to clipboard.
+  - **Dashboard "Recent Actions" section** — Last 8 actions shown inline in the main Dashboard with "Open Full History" button.
+  - **`MCPAgentSession` structured log** — Per-agent structured action records alongside existing string log (backward compatible with `unity_agent_log` tool).
+  - **New settings** in `MCPSettingsManager`: `ActionHistoryPersistence` (default off) and `ActionHistoryMaxEntries` (default 500).
+- **execute_code race condition fix** — Added `_executingTickets` dictionary in `MCPRequestQueue` to track in-flight tickets between dequeue and completion. Previously, tickets being executed (especially slow Roslyn compilations for `execute_code`) would return 404 "not found" because they were removed from `_agentQueues` but not yet in `_completedTickets`. The new tracking layer ensures `GetTicketStatus()` always finds the ticket regardless of execution state. Includes 120-second safety valve cleanup for stale executing tickets.
+- **`GetQueueInfo` now reports executing count** — The queue info API returns `executingCount` alongside `totalPending` and `activeAgents` for full observability.
+- Requires server v2.17.0+.
 
 ### v2.15.0
 

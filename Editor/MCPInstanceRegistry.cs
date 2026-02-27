@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -34,6 +35,13 @@ namespace UnityMCP.Editor
         private static readonly string RegistryPath;
         private static int _registeredPort = -1;
 
+        /// <summary>
+        /// Named mutex to prevent race conditions when multiple Unity instances
+        /// (e.g. ParrelSync clones) read/write the registry simultaneously.
+        /// </summary>
+        private const string MutexName = "Global\\UnityMCP_InstanceRegistry";
+        private const int MutexTimeoutMs = 5000;
+
         static MCPInstanceRegistry()
         {
             // Determine registry directory based on platform
@@ -63,42 +71,54 @@ namespace UnityMCP.Editor
         /// </summary>
         public static int FindAvailablePort()
         {
-            var occupiedPorts = new HashSet<int>();
+            int result = PortRangeStart;
 
-            // Read registry to find ports claimed by other instances
-            var instances = ReadRegistry();
-            foreach (var inst in instances)
+            WithRegistryLock(() =>
             {
-                if (inst.ContainsKey("port"))
+                var occupiedPorts = new HashSet<int>();
+
+                // Read registry to find ports claimed by other instances
+                var instances = ReadRegistry();
+                foreach (var inst in instances)
                 {
-                    if (inst["port"] is long lp)
-                        occupiedPorts.Add((int)lp);
-                    else if (inst["port"] is double dp)
-                        occupiedPorts.Add((int)dp);
-                    else if (int.TryParse(inst["port"].ToString(), out int ip))
-                        occupiedPorts.Add(ip);
+                    if (inst.ContainsKey("port"))
+                    {
+                        if (inst["port"] is long lp)
+                            occupiedPorts.Add((int)lp);
+                        else if (inst["port"] is double dp)
+                            occupiedPorts.Add((int)dp);
+                        else if (int.TryParse(inst["port"].ToString(), out int ip))
+                            occupiedPorts.Add(ip);
+                    }
                 }
-            }
 
-            // Try each port in range
-            for (int port = PortRangeStart; port <= PortRangeEnd; port++)
-            {
-                if (occupiedPorts.Contains(port))
-                    continue;
+                // Try each port in range
+                for (int port = PortRangeStart; port <= PortRangeEnd; port++)
+                {
+                    if (occupiedPorts.Contains(port))
+                        continue;
 
-                if (IsPortAvailable(port))
-                    return port;
-            }
+                    if (IsPortAvailable(port))
+                    {
+                        result = port;
+                        return;
+                    }
+                }
 
-            // Fallback: try any port in range even if registered (stale entries)
-            for (int port = PortRangeStart; port <= PortRangeEnd; port++)
-            {
-                if (IsPortAvailable(port))
-                    return port;
-            }
+                // Fallback: try any port in range even if registered (stale entries)
+                for (int port = PortRangeStart; port <= PortRangeEnd; port++)
+                {
+                    if (IsPortAvailable(port))
+                    {
+                        result = port;
+                        return;
+                    }
+                }
 
-            Debug.LogWarning($"[AB-UMCP] No available port in range {PortRangeStart}-{PortRangeEnd}. Using default {PortRangeStart}.");
-            return PortRangeStart;
+                Debug.LogWarning($"[AB-UMCP] No available port in range {PortRangeStart}-{PortRangeEnd}. Using default {PortRangeStart}.");
+            }, "find-port");
+
+            return result;
         }
 
         /// <summary>
@@ -127,7 +147,7 @@ namespace UnityMCP.Editor
         {
             _registeredPort = port;
 
-            try
+            WithRegistryLock(() =>
             {
                 var instances = ReadRegistry();
 
@@ -166,11 +186,7 @@ namespace UnityMCP.Editor
                 WriteRegistry(instances);
 
                 Debug.Log($"[AB-UMCP] Registered instance on port {port} in registry.");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AB-UMCP] Failed to register in instance registry: {ex.Message}");
-            }
+            }, "register");
         }
 
         /// <summary>
@@ -181,11 +197,11 @@ namespace UnityMCP.Editor
         {
             if (_registeredPort < 0) return;
 
-            try
+            int port = _registeredPort;
+            WithRegistryLock(() =>
             {
                 var instances = ReadRegistry();
                 string projectPath = GetProjectPath();
-                int port = _registeredPort;
 
                 instances.RemoveAll(inst =>
                 {
@@ -204,13 +220,9 @@ namespace UnityMCP.Editor
                 });
 
                 WriteRegistry(instances);
-                Debug.Log($"[AB-UMCP] Unregistered instance (port {_registeredPort}) from registry.");
-                _registeredPort = -1;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AB-UMCP] Failed to unregister from instance registry: {ex.Message}");
-            }
+                Debug.Log($"[AB-UMCP] Unregistered instance (port {port}) from registry.");
+            }, "unregister");
+            _registeredPort = -1;
         }
 
         /// <summary>
@@ -219,7 +231,7 @@ namespace UnityMCP.Editor
         /// </summary>
         public static void CleanupStaleEntries()
         {
-            try
+            WithRegistryLock(() =>
             {
                 var instances = ReadRegistry();
                 int removed = instances.RemoveAll(inst =>
@@ -250,11 +262,7 @@ namespace UnityMCP.Editor
                     WriteRegistry(instances);
                     Debug.Log($"[AB-UMCP] Cleaned up {removed} stale instance(s) from registry.");
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[AB-UMCP] Failed to clean up stale entries: {ex.Message}");
-            }
+            }, "cleanup");
         }
 
         // ─── ParrelSync Detection ───
@@ -283,6 +291,53 @@ namespace UnityMCP.Editor
             if (match.Success && int.TryParse(match.Groups[1].Value, out int index))
                 return index;
             return -1;
+        }
+
+        // ─── Mutex-Protected Registry Access ───
+
+        /// <summary>
+        /// Execute an action while holding the inter-process registry mutex.
+        /// Prevents race conditions when multiple Unity instances (e.g. ParrelSync clones)
+        /// simultaneously read/modify/write the shared registry file.
+        /// </summary>
+        private static void WithRegistryLock(Action action, string operationName)
+        {
+            Mutex mutex = null;
+            bool acquired = false;
+
+            try
+            {
+                mutex = new Mutex(false, MutexName);
+
+                try
+                {
+                    acquired = mutex.WaitOne(MutexTimeoutMs);
+                }
+                catch (AbandonedMutexException)
+                {
+                    // Previous holder crashed — we still get the mutex
+                    acquired = true;
+                }
+
+                if (!acquired)
+                {
+                    Debug.LogWarning($"[AB-UMCP] Could not acquire registry lock for '{operationName}' within {MutexTimeoutMs}ms. Proceeding without lock.");
+                }
+
+                action();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AB-UMCP] Failed to {operationName} in instance registry: {ex.Message}");
+            }
+            finally
+            {
+                if (acquired && mutex != null)
+                {
+                    try { mutex.ReleaseMutex(); } catch { }
+                }
+                mutex?.Dispose();
+            }
         }
 
         // ─── Registry File I/O ───

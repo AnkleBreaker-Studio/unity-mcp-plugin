@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -59,11 +60,6 @@ namespace UnityMCP.Editor
         // Short temp directory to avoid Windows 260-char path limit
         private static readonly string _shortTempDir = Path.Combine(Path.GetTempPath(), "umcp");
 
-        /// <summary>
-        /// Get a short temporary directory that avoids Windows path length issues.
-        /// Creates a very short path to prevent the CodeDom compiler from hitting the
-        /// 260-char limit when combining Unity's deep install path with temp file paths.
-        /// </summary>
         private static string GetShortTempDir()
         {
             if (!Directory.Exists(_shortTempDir))
@@ -72,81 +68,33 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Allowed base framework assemblies — these provide the core BCL types
-        /// (System.Object, Dictionary, LINQ, etc.) without conflicting with each other.
-        /// All other System.* assemblies are facades that re-export types from these
-        /// and cause "type defined multiple times" errors with the CodeDom/mcs compiler.
+        /// Collect MetadataReference objects for Roslyn from all loaded assemblies.
+        /// Unlike CodeDom/mcs, Roslyn handles netstandard + type forwarding correctly,
+        /// so we can reference ALL loaded assemblies without facade conflicts.
         /// </summary>
-        private static readonly HashSet<string> _allowedBaseAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        private static List<Microsoft.CodeAnalysis.MetadataReference> GetMetadataReferences()
         {
-            "mscorlib",           // Core types: Object, String, Dictionary, List, etc.
-            "System",             // Uri, Regex, Net, etc.
-            "System.Core",        // LINQ, Expressions, HashSet<T>
-            "System.Data",        // DataSet, DataTable
-            "System.Xml",         // XmlDocument, XPath
-            "System.Xml.Linq",    // XDocument, XElement
-            "System.Numerics",    // BigInteger, Complex
-            "System.Drawing",     // Color (non-Unity), Point, etc.
-            "System.Runtime.Serialization", // DataContract, DataMember
-            "System.Configuration",
-        };
+            var refs = new List<Microsoft.CodeAnalysis.MetadataReference>();
+            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>
-        /// Write assembly references to a response file (.rsp) and pass it via CompilerOptions.
-        /// This bypasses the Windows command line length limit (~32KB) which CodeDom hits when
-        /// putting hundreds of -r:"long/unity/path/assembly.dll" flags directly on the command line.
-        ///
-        /// STRATEGY: Only reference the core BCL assemblies (mscorlib, System, System.Core)
-        /// plus all non-System assemblies (Unity, user, plugin). Skip all System.* facade
-        /// assemblies that just type-forward to mscorlib — these cause duplicate type errors.
-        /// </summary>
-        private static void WriteAssemblyReferencesToResponseFile(System.CodeDom.Compiler.CompilerParameters parameters, string tempDir)
-        {
-            var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string rspPath = Path.Combine(tempDir, "refs.rsp");
-
-            using (var writer = new StreamWriter(rspPath, false, System.Text.Encoding.UTF8))
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                try
                 {
-                    try
-                    {
-                        if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
-                            continue;
+                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
+                        continue;
+                    if (addedPaths.Contains(assembly.Location))
+                        continue;
+                    string asmName = assembly.GetName().Name;
+                    if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
+                        continue;
 
-                        string asmName = assembly.GetName().Name;
-                        if (addedNames.Contains(asmName))
-                            continue;
-
-                        // Skip test assemblies
-                        if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
-                            continue;
-
-                        // DECISION LOGIC:
-                        // - "netstandard" → SKIP (facade that conflicts with mscorlib)
-                        // - "System.Private.CoreLib" → SKIP (.NET Core internal, conflicts with mscorlib)
-                        // - Assemblies in _allowedBaseAssemblies → INCLUDE (core BCL)
-                        // - Other "System.*" assemblies → SKIP (facades that re-export from mscorlib)
-                        // - Everything else (Unity*, user assemblies, plugins) → INCLUDE
-
-                        if (asmName == "netstandard" || asmName == "System.Private.CoreLib")
-                            continue;
-
-                        bool isSystemAssembly = asmName == "System" || asmName.StartsWith("System.");
-                        if (isSystemAssembly && !_allowedBaseAssemblies.Contains(asmName))
-                            continue;
-
-                        addedNames.Add(asmName);
-                        writer.WriteLine($"-r:\"{assembly.Location}\"");
-                    }
-                    catch { }
+                    addedPaths.Add(assembly.Location);
+                    refs.Add(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(assembly.Location));
                 }
+                catch { }
             }
-
-            // Pass response file via CompilerOptions — avoids putting refs on the command line
-            // Do NOT add anything to parameters.ReferencedAssemblies (that would go on command line)
-            string existingOptions = parameters.CompilerOptions ?? "";
-            parameters.CompilerOptions = $"{existingOptions} @\"{rspPath}\"".Trim();
+            return refs;
         }
 
         public static object ExecuteCode(Dictionary<string, object> args)
@@ -175,47 +123,60 @@ public static class MCPDynamicCode
     }
 }";
 
-                // Use CSharpCodeProvider to compile at runtime
-                var provider = new Microsoft.CSharp.CSharpCodeProvider();
-                var parameters = new System.CodeDom.Compiler.CompilerParameters();
+                // --- Roslyn-based compilation ---
+                // Unity 6000+ uses CoreCLR where CodeDom/mcs can't handle netstandard facades.
+                // Roslyn (Microsoft.CodeAnalysis) resolves type forwarding correctly.
+                var syntaxTree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(fullCode);
+                var references = GetMetadataReferences();
 
-                // Use short temp directory to avoid Windows path length issues
                 string tempDir = GetShortTempDir();
-                parameters.TempFiles = new System.CodeDom.Compiler.TempFileCollection(tempDir, false);
+                string outputPath = Path.Combine(tempDir, $"mcp_dynamic_{Guid.NewGuid():N}.dll");
 
-                // Write assembly references to a .rsp response file instead of command line
-                // This bypasses Windows' ~32KB command line limit that CodeDom hits with 200+ assemblies
-                WriteAssemblyReferencesToResponseFile(parameters, tempDir);
+                var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+                    assemblyName: Path.GetFileNameWithoutExtension(outputPath),
+                    syntaxTrees: new[] { syntaxTree },
+                    references: references,
+                    options: new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(
+                        Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary,
+                        allowUnsafe: true
+                    )
+                );
 
-                parameters.GenerateInMemory = true;
-                parameters.GenerateExecutable = false;
-
-                var results = provider.CompileAssemblyFromSource(parameters, fullCode);
-
-                if (results.Errors.HasErrors)
+                using (var stream = new FileStream(outputPath, FileMode.Create))
                 {
-                    var errors = new List<string>();
-                    foreach (System.CodeDom.Compiler.CompilerError error in results.Errors)
+                    var emitResult = compilation.Emit(stream);
+
+                    if (!emitResult.Success)
                     {
-                        if (!error.IsWarning)
-                            errors.Add($"Line {error.Line}: {error.ErrorText}");
+                        var errors = emitResult.Diagnostics
+                            .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+                            .Select(d =>
+                            {
+                                var lineSpan = d.Location.GetMappedLineSpan();
+                                return $"Line {lineSpan.StartLinePosition.Line + 1}: {d.GetMessage()}";
+                            })
+                            .ToList();
+                        return new Dictionary<string, object>
+                        {
+                            { "error", "Compilation failed" },
+                            { "errors", errors },
+                            { "code", code },
+                        };
                     }
-                    return new Dictionary<string, object>
-                    {
-                        { "error", "Compilation failed" },
-                        { "errors", errors },
-                        { "code", code },
-                    };
                 }
 
-                var compiledType = results.CompiledAssembly.GetType("MCPDynamicCode");
+                // Load and execute
+                var compiledAssembly = Assembly.LoadFrom(outputPath);
+                var compiledType = compiledAssembly.GetType("MCPDynamicCode");
                 var method = compiledType.GetMethod("Execute");
                 var result = method.Invoke(null, null);
 
-                // Serialize the result
+                // Cleanup temp dll (best effort)
+                try { File.Delete(outputPath); } catch { }
+
                 return SerializeResult(result);
             }
-            catch (System.Reflection.TargetInvocationException ex)
+            catch (TargetInvocationException ex)
             {
                 return new { error = ex.InnerException?.Message ?? ex.Message, stackTrace = ex.InnerException?.StackTrace ?? ex.StackTrace };
             }

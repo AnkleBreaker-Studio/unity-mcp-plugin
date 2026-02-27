@@ -98,8 +98,9 @@ namespace UnityMCP.Editor
                 string editorDir = Path.GetDirectoryName(EditorApplication.applicationPath);
                 string managedDir = Path.Combine(editorDir, "Data", "Managed");
                 string toolsDir = Path.Combine(editorDir, "Data", "Tools", "Roslyn");
+                string sdkRoslynDir = Path.Combine(editorDir, "Data", "DotNetSdkRoslyn");
 
-                foreach (var searchDir in new[] { managedDir, toolsDir, editorDir })
+                foreach (var searchDir in new[] { managedDir, toolsDir, sdkRoslynDir, editorDir })
                 {
                     if (!Directory.Exists(searchDir)) continue;
                     try

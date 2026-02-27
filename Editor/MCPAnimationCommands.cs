@@ -637,12 +637,31 @@ namespace UnityMCP.Editor
                         Type.GetType($"UnityEngine.{typeName}, UnityEngine.CoreModule") ??
                         typeof(Transform);
 
-            clip.SetCurve(relativePath, type, propertyName, null);
+            // Use AnimationUtility.SetEditorCurve to remove individual curve bindings safely.
+            // clip.SetCurve(path, type, prop, null) fails on compound properties like localPosition.x
+            // because Unity requires removing the entire m_LocalPosition at once via that API.
+            var bindings = AnimationUtility.GetCurveBindings(clip);
+            int removed = 0;
+            foreach (var binding in bindings)
+            {
+                if (binding.path == relativePath && binding.type == type && binding.propertyName == propertyName)
+                {
+                    AnimationUtility.SetEditorCurve(clip, binding, null);
+                    removed++;
+                }
+            }
+
+            if (removed == 0)
+            {
+                // Fallback: try SetCurve for non-compound properties
+                try { clip.SetCurve(relativePath, type, propertyName, null); removed = 1; }
+                catch { return new { error = $"Curve binding not found: path='{relativePath}' type='{typeName}' property='{propertyName}'" }; }
+            }
 
             EditorUtility.SetDirty(clip);
             AssetDatabase.SaveAssets();
 
-            return new { success = true, clipPath = path, removedProperty = propertyName };
+            return new { success = true, clipPath = path, removedProperty = propertyName, removedCount = removed };
         }
 
         public static object AddKeyframe(Dictionary<string, object> args)

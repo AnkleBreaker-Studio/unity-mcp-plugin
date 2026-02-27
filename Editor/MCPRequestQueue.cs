@@ -218,6 +218,9 @@ namespace UnityMCP.Editor
             // --- Execute OUTSIDE lock (main thread) ---
             foreach (var ticket in batch)
             {
+                // Capture undo group before execution for undo support
+                int undoGroupBefore = UnityEditor.Undo.GetCurrentGroup();
+
                 try
                 {
                     ticket.Result = ticket.Action();
@@ -231,6 +234,41 @@ namespace UnityMCP.Editor
                 }
                 ticket.CompletedAt = DateTime.UtcNow;
                 ticket.Action      = null; // Free the closure
+
+                int undoGroupAfter = UnityEditor.Undo.GetCurrentGroup();
+
+                // Record action in history
+                try
+                {
+                    var record = new MCPActionRecord
+                    {
+                        Timestamp       = ticket.CompletedAt ?? DateTime.UtcNow,
+                        AgentId         = ticket.AgentId,
+                        ActionName      = ticket.ActionName,
+                        Category        = MCPActionRecord.ExtractCategory(ticket.ActionName),
+                        Status          = ticket.Status.ToString(),
+                        ExecutionTimeMs = ticket.ExecutionTimeMs,
+                        ErrorMessage    = ticket.ErrorMessage,
+                        UndoGroup       = undoGroupAfter != undoGroupBefore ? undoGroupBefore : -1,
+                    };
+
+                    // Try to extract target object info from result
+                    if (ticket.Status == RequestStatus.Completed)
+                        record.ExtractTargetFromResult(ticket.Result);
+
+                    MCPActionHistory.RecordAction(record);
+
+                    // Also log to the agent session's structured log
+                    lock (_queueLock)
+                    {
+                        if (_sessions.TryGetValue(ticket.AgentId, out var agentSession))
+                            agentSession.LogStructuredAction(record);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[Unity MCP Queue] Failed to record action history: {ex.Message}");
+                }
 
                 // Move to completed cache and signal waiters
                 lock (_queueLock)

@@ -18,6 +18,7 @@ namespace UnityMCP.Editor
         private bool _queueFoldout = true;
         private bool _contextFoldout = true;
         private bool _testsFoldout = true;
+        private bool _recentActionsFoldout = true;
         private string _expandedTestCategory = null;
 
         private static readonly Color ColorGreen  = new Color(0.2f, 0.8f, 0.2f);
@@ -85,6 +86,8 @@ namespace UnityMCP.Editor
             DrawProjectContext();
             EditorGUILayout.Space(8);
             DrawAgentSessions();
+            EditorGUILayout.Space(8);
+            DrawRecentActions();
             EditorGUILayout.Space(8);
             DrawCategoryStatus();
             EditorGUILayout.Space(8);
@@ -373,6 +376,85 @@ namespace UnityMCP.Editor
                     "No context files found. Click 'Create Templates' to get started.",
                     MessageType.Info);
             }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        // ─── Recent Actions ───
+
+        private void DrawRecentActions()
+        {
+            _recentActionsFoldout = EditorGUILayout.Foldout(_recentActionsFoldout, "Recent Actions", true, EditorStyles.foldoutHeader);
+            if (!_recentActionsFoldout) return;
+
+            var recent = MCPActionHistory.GetRecent(8);
+
+            if (recent.Count == 0)
+            {
+                EditorGUILayout.HelpBox("No actions recorded yet.", MessageType.Info);
+                return;
+            }
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // Show newest first
+            for (int i = recent.Count - 1; i >= 0; i--)
+            {
+                var r = recent[i];
+                EditorGUILayout.BeginHorizontal();
+
+                // Status dot
+                var prevColor = GUI.color;
+                Color dotColor;
+                switch (r.Status)
+                {
+                    case "Completed": dotColor = ColorGreen; break;
+                    case "Failed":    dotColor = ColorRed;   break;
+                    default:          dotColor = ColorYellow; break;
+                }
+                GUI.color = dotColor;
+                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
+                GUI.color = prevColor;
+
+                // Timestamp
+                EditorGUILayout.LabelField(r.Timestamp.ToString("HH:mm:ss"),
+                    EditorStyles.miniLabel, GUILayout.Width(55));
+
+                // Agent (short)
+                string agent = r.AgentId ?? "?";
+                if (agent.Length > 10) agent = agent.Substring(0, 8) + "..";
+                prevColor = GUI.color;
+                GUI.color = ColorBlue;
+                EditorGUILayout.LabelField(agent, EditorStyles.miniLabel, GUILayout.Width(65));
+                GUI.color = prevColor;
+
+                // Action command
+                string cmd = MCPActionRecord.ExtractCommand(r.ActionName);
+                EditorGUILayout.LabelField(cmd, EditorStyles.miniLabel, GUILayout.Width(100));
+
+                // Target (truncated)
+                string target = r.TargetPath ?? "";
+                if (target.Length > 25)
+                    target = ".." + target.Substring(target.Length - 23);
+                EditorGUILayout.LabelField(target, EditorStyles.miniLabel);
+
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+            }
+
+            // Open full history button
+            EditorGUILayout.Space(2);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            string btnLabel = MCPActionHistory.Count > 8
+                ? $"Open Full History ({MCPActionHistory.Count} actions)"
+                : "Open Full History";
+            if (GUILayout.Button(btnLabel, GUILayout.Width(200), GUILayout.Height(20)))
+            {
+                MCPActionHistoryWindow.ShowWindow();
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
         }

@@ -20,6 +20,7 @@ namespace UnityMCP.Editor
         private long _totalResponseTimeMs = 0;
 
         private readonly List<string> _actionLog = new List<string>();
+        private readonly List<MCPActionRecord> _structuredLog = new List<MCPActionRecord>();
 
         private const int MaxLogEntries = 100;
 
@@ -61,6 +62,19 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
+        /// Log a structured action record for this agent session.
+        /// </summary>
+        public void LogStructuredAction(MCPActionRecord record)
+        {
+            _structuredLog.Add(record);
+            if (_structuredLog.Count > MaxLogEntries)
+                _structuredLog.RemoveAt(0);
+        }
+
+        /// <summary>Get a copy of the structured action log.</summary>
+        public List<MCPActionRecord> GetStructuredLog() => new List<MCPActionRecord>(_structuredLog);
+
+        /// <summary>
         /// Increment the count of queued requests for this agent.
         /// </summary>
         public void IncrementQueuedRequest()
@@ -96,6 +110,7 @@ namespace UnityMCP.Editor
                 { "queuedRequests", QueuedRequests },
                 { "completedRequests", CompletedRequests },
                 { "averageResponseTimeMs", Math.Round(AverageResponseTimeMs, 2) },
+                { "structuredActionCount", _structuredLog.Count },
             };
         }
     }

@@ -60,6 +60,20 @@ namespace UnityMCP.Editor
             set => EditorPrefs.SetString(Prefix + "ContextPath", value);
         }
 
+        // ─── Action History ───
+
+        public static bool ActionHistoryPersistence
+        {
+            get => EditorPrefs.GetBool(Prefix + "ActionHistoryPersistence", false);
+            set => EditorPrefs.SetBool(Prefix + "ActionHistoryPersistence", value);
+        }
+
+        public static int ActionHistoryMaxEntries
+        {
+            get => EditorPrefs.GetInt(Prefix + "ActionHistoryMaxEntries", 500);
+            set => EditorPrefs.SetInt(Prefix + "ActionHistoryMaxEntries", value);
+        }
+
         // ─── Category Management ───
 
         public static string[] GetAllCategoryNames() => AllCategories;
@@ -125,6 +139,8 @@ namespace UnityMCP.Editor
             AutoStart = true;
             ContextEnabled = true;
             ContextPath = "Assets/MCP/Context";
+            ActionHistoryPersistence = false;
+            ActionHistoryMaxEntries = 500;
             _enabledCategories = null;
             EditorPrefs.DeleteKey(Prefix + "EnabledCategories");
         }

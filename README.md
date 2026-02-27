@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.16.0-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.17.0-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
   <a href="https://discord.gg/Q2XmedUctz"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white"></a>
@@ -272,6 +272,13 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.17.0
+
+- **Response size validation** — `SendJson()` now checks serialized response size before sending. Warns at 8 MB (soft limit), returns a structured error at 16 MB (hard limit) with a message directing agents to use pagination parameters.
+- **Hierarchy pagination** — `GetHierarchy()` accepts `maxNodes` (default 5 000) and `parentPath` parameters. Tracks node count during recursion and stops when the limit is reached. Returns pagination metadata: `totalSceneObjects`, `returnedNodes`, `truncated`, `maxNodes`, with a human-readable message.
+- **Search result limits** — All search handlers (`SearchByComponent`, `SearchByTag`, `SearchByLayer`, `SearchByName`, `SearchByShader`, `FindMissingReferences`) accept a `limit` parameter (default 500). Results exceeding the limit are truncated with metadata (`total`, `returned`, `truncated`).
+- Requires server v2.18.0+.
 
 ### v2.16.0
 

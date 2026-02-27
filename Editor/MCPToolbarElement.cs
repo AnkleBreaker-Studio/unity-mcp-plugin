@@ -111,7 +111,15 @@ namespace UnityMCP.Editor
                 if (!ServerRunning)
                     return "AB Unity MCP \u2014 Stopped\nClick for options";
 
-                string tip = $"AB Unity MCP \u2014 Running on port {MCPSettingsManager.Port}";
+                int activePort = MCPBridgeServer.ActivePort;
+                string portInfo = MCPSettingsManager.UseManualPort
+                    ? $"port {activePort}"
+                    : $"port {activePort} (auto)";
+                string tip = $"AB Unity MCP \u2014 Running on {portInfo}";
+
+                if (MCPInstanceRegistry.IsParrelSyncClone())
+                    tip += $"\nParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}";
+
                 if (ActiveAgents > 0)
                     tip += $"\n{ActiveAgents} active agent{(ActiveAgents > 1 ? "s" : "")}";
                 if (HasFailures)
@@ -173,10 +181,19 @@ namespace UnityMCP.Editor
             bool running = MCPBridgeServer.IsRunning;
 
             // Status header
-            menu.AddDisabledItem(new GUIContent(
-                running
-                    ? $"\u25CF  Running \u2014 Port {MCPSettingsManager.Port}"
-                    : "\u25CB  Stopped"));
+            if (running)
+            {
+                int activePort = MCPBridgeServer.ActivePort;
+                string portMode = MCPSettingsManager.UseManualPort ? "" : " (auto)";
+                menu.AddDisabledItem(new GUIContent($"\u25CF  Running \u2014 Port {activePort}{portMode}"));
+
+                if (MCPInstanceRegistry.IsParrelSyncClone())
+                    menu.AddDisabledItem(new GUIContent($"   ParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}"));
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent("\u25CB  Stopped"));
+            }
 
             menu.AddSeparator("");
 
@@ -263,9 +280,14 @@ namespace UnityMCP.Editor
 
             // Settings
             menu.AddItem(
-                new GUIContent("Auto-Start on Load"),
+                new GUIContent("Settings/Auto-Start on Load"),
                 MCPSettingsManager.AutoStart,
                 () => MCPSettingsManager.AutoStart = !MCPSettingsManager.AutoStart);
+
+            menu.AddItem(
+                new GUIContent("Settings/Use Manual Port"),
+                MCPSettingsManager.UseManualPort,
+                () => MCPSettingsManager.UseManualPort = !MCPSettingsManager.UseManualPort);
 
             menu.AddSeparator("");
 

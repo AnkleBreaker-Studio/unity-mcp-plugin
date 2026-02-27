@@ -25,7 +25,15 @@ namespace UnityMCP.Editor
         private static HttpListener _listener;
         private static Thread _listenerThread;
         private static bool _isRunning;
-        private static int Port => MCPSettingsManager.Port;
+
+        /// <summary>
+        /// The actual port this server is running on.
+        /// Resolved at startup via auto-selection or manual override.
+        /// </summary>
+        private static int _activePort;
+
+        /// <summary>The port this server is currently bound to (0 if not running).</summary>
+        public static int ActivePort => _isRunning ? _activePort : 0;
 
         // Legacy main-thread queue (kept for direct ExecuteOnMainThread calls)
         private static readonly Queue<Action> _mainThreadQueue = new Queue<Action>();
@@ -35,7 +43,7 @@ namespace UnityMCP.Editor
             if (MCPSettingsManager.AutoStart)
                 Start();
             EditorApplication.update += OnEditorUpdate;
-            EditorApplication.quitting += Stop;
+            EditorApplication.quitting += OnQuitting;
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
         }
 
@@ -43,6 +51,13 @@ namespace UnityMCP.Editor
         {
             if (_isRunning)
                 Stop();
+        }
+
+        private static void OnQuitting()
+        {
+            Stop();
+            // Final cleanup of registry on quit
+            MCPInstanceRegistry.Unregister();
         }
 
         /// <summary>Whether the server is currently running.</summary>
@@ -55,12 +70,30 @@ namespace UnityMCP.Editor
             // Ensure console log capture is active before anything else
             MCPConsoleCommands.EnsureListening();
 
+            // Clean up stale entries before selecting a port
+            MCPInstanceRegistry.CleanupStaleEntries();
+
+            // Resolve port: use manual override if set, otherwise auto-select
+            int port;
+            if (MCPSettingsManager.UseManualPort)
+            {
+                port = MCPSettingsManager.Port;
+            }
+            else
+            {
+                port = MCPInstanceRegistry.FindAvailablePort();
+            }
+
             try
             {
                 _listener = new HttpListener();
-                _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
+                _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
                 _listener.Start();
                 _isRunning = true;
+                _activePort = port;
+
+                // Update the settings so the UI reflects the actual port
+                MCPSettingsManager.Port = port;
 
                 _listenerThread = new Thread(ListenLoop)
                 {
@@ -69,17 +102,31 @@ namespace UnityMCP.Editor
                 };
                 _listenerThread.Start();
 
-                Debug.Log($"[AB-UMCP] Server started on port {Port}");
+                // Register in the shared instance registry
+                MCPInstanceRegistry.Register(port);
+
+                Debug.Log($"[AB-UMCP] Server started on port {port}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[AB-UMCP] Failed to start: {ex.Message}");
+                Debug.LogError($"[AB-UMCP] Failed to start on port {port}: {ex.Message}");
+
+                // If auto-port failed, try the next available one
+                if (!MCPSettingsManager.UseManualPort && port < MCPInstanceRegistry.PortRangeEnd)
+                {
+                    Debug.Log("[AB-UMCP] Trying next available port...");
+                    EditorApplication.delayCall += Start;
+                }
             }
         }
 
         public static void Stop()
         {
             _isRunning = false;
+
+            // Unregister from shared instance registry
+            MCPInstanceRegistry.Unregister();
+
             try
             {
                 _listener?.Stop();
@@ -87,6 +134,7 @@ namespace UnityMCP.Editor
                 _listenerThread?.Join(1000);
             }
             catch { }
+            _activePort = 0;
             Debug.Log("[AB-UMCP] Server stopped");
         }
 

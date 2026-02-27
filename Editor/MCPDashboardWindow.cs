@@ -125,7 +125,13 @@ namespace UnityMCP.Editor
                 EditorStyles.boldLabel);
 
             GUILayout.FlexibleSpace();
-            EditorGUILayout.LabelField($"Port {MCPSettingsManager.Port}", GUILayout.Width(70));
+
+            // Show actual active port when running, settings port when stopped
+            int displayPort = running ? MCPBridgeServer.ActivePort : MCPSettingsManager.Port;
+            string portLabel = running && !MCPSettingsManager.UseManualPort
+                ? $"Port {displayPort} (auto)"
+                : $"Port {displayPort}";
+            EditorGUILayout.LabelField(portLabel, GUILayout.Width(100));
 
             // Cache values once per event to prevent Layout/Repaint mismatch.
             // Using local bools ensures the same controls exist in both passes.
@@ -153,6 +159,23 @@ namespace UnityMCP.Editor
             GUI.color = prevColor;
 
             EditorGUILayout.EndHorizontal();
+
+            // ParrelSync clone indicator (shown below the main status bar)
+            if (MCPInstanceRegistry.IsParrelSyncClone())
+            {
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(24);
+                var cloneStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    normal = { textColor = ColorBlue },
+                    fontStyle = FontStyle.Italic,
+                };
+                int cloneIdx = MCPInstanceRegistry.GetParrelSyncCloneIndex();
+                EditorGUILayout.LabelField(
+                    $"\u2937 ParrelSync Clone #{cloneIdx}",
+                    cloneStyle);
+                EditorGUILayout.EndHorizontal();
+            }
         }
 
         // ─── Server Controls ───
@@ -588,15 +611,35 @@ namespace UnityMCP.Editor
             if (autoStart != MCPSettingsManager.AutoStart)
                 MCPSettingsManager.AutoStart = autoStart;
 
-            // Port
-            EditorGUILayout.BeginHorizontal();
-            int port = EditorGUILayout.IntField("Server Port", MCPSettingsManager.Port);
-            if (port != MCPSettingsManager.Port && port > 1024 && port < 65536)
+            EditorGUILayout.Space(2);
+
+            // Port mode toggle
+            bool useManual = EditorGUILayout.Toggle("Use Manual Port", MCPSettingsManager.UseManualPort);
+            if (useManual != MCPSettingsManager.UseManualPort)
+                MCPSettingsManager.UseManualPort = useManual;
+
+            if (useManual)
             {
-                MCPSettingsManager.Port = port;
-                EditorGUILayout.HelpBox("Restart server to apply.", MessageType.Info);
+                // Manual port entry
+                EditorGUILayout.BeginHorizontal();
+                int port = EditorGUILayout.IntField("Server Port", MCPSettingsManager.Port);
+                if (port != MCPSettingsManager.Port && port > 1024 && port < 65536)
+                {
+                    MCPSettingsManager.Port = port;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if (MCPBridgeServer.IsRunning && MCPBridgeServer.ActivePort != MCPSettingsManager.Port)
+                    EditorGUILayout.HelpBox("Restart server to apply port change.", MessageType.Info);
             }
-            EditorGUILayout.EndHorizontal();
+            else
+            {
+                // Auto-select info
+                string autoInfo = MCPBridgeServer.IsRunning
+                    ? $"Auto-selected port {MCPBridgeServer.ActivePort} (range: {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd})"
+                    : $"Will auto-select from range {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd}";
+                EditorGUILayout.HelpBox(autoInfo, MessageType.None);
+            }
 
             EditorGUILayout.Space(4);
 
@@ -618,7 +661,7 @@ namespace UnityMCP.Editor
         private void DrawVersionInfo()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Plugin Version: 2.9.0", GUILayout.Width(150));
+            EditorGUILayout.LabelField("Plugin Version: 2.15.0", GUILayout.Width(155));
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))

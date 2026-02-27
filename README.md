@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.14.5-blue"></a>
+  <a href="https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.15.0-blue"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://unity.com/releases/editor/archive"><img alt="Unity" src="https://img.shields.io/badge/Unity-2021.3%2B-black"></a>
 </p>
@@ -38,7 +38,7 @@ This means you can tell Claude Cowork to *"set up the level lighting while also 
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI agents across **24 feature categories**.
+This package runs a lightweight HTTP bridge inside the Unity Editor. Each instance auto-selects a port from the range `7890–7899` and registers itself in a shared file, so the MCP Server can discover and route to any running Unity Editor — even when multiple instances are open simultaneously (e.g. different projects, or [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones for multiplayer testing). The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI agents across **24 feature categories**.
 
 ### Core Capabilities
 
@@ -95,6 +95,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 | **Dashboard** | Built-in Editor window showing queue state, agent sessions, categories |
 | **30s Timeout** | Queue timeout handles long operations like compilation |
 | **Project Context** | Auto-injected project documentation for agents |
+| **Multi-Instance** | Auto-port selection (7890–7899), shared instance registry, ParrelSync clone detection |
 
 ---
 
@@ -115,9 +116,11 @@ You should see in the Console:
 [AB-UMCP] Server started on port 7890
 ```
 
+The port number may vary (7890–7899) if other Unity instances are already running.
+
 ### Verify
 
-Open a browser and visit: `http://127.0.0.1:7890/api/ping`
+Open a browser and visit: `http://127.0.0.1:<port>/api/ping` (replace `<port>` with the port shown in the Console).
 
 You should see JSON with your Unity version and project name.
 
@@ -134,10 +137,12 @@ The server is what Claude (or Claude Cowork) actually talks to via MCP protocol.
 > **Note:** AI agents should **never call the HTTP bridge directly**. The bridge is an internal layer between the MCP server and Unity. Agents must use the `unity_*` MCP tools provided by the server connector, which handle multi-agent queuing, agent tracking, and safety mechanisms automatically.
 
 ```
-Claude Cowork Agents ←→ MCP Server (Node.js) ←→ This Plugin (HTTP bridge in Unity)
-       ↕                       ↕
-  Multiple agents        Unity Hub CLI
-  working in parallel
+                                                  ┌─ Unity Instance A (port 7890)
+Claude Cowork Agents ←→ MCP Server (Node.js) ←→───┤
+       ↕                       ↕                   └─ Unity Instance B (port 7891)
+  Multiple agents        Unity Hub CLI                        ↕
+  working in parallel                              Shared Instance Registry
+                                                   (%LOCALAPPDATA%/UnityMCP/instances.json)
 ```
 
 ---
@@ -152,7 +157,8 @@ Open **Window > AB Unity MCP** to access:
 - **Agent Sessions** — connected agents with action counts, queue stats, average response time
 - **Project Context** — configure auto-injected project documentation
 - Per-category feature toggles (enable/disable any of the 24 categories)
-- Port and auto-start settings
+- Port display (auto-selected or manual) with ParrelSync clone indicator
+- Auto-start and manual port settings
 - Version display with update checker
 
 ---
@@ -163,12 +169,31 @@ Configuration is managed through the Dashboard (**Window > AB Unity MCP**):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Port** | `7890` | HTTP server port |
+| **Use Manual Port** | `false` | When off, auto-selects from range 7890–7899. When on, uses the fixed port below |
+| **Port** | `7890` | HTTP server port (only used when Use Manual Port is enabled) |
 | **Auto-Start** | `true` | Start the bridge when Unity opens |
 | **Category Toggles** | All enabled | Enable/disable any of the 24 feature categories |
 | **Project Context** | Enabled | Auto-inject project docs to agents on first tool call |
 
 Settings are stored in `EditorPrefs` and persist across sessions.
+
+---
+
+## Multi-Instance Support
+
+The plugin supports running **multiple Unity Editor instances simultaneously**. This is useful for working on several projects at the same time, or for multiplayer development with [ParrelSync](https://github.com/VeriorPies/ParrelSync) clones.
+
+### How It Works
+
+1. **Auto-port selection** — Each Unity instance picks the first available port from `7890–7899` on startup. No manual configuration needed.
+2. **Shared registry** — Every running instance writes its metadata (port, project name, path, PID, Unity version) to a shared file at `%LOCALAPPDATA%/UnityMCP/instances.json` (macOS: `~/Library/Application Support/UnityMCP/instances.json`).
+3. **Automatic cleanup** — When Unity stops, quits, or reloads assemblies, the instance unregisters itself. Stale entries from crashed processes are cleaned up on next startup.
+4. **ParrelSync detection** — ParrelSync clones are automatically detected and labeled in the Dashboard and toolbar tooltip (e.g. "ParrelSync Clone #0").
+5. **Discovery by MCP Server** — The companion MCP Server reads the registry, pings each instance to verify it's alive, and either auto-connects (single instance) or asks the user which project to target.
+
+### Manual Port Override
+
+If you need a fixed port (e.g. for firewall rules or custom tooling), enable **Use Manual Port** in the Dashboard settings. When enabled, the instance always binds to the configured port instead of auto-selecting.
 
 ---
 
@@ -215,6 +240,15 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 ---
 
 ## Changelog
+
+### v2.15.0
+
+- **Multi-instance support** — Run multiple Unity Editors simultaneously, each on its own port. Auto-port selection from range 7890–7899, shared instance registry at `%LOCALAPPDATA%/UnityMCP/instances.json`, automatic cleanup on stop/quit/domain reload.
+- **ParrelSync clone detection** — Automatically detects ParrelSync clones and displays clone index in the Dashboard status bar and toolbar tooltip.
+- **New `MCPInstanceRegistry` class** — Manages port allocation, instance registration/unregistration, stale entry cleanup, and ParrelSync detection.
+- **Dashboard UI updates** — Connection status shows active port with auto/manual indicator. Settings section adds "Use Manual Port" toggle with auto-select info. ParrelSync clone indicator shown below status bar.
+- **Toolbar updates** — Tooltip and dropdown menu show active port, auto/manual mode, and ParrelSync clone info. Settings moved to submenu.
+- Requires server v2.15.0+.
 
 ### v2.14.5
 

@@ -28,6 +28,16 @@ namespace UnityMCP.Editor
             set => EditorPrefs.SetInt(Prefix + "Port", value);
         }
 
+        /// <summary>
+        /// When true, uses the manually configured Port value instead of auto-selecting.
+        /// Default is false (auto-select from port range 7890-7899).
+        /// </summary>
+        public static bool UseManualPort
+        {
+            get => EditorPrefs.GetBool(Prefix + "UseManualPort", false);
+            set => EditorPrefs.SetBool(Prefix + "UseManualPort", value);
+        }
+
         // ─── Auto-Start ───
 
         public static bool AutoStart

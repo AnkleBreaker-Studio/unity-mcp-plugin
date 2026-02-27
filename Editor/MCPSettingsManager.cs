@@ -15,7 +15,8 @@ namespace UnityMCP.Editor
         {
             "amplify", "animation", "asmdef", "asset", "audio", "build", "component", "console",
             "debugger", "editor", "gameobject", "input", "lighting", "physics", "prefab",
-            "profiler", "project", "renderer", "scene", "script", "selection", "shadergraph", "taglayer"
+            "profiler", "project", "renderer", "scene", "script", "selection", "shadergraph", "taglayer",
+            "terrain"
         };
 
         private static Dictionary<string, bool> _enabledCategories;

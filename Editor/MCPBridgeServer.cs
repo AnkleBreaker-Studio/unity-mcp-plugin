@@ -837,6 +837,58 @@ namespace UnityMCP.Editor
                     return MCPTerrainCommands.AddTerrainLayer(ParseJson(body));
                 case "terrain/get-height":
                     return MCPTerrainCommands.GetHeightAtPosition(ParseJson(body));
+                case "terrain/list":
+                    return MCPTerrainCommands.ListTerrains(ParseJson(body));
+                case "terrain/raise-lower":
+                    return MCPTerrainCommands.RaiseLowerHeight(ParseJson(body));
+                case "terrain/smooth":
+                    return MCPTerrainCommands.SmoothHeight(ParseJson(body));
+                case "terrain/noise":
+                    return MCPTerrainCommands.SetHeightsFromNoise(ParseJson(body));
+                case "terrain/set-heights-region":
+                    return MCPTerrainCommands.SetHeightsRegion(ParseJson(body));
+                case "terrain/get-heights-region":
+                    return MCPTerrainCommands.GetHeightsRegion(ParseJson(body));
+                case "terrain/remove-layer":
+                    return MCPTerrainCommands.RemoveTerrainLayer(ParseJson(body));
+                case "terrain/paint-layer":
+                    return MCPTerrainCommands.PaintTerrainLayer(ParseJson(body));
+                case "terrain/fill-layer":
+                    return MCPTerrainCommands.FillTerrainLayer(ParseJson(body));
+                case "terrain/add-tree-prototype":
+                    return MCPTerrainCommands.AddTreePrototype(ParseJson(body));
+                case "terrain/remove-tree-prototype":
+                    return MCPTerrainCommands.RemoveTreePrototype(ParseJson(body));
+                case "terrain/place-trees":
+                    return MCPTerrainCommands.PlaceTrees(ParseJson(body));
+                case "terrain/clear-trees":
+                    return MCPTerrainCommands.ClearTrees(ParseJson(body));
+                case "terrain/get-tree-instances":
+                    return MCPTerrainCommands.GetTreeInstances(ParseJson(body));
+                case "terrain/add-detail-prototype":
+                    return MCPTerrainCommands.AddDetailPrototype(ParseJson(body));
+                case "terrain/paint-detail":
+                    return MCPTerrainCommands.PaintDetail(ParseJson(body));
+                case "terrain/scatter-detail":
+                    return MCPTerrainCommands.ScatterDetail(ParseJson(body));
+                case "terrain/clear-detail":
+                    return MCPTerrainCommands.ClearDetail(ParseJson(body));
+                case "terrain/set-holes":
+                    return MCPTerrainCommands.SetHoles(ParseJson(body));
+                case "terrain/set-settings":
+                    return MCPTerrainCommands.SetTerrainSettings(ParseJson(body));
+                case "terrain/resize":
+                    return MCPTerrainCommands.ResizeTerrain(ParseJson(body));
+                case "terrain/create-grid":
+                    return MCPTerrainCommands.CreateTerrainGrid(ParseJson(body));
+                case "terrain/set-neighbors":
+                    return MCPTerrainCommands.SetTerrainNeighbors(ParseJson(body));
+                case "terrain/import-heightmap":
+                    return MCPTerrainCommands.ImportHeightmap(ParseJson(body));
+                case "terrain/export-heightmap":
+                    return MCPTerrainCommands.ExportHeightmap(ParseJson(body));
+                case "terrain/get-steepness":
+                    return MCPTerrainCommands.GetSteepness(ParseJson(body));
 
                 // ─── Particle System ───
                 case "particle/create":

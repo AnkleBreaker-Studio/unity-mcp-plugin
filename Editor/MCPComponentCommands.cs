@@ -624,67 +624,98 @@ namespace UnityMCP.Editor
                             Convert.ToSingle(rd.GetValueOrDefault("height", 0f)));
                     break;
                 case SerializedPropertyType.ObjectReference:
-                    // Handle object references inline - resolve by asset path, name, or instanceId
-                    if (value == null || (value is string s && string.IsNullOrEmpty(s)))
-                    {
-                        prop.objectReferenceValue = null;
-                        break;
-                    }
-                    var refDict = value as Dictionary<string, object>;
-                    if (refDict != null)
-                    {
-                        UnityEngine.Object resolved = null;
-                        if (refDict.ContainsKey("assetPath"))
-                        {
-                            resolved = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(refDict["assetPath"].ToString());
-                        }
-                        else if (refDict.ContainsKey("instanceId"))
-                        {
-                            resolved = EditorUtility.InstanceIDToObject(Convert.ToInt32(refDict["instanceId"]));
-                        }
-                        else if (refDict.ContainsKey("gameObject"))
-                        {
-                            var refGo = GameObject.Find(refDict["gameObject"].ToString());
-                            if (refGo != null && refDict.ContainsKey("componentType"))
-                            {
-                                Type ct = FindType(refDict["componentType"].ToString());
-                                if (ct != null) resolved = refGo.GetComponent(ct);
-                            }
-                            else
-                            {
-                                resolved = refGo;
-                            }
-                        }
-                        if (resolved == null)
-                            throw new InvalidOperationException("Could not resolve object reference. Provide assetPath, instanceId, or gameObject.");
-                        prop.objectReferenceValue = resolved;
-                    }
-                    else if (value is string strVal)
-                    {
-                        // Try as asset path first
-                        var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(strVal);
-                        if (asset != null)
-                        {
-                            prop.objectReferenceValue = asset;
-                        }
-                        else
-                        {
-                            // Try as scene GameObject name
-                            var foundGo = GameObject.Find(strVal);
-                            if (foundGo != null)
-                                prop.objectReferenceValue = foundGo;
-                            else
-                                throw new InvalidOperationException($"Could not resolve '{strVal}' as asset path or scene object.");
-                        }
-                    }
-                    else
-                    {
-                        throw new NotSupportedException($"ObjectReference value must be a string (path/name) or dict with assetPath/instanceId/gameObject.");
-                    }
+                    prop.objectReferenceValue = ResolveObjectReference(value);
                     break;
                 default:
                     throw new NotSupportedException($"Cannot set property type: {prop.propertyType}");
             }
+        }
+
+        /// <summary>
+        /// Resolve an ObjectReference value from various input formats:
+        /// - null or empty string → null (clear reference)
+        /// - Dictionary with assetPath, instanceId, or gameObject keys
+        /// - JSON string that parses to a dictionary (e.g. from MCP tool params)
+        /// - Plain string → try as asset path, then scene hierarchy path, then GameObject.Find
+        /// </summary>
+        private static UnityEngine.Object ResolveObjectReference(object value)
+        {
+            // Null / empty → clear
+            if (value == null) return null;
+            if (value is string s && string.IsNullOrEmpty(s)) return null;
+
+            // Already a dictionary
+            var dict = value as Dictionary<string, object>;
+
+            // String that looks like JSON → try to parse as dictionary
+            if (dict == null && value is string jsonStr && jsonStr.TrimStart().StartsWith("{"))
+            {
+                try
+                {
+                    dict = MiniJSON.Json.Deserialize(jsonStr) as Dictionary<string, object>;
+                }
+                catch { /* not valid JSON, fall through to string handling */ }
+            }
+
+            // Dictionary-based resolution
+            if (dict != null)
+            {
+                UnityEngine.Object resolved = null;
+
+                if (dict.ContainsKey("assetPath"))
+                {
+                    resolved = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(dict["assetPath"].ToString());
+                }
+                else if (dict.ContainsKey("instanceId"))
+                {
+                    resolved = EditorUtility.InstanceIDToObject(Convert.ToInt32(dict["instanceId"]));
+                }
+                else if (dict.ContainsKey("gameObject") || dict.ContainsKey("path"))
+                {
+                    string goPath = dict.ContainsKey("path") ? dict["path"].ToString() : dict["gameObject"].ToString();
+                    var refGo = GameObject.Find(goPath);
+                    if (refGo != null && dict.ContainsKey("componentType"))
+                    {
+                        Type ct = FindType(dict["componentType"].ToString());
+                        if (ct != null) resolved = refGo.GetComponent(ct);
+                    }
+                    else
+                    {
+                        resolved = refGo;
+                    }
+                }
+
+                if (resolved == null)
+                    throw new InvalidOperationException("Could not resolve object reference from dict. Provide assetPath, instanceId, path, or gameObject.");
+                return resolved;
+            }
+
+            // Plain string — try asset path, then hierarchy path, then name search
+            if (value is string strVal)
+            {
+                // Asset path (starts with Assets/)
+                if (strVal.StartsWith("Assets/"))
+                {
+                    var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(strVal);
+                    if (asset != null) return asset;
+                }
+
+                // Scene hierarchy path or name via GameObject.Find
+                var foundGo = GameObject.Find(strVal);
+                if (foundGo != null) return foundGo;
+
+                // Last resort: search all root objects for partial match
+                var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+                foreach (var root in scene.GetRootGameObjects())
+                {
+                    var found = root.transform.Find(strVal);
+                    if (found != null) return found.gameObject;
+                }
+
+                throw new InvalidOperationException($"Could not resolve '{strVal}' as asset path or scene object.");
+            }
+
+            throw new NotSupportedException($"ObjectReference value must be a string (path/name) or dict with assetPath/instanceId/gameObject/path.");
         }
     }
 }

@@ -458,6 +458,50 @@ namespace UnityMCP.Editor
             return AssetDatabase.FindAssets($"t:{_amplifyFunctionType.Name}").Length;
         }
 
+        /// <summary>
+        /// Convert a string value to the target type, handling Unity types (Color, Vector2, Vector3, Vector4, etc.)
+        /// </summary>
+        private static object ConvertToType(object value, Type targetType)
+        {
+            if (value == null) return null;
+            string str = value.ToString();
+
+            if (targetType == typeof(Color))
+            {
+                var parts = str.Split(',');
+                if (parts.Length >= 4)
+                    return new Color(float.Parse(parts[0].Trim()), float.Parse(parts[1].Trim()), float.Parse(parts[2].Trim()), float.Parse(parts[3].Trim()));
+                if (parts.Length == 3)
+                    return new Color(float.Parse(parts[0].Trim()), float.Parse(parts[1].Trim()), float.Parse(parts[2].Trim()), 1f);
+                if (ColorUtility.TryParseHtmlString(str, out Color c)) return c;
+            }
+            if (targetType == typeof(Vector2))
+            {
+                var parts = str.Split(',');
+                return new Vector2(float.Parse(parts[0].Trim()), float.Parse(parts[1].Trim()));
+            }
+            if (targetType == typeof(Vector3))
+            {
+                var parts = str.Split(',');
+                return new Vector3(float.Parse(parts[0].Trim()), float.Parse(parts[1].Trim()), float.Parse(parts[2].Trim()));
+            }
+            if (targetType == typeof(Vector4))
+            {
+                var parts = str.Split(',');
+                return new Vector4(float.Parse(parts[0].Trim()), float.Parse(parts[1].Trim()), float.Parse(parts[2].Trim()), float.Parse(parts[3].Trim()));
+            }
+            if (targetType == typeof(bool))
+                return str == "1" || str.Equals("true", StringComparison.OrdinalIgnoreCase);
+            if (targetType == typeof(float))
+                return float.Parse(str);
+            if (targetType == typeof(int))
+                return int.Parse(str);
+            if (targetType.IsEnum)
+                return Enum.Parse(targetType, str, true);
+
+            return Convert.ChangeType(value, targetType);
+        }
+
         private static object NotInstalledError()
         {
             return new Dictionary<string, object>
@@ -920,8 +964,10 @@ namespace UnityMCP.Editor
                 return new Dictionary<string, object> { { "error", "nodeType is required (e.g. 'ColorNode', 'SamplerNode', 'SimpleMultiplyOpNode')" } };
 
             string nodeTypeName = args["nodeType"].ToString();
-            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
-            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
+            float posX = args.ContainsKey("x") ? Convert.ToSingle(args["x"]) :
+                         args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
+            float posY = args.ContainsKey("y") ? Convert.ToSingle(args["y"]) :
+                         args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
 
             try
             {
@@ -933,14 +979,17 @@ namespace UnityMCP.Editor
                 if (asm == null)
                     return new Dictionary<string, object> { { "error", "Amplify assembly not found" } };
 
-                // Find the node type
-                Type type = asm.GetType("AmplifyShaderEditor." + nodeTypeName);
+                // Find the node type - try exact full name first, then prefixed, then fuzzy
+                Type type = asm.GetType(nodeTypeName);
+                if (type == null)
+                    type = asm.GetType("AmplifyShaderEditor." + nodeTypeName);
                 if (type == null)
                 {
-                    // Try fuzzy search
+                    // Try fuzzy search by short name
+                    string shortName = nodeTypeName.Contains(".") ? nodeTypeName.Substring(nodeTypeName.LastIndexOf('.') + 1) : nodeTypeName;
                     foreach (var t in asm.GetTypes())
                     {
-                        if (t.Name.Equals(nodeTypeName, StringComparison.OrdinalIgnoreCase))
+                        if (t.Name.Equals(shortName, StringComparison.OrdinalIgnoreCase))
                         {
                             type = t;
                             break;
@@ -1293,7 +1342,7 @@ namespace UnityMCP.Editor
                 var prop = node.GetType().GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
                 if (prop != null && prop.CanWrite)
                 {
-                    object converted = Convert.ChangeType(value, prop.PropertyType);
+                    object converted = ConvertToType(value, prop.PropertyType);
                     prop.SetValue(node, converted);
                 }
                 else
@@ -1302,7 +1351,7 @@ namespace UnityMCP.Editor
                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
                     if (field != null)
                     {
-                        object converted = Convert.ChangeType(value, field.FieldType);
+                        object converted = ConvertToType(value, field.FieldType);
                         field.SetValue(node, converted);
                     }
                     else
@@ -1353,8 +1402,10 @@ namespace UnityMCP.Editor
                 return new Dictionary<string, object> { { "error", "nodeId is required" } };
 
             int nodeId = Convert.ToInt32(args["nodeId"]);
-            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
-            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
+            float posX = args.ContainsKey("x") ? Convert.ToSingle(args["x"]) :
+                         args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
+            float posY = args.ContainsKey("y") ? Convert.ToSingle(args["y"]) :
+                         args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
 
             try
             {

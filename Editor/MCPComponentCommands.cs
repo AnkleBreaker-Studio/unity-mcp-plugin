@@ -652,7 +652,7 @@ namespace UnityMCP.Editor
             {
                 try
                 {
-                    dict = MiniJSON.Json.Deserialize(jsonStr) as Dictionary<string, object>;
+                    dict = MiniJson.Deserialize(jsonStr) as Dictionary<string, object>;
                 }
                 catch { /* not valid JSON, fall through to string handling */ }
             }

@@ -95,8 +95,14 @@ namespace UnityMCP.Editor
                         if (addedNames.Contains(asmName))
                             continue;
 
-                        // Skip test assemblies that are rarely needed
+                        // Skip test assemblies
                         if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
+                            continue;
+
+                        // Skip facade/redirect assemblies that conflict with mscorlib
+                        // (netstandard, System.Runtime, etc. re-export types already in mscorlib)
+                        if (asmName == "netstandard" || asmName == "System.Runtime" ||
+                            asmName == "System.Private.CoreLib")
                             continue;
 
                         addedNames.Add(asmName);

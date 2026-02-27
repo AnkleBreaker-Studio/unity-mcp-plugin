@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="AnkleBreaker MCP" width="180" />
+</p>
+
 # Unity MCP Bridge Plugin
 
 A Unity Editor plugin that enables AI assistants (Claude, etc.) to control Unity Editor via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Part of the [Unity MCP](https://github.com/AnkleBreaker-Studio) toolchain by AnkleBreaker Studio.

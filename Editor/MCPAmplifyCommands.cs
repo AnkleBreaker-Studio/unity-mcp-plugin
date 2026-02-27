@@ -2136,6 +2136,8 @@ namespace UnityMCP.Editor
         private static EditorWindow GetOpenAmplifyWindow()
         {
             if (_amplifyShaderType == null) return null;
+            // Ensure reflection types are initialized
+            if (_parentGraphType == null) GetAmplifyAssembly();
             try
             {
                 var windows = Resources.FindObjectsOfTypeAll(_amplifyShaderType);

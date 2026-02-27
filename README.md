@@ -216,6 +216,10 @@ Please also check out the companion server repo: [Unity MCP — Server](https://
 
 ## Changelog
 
+### v2.13.2
+
+- **Prefab render stability fix** — `RenderPrefabPreview` now safely delegates to Unity's built-in `AssetPreview` system instead of instantiating prefabs at runtime. Complex prefabs with runtime scripts (NavMeshAgent, NetworkBehaviour, etc.) no longer crash the editor.
+
 ### v2.13.0
 
 - **Graphics & visual intelligence** — New `MCPGraphicsCommands` class with 9 tools for visual inspection and graphical metadata. Asset preview thumbnails, Scene View capture, Game View capture, prefab rendering from configurable angles — all returned as base64 PNG for inline MCP image content blocks. Plus deep metadata: mesh geometry (vertices, triangles, UVs, blend shapes, bones), material shader properties (all property types, keywords, texture slots), texture analysis (format, compression, mipmaps, memory estimate), renderer settings (materials, bounds, shadows, sorting), and scene lighting summary.

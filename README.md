@@ -8,7 +8,7 @@ A Unity Editor plugin that enables AI assistants (Claude, etc.) to control Unity
 
 ## What It Does
 
-This package runs a lightweight HTTP server inside the Unity Editor on `localhost:7890`. The companion [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **145+ tools** to AI assistants across **21 feature categories**.
+This package runs a lightweight HTTP server inside the Unity Editor on `localhost:7890`. The companion [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **200+ tools** to AI assistants across **30+ feature categories**.
 
 **Core Capabilities:**
 
@@ -29,10 +29,18 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 - **Physics** — Raycasts, sphere/box casts, overlap tests, get/set physics settings (gravity, layers, collision matrix)
 - **Lighting** — Manage lights, configure environment lighting/skybox, bake lightmaps, list/manage reflection probes
 - **Audio** — Manage AudioSources, AudioListeners, AudioMixers, play/stop clips, adjust mixer parameters
+- **Terrain** — Create/modify terrains, paint heightmaps/textures, manage terrain layers, trees, and detail objects
+- **Navigation** — NavMesh baking, agents, obstacles, off-mesh links
+- **Particles** — Particle system creation, inspection, module editing
+- **UI** — Canvas, UI elements, layout groups, event system
 - **Tags & Layers** — List tags and layers, add/remove tags, assign tags/layers to GameObjects
-- **Selection** — Get/set editor selection, find objects by name/tag/component
+- **Selection** — Get/set editor selection, find objects by name/tag/component/layer
+- **Graphics** — Scene and game view capture as inline images for visual inspection
 - **Input Actions** — List action maps and actions, inspect bindings (Input System package)
 - **Assembly Definitions** — List, inspect, create, update .asmdef files
+- **ScriptableObjects** — Create, inspect, modify ScriptableObject assets
+- **Constraints** — Position, rotation, scale, aim, parent constraints
+- **LOD** — LOD group management and configuration
 
 **Profiling & Debugging:**
 
@@ -45,10 +53,17 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 - **Shader Graph** — List, inspect, create, open Shader Graphs; inspect shader properties; list Sub Graphs and VFX Graphs (requires `com.unity.shadergraph` / `com.unity.visualeffectgraph`)
 - **Amplify Shader Editor** — List, inspect, open Amplify shaders and functions (requires Amplify Shader Editor asset)
 
+**Multiplayer (conditional on MPPM package):**
+
+- **MPPM Scenarios** — List, activate, start, stop multiplayer playmode scenarios; get status and player info (requires `com.unity.multiplayer.playmode`)
+
 **Infrastructure:**
 
+- **Multi-Instance Support** — Multiple Unity Editor instances discovered automatically (including ParrelSync clones)
 - **Multi-Agent Support** — Multiple AI agents can connect simultaneously with session tracking, action logging, and queued execution
+- **Play Mode Resilience** — MCP bridge survives domain reloads during Play Mode via SessionState persistence
 - **Dashboard** — Built-in Editor window (`Window > MCP Dashboard`) showing server status, category toggles, agent sessions, and update checker
+- **Project Context** — Auto-inject project-specific documentation and guidelines for AI agents (via `Assets/MCP/Context/`)
 - **Settings** — Configurable port, auto-start, and per-category enable/disable via EditorPrefs
 - **Update Checker** — Automatic GitHub release checking with in-dashboard notification
 
@@ -85,7 +100,7 @@ Open **Window > MCP Dashboard** to access:
 
 - Server status with live indicator (green = running, red = stopped)
 - Start / Stop / Restart controls
-- Per-category feature toggles (enable/disable any of the 21 categories)
+- Per-category feature toggles (enable/disable any of the 30+ categories)
 - Port and auto-start settings
 - Active agent session monitoring
 - Version display with update checker
@@ -105,6 +120,7 @@ Some features activate automatically when their corresponding packages are detec
 | `com.unity.shadergraph` | Shader Graph create, inspect, open |
 | `com.unity.visualeffectgraph` | VFX Graph listing and opening |
 | `com.unity.inputsystem` | Input Action maps and bindings inspection |
+| `com.unity.multiplayer.playmode` | MPPM scenario management (list, activate, start/stop, status) |
 | Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
 
 ## Configuration

@@ -206,6 +206,13 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
 
+## What's New in v2.19.0
+
+- **MPPM Scenario Management** — Full Multiplayer Play Mode support with 6 tools for managing virtual players, scenarios, and tags (requires Unity 6+)
+- **Response size validation** — `SendJson()` now validates response sizes before transmission, preventing oversized payloads from crashing downstream MCP transports
+- **Terrain tools** — Complete terrain toolkit with 25+ operations: heightmap manipulation, texture painting, tree/detail placement, hole punching, import/export, and multi-terrain grid support
+- **Graphics capture improvements** — Scene and Game view captures return clean base64 data for reliable inline image display
+
 ## License
 
 MIT with Attribution Requirement — see [LICENSE](LICENSE)

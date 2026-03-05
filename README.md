@@ -171,11 +171,13 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 
 ### Cost Comparison
 
+> **AnkleBreaker Unity MCP is completely free and open source.** The prices below reflect only the cost of the AI assistant (Claude) itself — the MCP plugin and server are $0.
+
 | Solution | Monthly Cost | What You Get |
 |----------|:----------:|--------------|
-| **AnkleBreaker MCP + Claude Pro** | **$20/mo** | 200+ tools, full Unity control, open source |
-| **AnkleBreaker MCP + Claude Max 5x** | **$100/mo** | Same + 5x usage for heavy workflows |
-| **AnkleBreaker MCP + Claude Max 20x** | **$200/mo** | Same + 20x usage for teams/studios |
+| **AnkleBreaker MCP (free) + Claude Pro** | **$20/mo** | 200+ tools, full Unity control, open source — MCP is free, price is Claude only |
+| **AnkleBreaker MCP (free) + Claude Max 5x** | **$100/mo** | Same + 5x usage for heavy workflows — MCP is free, price is Claude only |
+| **AnkleBreaker MCP (free) + Claude Max 20x** | **$200/mo** | Same + 20x usage for teams/studios — MCP is free, price is Claude only |
 | **Bezi Pro** | $20/mo | ~30 tools, 800 credits/mo, freezes Unity |
 | **Bezi Advanced** | $60/mo | ~30 tools, 2400 credits/mo, freezes Unity |
 | **Bezi Team** | $200/mo | 3 seats, 8000 credits, still freezes Unity |
@@ -185,7 +187,7 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 ### Key Advantages
 
 **vs. Bezi:**
-Bezi runs as a proprietary Unity plugin with its own credit-based billing — $20–$200/mo on top of your AI subscription. It has historically suffered from freezing the Unity Editor during AI tasks, blocking your workflow. AnkleBreaker MCP runs entirely in the background with zero editor impact, offers 6x more tools, and costs nothing beyond your existing Claude subscription.
+Bezi runs as a proprietary Unity plugin with its own credit-based billing — $20–$200/mo on top of your AI subscription. It has historically suffered from freezing the Unity Editor during AI tasks, blocking your workflow. AnkleBreaker MCP is completely free and open source, runs entirely in the background with zero editor impact, and offers 6x more tools — the only cost is your existing Claude subscription.
 
 **vs. Coplay MCP:**
 Coplay MCP provides 34 tools across ~5 categories. AnkleBreaker MCP delivers 200+ tools across 30+ categories including advanced features like physics raycasts, terrain editing, shader graph management, profiling, NavMesh, particle systems, and MPPM multiplayer — none of which exist in Coplay. Our two-tier lazy loading system is specifically optimized for Claude Cowork's tool limits.
@@ -206,7 +208,7 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
 
-## What's New in v2.19.0
+## What's New in v2.20.0
 
 - **MPPM Scenario Management** — Full Multiplayer Play Mode support with 6 tools for managing virtual players, scenarios, and tags (requires Unity 6+)
 - **Response size validation** — `SendJson()` now validates response sizes before transmission, preventing oversized payloads from crashing downstream MCP transports

@@ -38,19 +38,51 @@ namespace UnityMCP.Editor
         // Legacy main-thread queue (kept for direct ExecuteOnMainThread calls)
         private static readonly Queue<Action> _mainThreadQueue = new Queue<Action>();
 
+        // SessionState key to persist running state across domain reloads (Play Mode, recompile)
+        private const string WasRunningKey = "UnityMCP_WasRunningBeforeReload";
+
         static MCPBridgeServer()
         {
-            if (MCPSettingsManager.AutoStart)
+            // Restart if: AutoStart is enabled OR server was running before a domain reload
+            bool wasRunning = SessionState.GetBool(WasRunningKey, false);
+            if (MCPSettingsManager.AutoStart || wasRunning)
+            {
                 Start();
+                SessionState.SetBool(WasRunningKey, false);
+            }
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.quitting += OnQuitting;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+        }
+
+        /// <summary>
+        /// Handle Play Mode transitions to ensure the server stays alive.
+        /// Unity triggers a domain reload when entering/exiting Play Mode,
+        /// which is handled by the assembly reload callbacks and the SessionState flag.
+        /// This callback provides additional resilience for edge cases.
+        /// </summary>
+        private static void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.EnteredPlayMode || state == PlayModeStateChange.EnteredEditMode)
+            {
+                if (!_isRunning && (MCPSettingsManager.AutoStart || SessionState.GetBool(WasRunningKey, false)))
+                {
+                    Debug.Log("[MCP Bridge] Restarting server after Play Mode transition...");
+                    Start();
+                    SessionState.SetBool(WasRunningKey, false);
+                }
+            }
         }
 
         private static void OnBeforeAssemblyReload()
         {
             if (_isRunning)
+            {
+                // Persist that we were running, so we restart after reload
+                SessionState.SetBool(WasRunningKey, true);
                 Stop();
+            }
         }
 
         private static void OnQuitting()
@@ -1096,6 +1128,20 @@ namespace UnityMCP.Editor
                     return MCPPrefsCommands.DeletePlayerPref(ParseJson(body));
                 case "playerprefs/delete-all":
                     return MCPPrefsCommands.DeleteAllPlayerPrefs(ParseJson(body));
+
+                // ─── MPPM Scenario Management ───
+                case "scenario/list":
+                    return MCPScenarioCommands.ListScenarios(ParseJson(body));
+                case "scenario/status":
+                    return MCPScenarioCommands.GetScenarioStatus(ParseJson(body));
+                case "scenario/activate":
+                    return MCPScenarioCommands.ActivateScenario(ParseJson(body));
+                case "scenario/start":
+                    return MCPScenarioCommands.StartScenario(ParseJson(body));
+                case "scenario/stop":
+                    return MCPScenarioCommands.StopScenario(ParseJson(body));
+                case "scenario/info":
+                    return MCPScenarioCommands.GetMultiplayerInfo(ParseJson(body));
 
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };

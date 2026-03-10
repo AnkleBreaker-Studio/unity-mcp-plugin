@@ -60,6 +60,8 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 **Infrastructure:**
 
 - **Multi-Instance Support** — Multiple Unity Editor instances discovered automatically (including ParrelSync clones)
+- **Port Affinity** — Each editor remembers its last-used port via EditorPrefs and reclaims it on restart, minimizing port swaps across sessions
+- **Registry Heartbeat** — The plugin sends a heartbeat every 30 seconds to the shared instance registry (`lastSeen` timestamp), enabling the MCP server to distinguish between compiling editors (fresh entry) and crashed editors (stale entry >5 minutes)
 - **Multi-Agent Support** — Multiple AI agents can connect simultaneously with session tracking, action logging, and queued execution
 - **Play Mode Resilience** — MCP bridge survives domain reloads during Play Mode via SessionState persistence
 - **Dashboard** — Built-in Editor window (`Window > MCP Dashboard`) showing server status, category toggles, agent sessions, and update checker
@@ -167,6 +169,7 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 | **MPPM Multiplayer** | ✅ Scenarios, start/stop | ❌ | ❌ | ❌ |
 | **Visual Inspection** | ✅ Scene + Game view capture | ❌ | ⚠️ Limited | ❌ |
 | **Play Mode Resilient** | ✅ Survives domain reload | ❌ | ❌ | N/A |
+| **Port Resilience** | ✅ Identity validation + crash detection | ❌ | ❌ | N/A |
 | **Project Context** | ✅ Custom docs for AI agents | ❌ | ❌ | ⚠️ Built-in only |
 
 ### Cost Comparison
@@ -208,12 +211,12 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
 
-## What's New in v2.20.0
+## What's New in v2.21.1
 
-- **MPPM Scenario Management** — Full Multiplayer Play Mode support with 6 tools for managing virtual players, scenarios, and tags (requires Unity 6+)
-- **Response size validation** — `SendJson()` now validates response sizes before transmission, preventing oversized payloads from crashing downstream MCP transports
-- **Terrain tools** — Complete terrain toolkit with 25+ operations: heightmap manipulation, texture painting, tree/detail placement, hole punching, import/export, and multi-terrain grid support
-- **Graphics capture improvements** — Scene and Game view captures return clean base64 data for reliable inline image display
+- **Port affinity** — The plugin now remembers its last-used port via EditorPrefs and attempts to reclaim it on restart. This prevents port swaps when multiple Unity projects are open — each editor consistently uses the same port across restarts.
+- **Enriched ping response** — The `/api/ping` endpoint now returns `projectPath` alongside the existing `projectName`, enabling the MCP server to validate instance identity by both name and path.
+- **Registry heartbeat** — A new heartbeat mechanism updates the `lastSeen` timestamp in the shared instance registry every 30 seconds. This lets the MCP server distinguish between a compiling editor (fresh entry, temporarily unresponsive) and a crashed editor (stale entry, no heartbeat for >5 minutes).
+- **Crash resilience** — Combined with the server-side staleness check, the heartbeat ensures that if Unity crashes mid-compile and `OnDisable` never fires, the stale registry entry is detected and cleared within 5 minutes, allowing proper re-discovery.
 
 ## License
 

@@ -472,7 +472,10 @@ namespace UnityMCP.Editor
                         unityVersion = Application.unityVersion,
                         projectName = Application.productName,
                         projectPath = GetProjectPath(),
-                        platform = Application.platform.ToString()
+                        platform = Application.platform.ToString(),
+                        isClone = MCPInstanceRegistry.IsParrelSyncClone(),
+                        cloneIndex = MCPInstanceRegistry.GetParrelSyncCloneIndex(),
+                        processId = System.Diagnostics.Process.GetCurrentProcess().Id
                     };
 
                 // ─── Editor State ───

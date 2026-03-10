@@ -65,9 +65,10 @@ namespace UnityMCP.Editor
         public static int RegisteredPort => _registeredPort;
 
         /// <summary>
-        /// Find the first available port in the range [PortRangeStart, PortRangeEnd].
-        /// Checks both the registry file (to avoid conflicts with registered instances)
-        /// and actual TCP port availability.
+        /// Find an available port in the range [PortRangeStart, PortRangeEnd].
+        /// Uses port affinity: tries to reclaim the last-used port for this project first,
+        /// which prevents port swapping when multiple projects restart simultaneously.
+        /// Falls back to sequential scan if the preferred port is unavailable.
         /// </summary>
         public static int FindAvailablePort()
         {
@@ -76,6 +77,7 @@ namespace UnityMCP.Editor
             WithRegistryLock(() =>
             {
                 var occupiedPorts = new HashSet<int>();
+                string myProjectPath = GetProjectPath();
 
                 // Read registry to find ports claimed by other instances
                 var instances = ReadRegistry();
@@ -83,16 +85,42 @@ namespace UnityMCP.Editor
                 {
                     if (inst.ContainsKey("port"))
                     {
-                        if (inst["port"] is long lp)
-                            occupiedPorts.Add((int)lp);
-                        else if (inst["port"] is double dp)
-                            occupiedPorts.Add((int)dp);
-                        else if (int.TryParse(inst["port"].ToString(), out int ip))
-                            occupiedPorts.Add(ip);
+                        int existingPort = ExtractPort(inst);
+                        if (existingPort > 0)
+                            occupiedPorts.Add(existingPort);
                     }
                 }
 
-                // Try each port in range
+                // Port affinity: try to reclaim the last-used port for this project.
+                // This prevents port swapping when multiple projects restart simultaneously.
+                int preferredPort = GetLastUsedPort();
+                if (preferredPort >= PortRangeStart && preferredPort <= PortRangeEnd)
+                {
+                    // Check the preferred port isn't claimed by a DIFFERENT project in the registry
+                    bool claimedByOther = false;
+                    foreach (var inst in instances)
+                    {
+                        int instPort = ExtractPort(inst);
+                        if (instPort == preferredPort)
+                        {
+                            string instPath = inst.ContainsKey("projectPath") ? inst["projectPath"].ToString() : "";
+                            if (instPath != myProjectPath)
+                            {
+                                claimedByOther = true;
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!claimedByOther && IsPortAvailable(preferredPort))
+                    {
+                        Debug.Log($"[AB-UMCP] Reclaimed preferred port {preferredPort} (port affinity).");
+                        result = preferredPort;
+                        return;
+                    }
+                }
+
+                // Standard scan: try each port in range, skipping occupied ones
                 for (int port = PortRangeStart; port <= PortRangeEnd; port++)
                 {
                     if (occupiedPorts.Contains(port))
@@ -122,6 +150,36 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
+        /// Extract a port number from a registry entry dictionary.
+        /// Handles long, double, and string representations.
+        /// </summary>
+        private static int ExtractPort(Dictionary<string, object> inst)
+        {
+            if (!inst.ContainsKey("port")) return 0;
+            if (inst["port"] is long lp) return (int)lp;
+            if (inst["port"] is double dp) return (int)dp;
+            if (int.TryParse(inst["port"].ToString(), out int ip)) return ip;
+            return 0;
+        }
+
+        /// <summary>
+        /// Get the last port this project used (stored in EditorPrefs for persistence).
+        /// Returns -1 if no previous port is recorded.
+        /// </summary>
+        private static int GetLastUsedPort()
+        {
+            return EditorPrefs.GetInt("UnityMCP_LastUsedPort_" + GetProjectPath().GetHashCode(), -1);
+        }
+
+        /// <summary>
+        /// Save the port this project is using, so it can be reclaimed on restart.
+        /// </summary>
+        private static void SaveLastUsedPort(int port)
+        {
+            EditorPrefs.SetInt("UnityMCP_LastUsedPort_" + GetProjectPath().GetHashCode(), port);
+        }
+
+        /// <summary>
         /// Check if a TCP port is available for binding.
         /// </summary>
         private static bool IsPortAvailable(int port)
@@ -146,6 +204,7 @@ namespace UnityMCP.Editor
         public static void Register(int port)
         {
             _registeredPort = port;
+            SaveLastUsedPort(port); // Port affinity: remember for next restart
 
             WithRegistryLock(() =>
             {

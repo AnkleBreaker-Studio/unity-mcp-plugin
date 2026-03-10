@@ -36,6 +36,14 @@ namespace UnityMCP.Editor
         private static int _registeredPort = -1;
 
         /// <summary>
+        /// Heartbeat interval in seconds. The registry entry's lastSeen timestamp
+        /// is updated at this interval so the MCP server can detect crashes
+        /// (if Unity crashes, OnDisable never fires and the entry goes stale).
+        /// </summary>
+        private const double HeartbeatIntervalSeconds = 30.0;
+        private static double _lastHeartbeatTime = 0;
+
+        /// <summary>
         /// Named mutex to prevent race conditions when multiple Unity instances
         /// (e.g. ParrelSync clones) read/write the registry simultaneously.
         /// </summary>
@@ -228,6 +236,7 @@ namespace UnityMCP.Editor
                 });
 
                 // Build our entry
+                string nowUtc = DateTime.UtcNow.ToString("o");
                 var entry = new Dictionary<string, object>
                 {
                     { "port", port },
@@ -238,7 +247,8 @@ namespace UnityMCP.Editor
                     { "processId", System.Diagnostics.Process.GetCurrentProcess().Id },
                     { "isClone", IsParrelSyncClone() },
                     { "cloneIndex", GetParrelSyncCloneIndex() },
-                    { "registeredAt", DateTime.UtcNow.ToString("o") }
+                    { "registeredAt", nowUtc },
+                    { "lastSeen", nowUtc }
                 };
 
                 instances.Add(entry);
@@ -246,6 +256,62 @@ namespace UnityMCP.Editor
 
                 Debug.Log($"[AB-UMCP] Registered instance on port {port} in registry.");
             }, "register");
+
+            // Start the heartbeat: periodically update lastSeen so the MCP server
+            // can detect crashes (if Unity crashes, the heartbeat stops and the
+            // entry goes stale after ~5-10 minutes).
+            _lastHeartbeatTime = EditorApplication.timeSinceStartup;
+            EditorApplication.update -= HeartbeatTick;
+            EditorApplication.update += HeartbeatTick;
+        }
+
+        /// <summary>
+        /// EditorApplication.update callback — fires the heartbeat at regular intervals.
+        /// This runs on the main thread, so it's safe but lightweight.
+        /// During compiles, EditorApplication.update is NOT called (main thread is blocked),
+        /// which is fine — the lastSeen timestamp will be slightly stale but the MCP server
+        /// uses a generous timeout (5-10 min) that far exceeds any normal compile time.
+        /// </summary>
+        private static void HeartbeatTick()
+        {
+            if (_registeredPort < 0) return;
+
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _lastHeartbeatTime < HeartbeatIntervalSeconds) return;
+
+            _lastHeartbeatTime = now;
+            UpdateLastSeen();
+        }
+
+        /// <summary>
+        /// Update the lastSeen timestamp for this instance's registry entry.
+        /// This is a lightweight write — only modifies the existing entry's timestamp.
+        /// </summary>
+        private static void UpdateLastSeen()
+        {
+            WithRegistryLock(() =>
+            {
+                var instances = ReadRegistry();
+                string projectPath = GetProjectPath();
+                string nowUtc = DateTime.UtcNow.ToString("o");
+                bool updated = false;
+
+                foreach (var inst in instances)
+                {
+                    if (inst.ContainsKey("projectPath") &&
+                        inst["projectPath"].ToString() == projectPath)
+                    {
+                        inst["lastSeen"] = nowUtc;
+                        updated = true;
+                        break;
+                    }
+                }
+
+                if (updated)
+                {
+                    WriteRegistry(instances);
+                }
+            }, "heartbeat");
         }
 
         /// <summary>
@@ -254,6 +320,9 @@ namespace UnityMCP.Editor
         /// </summary>
         public static void Unregister()
         {
+            // Stop heartbeat
+            EditorApplication.update -= HeartbeatTick;
+
             if (_registeredPort < 0) return;
 
             int port = _registeredPort;

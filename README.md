@@ -222,4 +222,4 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 AnkleBreaker Open License v1.0 — see [LICENSE](LICENSE)
 
-This license requires: (1) including the copyright notice, (2) displaying **"Made with AnkleBreaker MCP"** (or "Powered by AnkleBreaker MCP") attribution in any product built with it (personal/educational use is exempt), and (3) not reselling behind a paywall without adding significant new functionality. See the full [LICENSE](LICENSE) for details.
+This license requires: (1) including the copyright notice, (2) displaying **"Made with AnkleBreaker MCP"** (or "Powered by AnkleBreaker MCP") attribution in any product built with it (personal/educational use is exempt), and (3) **reselling the tool is forbidden** — you may not sell, sublicense, or commercially distribute this software or derivatives of it. See the full [LICENSE](LICENSE) for details.

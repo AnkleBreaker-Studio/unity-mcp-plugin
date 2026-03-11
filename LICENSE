@@ -1,25 +1,26 @@
-MIT License with Attribution Requirement
+AnkleBreaker Open License v1.0
 
-Copyright (c) 2024-2026 AnkleBreaker Studio
+Copyright (c) 2024-2026 AnkleBreaker Consulting & AnkleBreaker Studio.
+All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, merge, publish, and distribute the Software, subject to the
+following conditions:
 
-1. The above copyright notice and this permission notice shall be included in
+1. COPYRIGHT & LICENSE NOTICE
+   The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
 
-2. ATTRIBUTION REQUIREMENT: Any product, tool, service, or application that
-   integrates or is built using this Software must display the following
-   attribution in a reasonably visible location (e.g., about page, splash
-   screen, credits, documentation, or README):
+2. ATTRIBUTION REQUIREMENT
+   Any product, tool, service, or application that integrates or is built
+   using this Software must display the following attribution in a reasonably
+   visible location (e.g., about page, splash screen, credits, documentation,
+   or README):
 
-   "Made with AnkleBreaker MCP"
-   or
-   "Powered by AnkleBreaker MCP"
+     "Made with AnkleBreaker MCP"
+     or
+     "Powered by AnkleBreaker MCP"
 
    along with the AnkleBreaker MCP logo (available at
    https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/blob/main/icon.png)
@@ -28,6 +29,43 @@ furnished to do so, subject to the following conditions:
    This attribution requirement applies to commercial and non-commercial
    products alike. Personal and educational use within private environments
    (not distributed to third parties) is exempt from this requirement.
+
+3. COMMERCIAL RESTRICTION — NO PAYWALL-ONLY RESALE
+   You MAY NOT sell, sublicense, or commercially distribute the Software — or
+   any derivative work based on it — unless the derivative work includes
+   SIGNIFICANT NEW FUNCTIONALITY that provides substantial additional value
+   to end users beyond what the original Software already offers.
+
+   For the purposes of this license, the following do NOT qualify as
+   significant new functionality:
+
+   a) Adding a paywall, licensing mechanism, or access restriction to the
+      Software without meaningful feature additions;
+   b) Repackaging, renaming, rebranding, or rebundling the Software with
+      only cosmetic or trivial changes;
+   c) Wrapping the Software in a thin service layer, installer, or
+      distribution mechanism without substantial new capabilities;
+   d) Offering the Software as part of a paid bundle where it is the
+      primary value proposition and no significant features are added.
+
+   "Significant new functionality" means features, tools, integrations, or
+   capabilities that are materially different from those already present in
+   the Software and that provide genuine, demonstrable value to users that
+   the original Software does not.
+
+   For clarity, the following uses ARE permitted:
+
+   - Using the Software internally within a company or team, including in
+     commercial projects, at no cost;
+   - Integrating the Software as a component of a larger product or service
+     that itself provides substantial independent value;
+   - Building and distributing (free or paid) extensions, plugins, or
+     derivative works that add significant new functionality on top of the
+     Software;
+   - Offering consulting, support, or training services around the Software.
+
+   If you are unsure whether your intended use qualifies, contact
+   contact@anklebreaker-studio.com before distributing.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

@@ -30,38 +30,31 @@ following conditions:
    products alike. Personal and educational use within private environments
    (not distributed to third parties) is exempt from this requirement.
 
-3. COMMERCIAL RESTRICTION — NO PAYWALL-ONLY RESALE
+3. RESALE PROHIBITION
    You MAY NOT sell, sublicense, or commercially distribute the Software — or
-   any derivative work based on it — unless the derivative work includes
-   SIGNIFICANT NEW FUNCTIONALITY that provides substantial additional value
-   to end users beyond what the original Software already offers.
+   any derivative work based on it — as a tool, product, or service.
 
-   For the purposes of this license, the following do NOT qualify as
-   significant new functionality:
+   This means you CANNOT:
 
-   a) Adding a paywall, licensing mechanism, or access restriction to the
-      Software without meaningful feature additions;
-   b) Repackaging, renaming, rebranding, or rebundling the Software with
-      only cosmetic or trivial changes;
-   c) Wrapping the Software in a thin service layer, installer, or
-      distribution mechanism without substantial new capabilities;
-   d) Offering the Software as part of a paid bundle where it is the
-      primary value proposition and no significant features are added.
-
-   "Significant new functionality" means features, tools, integrations, or
-   capabilities that are materially different from those already present in
-   the Software and that provide genuine, demonstrable value to users that
-   the original Software does not.
+   a) Sell or resell the Software itself, in whole or in part, whether
+      modified or unmodified;
+   b) Add a paywall, licensing mechanism, or access restriction to the
+      Software and sell it;
+   c) Repackage, rename, rebrand, or rebundle the Software with only
+      cosmetic or trivial changes and sell it;
+   d) Wrap the Software in a thin service layer, installer, or distribution
+      mechanism and sell it;
+   e) Offer the Software as part of a paid bundle where it is the primary
+      value proposition.
 
    For clarity, the following uses ARE permitted:
 
    - Using the Software internally within a company or team, including in
      commercial projects, at no cost;
-   - Integrating the Software as a component of a larger product or service
-     that itself provides substantial independent value;
-   - Building and distributing (free or paid) extensions, plugins, or
-     derivative works that add significant new functionality on top of the
-     Software;
+   - Integrating the Software as a free component of a larger product or
+     service that itself provides substantial independent value;
+   - Building and distributing FREE extensions, plugins, or derivative
+     works on top of the Software;
    - Offering consulting, support, or training services around the Software.
 
    If you are unsure whether your intended use qualifies, contact

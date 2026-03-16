@@ -700,8 +700,9 @@ namespace UnityMCP.Editor
                 }
 
                 // Removed GameObjects
-                var removedGOs = PrefabUtility.GetRemovedGameObjects(instance);
                 var removedGOList = new List<Dictionary<string, object>>();
+#if UNITY_2022_1_OR_NEWER
+                var removedGOs = PrefabUtility.GetRemovedGameObjects(instance);
                 foreach (var removed in removedGOs)
                 {
                     removedGOList.Add(new Dictionary<string, object>
@@ -709,6 +710,24 @@ namespace UnityMCP.Editor
                         { "name", removed.assetGameObject.name },
                     });
                 }
+#else
+                // Fallback for Unity < 2022.1: compare asset children vs instance children
+                var assetSource = PrefabUtility.GetCorrespondingObjectFromSource(instance);
+                if (assetSource != null)
+                {
+                    foreach (Transform assetChild in assetSource.transform)
+                    {
+                        var correspondingInInstance = instance.transform.Find(assetChild.name);
+                        if (correspondingInInstance == null)
+                        {
+                            removedGOList.Add(new Dictionary<string, object>
+                            {
+                                { "name", assetChild.name },
+                            });
+                        }
+                    }
+                }
+#endif
 
                 return new Dictionary<string, object>
                 {

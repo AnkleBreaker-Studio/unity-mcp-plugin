@@ -2,6 +2,25 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.24.0] - 2026-03-16
+
+### Added
+- **UMA (Unity Multipurpose Avatar) integration** — Full UMA asset pipeline via `MCPUMACommands.cs`:
+  - `uma/inspect-fbx` — Inspect FBX meshes for UMA compatibility (bone structure, submeshes)
+  - `uma/create-slot` — Create SlotDataAsset from mesh data
+  - `uma/create-overlay` — Create OverlayDataAsset with texture assignments
+  - `uma/create-wardrobe-recipe` — Create WardrobeRecipe combining slots and overlays
+  - `uma/create-wardrobe-from-fbx` — Atomic FBX-to-wardrobe pipeline (full asset creation in one call)
+  - `uma/wardrobe-equip` — Equip/unequip wardrobe items on DynamicCharacterAvatar
+  - `uma/list-global-library` — Browse UMA Global Library contents
+  - `uma/list-wardrobe-slots` — List available wardrobe slots
+  - `uma/list-uma-materials` — List UMA-compatible materials in the project
+  - `uma/get-project-config` — Get UMA project configuration and installed version
+  - `uma/verify-recipe` — Validate WardrobeRecipe for missing references
+  - `uma/rebuild-global-library` — Force rebuild the Global Library index
+  - `uma/register-assets` — Register Slot/Overlay/Recipe assets in the Global Library
+- All UMA tools are conditional on the `UMA` package being installed — returns helpful install message otherwise
+
 ## [2.9.1] - 2026-02-26
 
 ### Changed

@@ -53,6 +53,10 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 - **Shader Graph** — List, inspect, create, open Shader Graphs; inspect shader properties; list Sub Graphs and VFX Graphs (requires `com.unity.shadergraph` / `com.unity.visualeffectgraph`)
 - **Amplify Shader Editor** — List, inspect, open Amplify shaders and functions (requires Amplify Shader Editor asset)
 
+**Avatar (conditional on UMA package):**
+
+- **UMA** — Inspect FBX for UMA compatibility, create Slots/Overlays/Wardrobe Recipes, atomic FBX-to-wardrobe pipeline, equip/unequip items on DynamicCharacterAvatar, browse Global Library, list wardrobe slots & materials, verify recipes, rebuild library, register assets (requires `UMA`)
+
 **Multiplayer (conditional on MPPM package):**
 
 - **MPPM Scenarios** — List, activate, start, stop multiplayer playmode scenarios; get status and player info (requires `com.unity.multiplayer.playmode`)
@@ -124,6 +128,7 @@ Some features activate automatically when their corresponding packages are detec
 | `com.unity.inputsystem` | Input Action maps and bindings inspection |
 | `com.unity.multiplayer.playmode` | MPPM scenario management (list, activate, start/stop, status) |
 | Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
+| UMA 2 (Unity Multipurpose Avatar) | FBX inspection, Slot/Overlay/Wardrobe creation, Global Library management, equip/unequip on DCA |
 
 ## Configuration
 
@@ -210,6 +215,11 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 </a>
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
+
+## What's New in v2.24.0
+
+- **UMA (Unity Multipurpose Avatar) integration** — 13 new endpoint routes for the complete UMA asset pipeline: inspect FBX meshes, create SlotDataAssets, OverlayDataAssets, and WardrobeRecipes, run the atomic FBX-to-wardrobe pipeline, equip/unequip items on DynamicCharacterAvatars, browse the Global Library, list wardrobe slots and UMA materials, verify recipes, rebuild the library, and register assets. Conditional on the UMA package — returns install guidance if not present.
+- New `MCPUMACommands.cs` handler — all 13 UMA routes in a dedicated editor script.
 
 ## What's New in v2.21.1
 

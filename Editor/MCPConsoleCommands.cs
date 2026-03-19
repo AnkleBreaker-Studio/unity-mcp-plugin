@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace UnityMCP.Editor
@@ -22,10 +23,29 @@ namespace UnityMCP.Editor
             public DateTime timestamp;
         }
 
+        // ─── Compilation error buffer (independent of console log) ───
+        // Populated via CompilationPipeline.assemblyCompilationFinished.
+        // Cleared automatically at the start of each new compilation cycle.
+        // Not affected by console Clear().
+        private static readonly List<CompilationError> _compilationErrors = new List<CompilationError>();
+        private static bool _compilationHooked = false;
+
+        private struct CompilationError
+        {
+            public string file;
+            public int line;
+            public int column;
+            public string message;
+            public string severity; // "error" or "warning"
+            public string assembly;
+            public DateTime timestamp;
+        }
+
         // Static constructor — runs at editor load thanks to [InitializeOnLoad]
         static MCPConsoleCommands()
         {
             EnsureListening();
+            EnsureCompilationHook();
         }
 
         /// <summary>
@@ -40,6 +60,51 @@ namespace UnityMCP.Editor
             // background job failures, etc.
             Application.logMessageReceivedThreaded += OnLogMessage;
             _isListening = true;
+        }
+
+        /// <summary>
+        /// Hook into CompilationPipeline to capture compiler messages (errors/warnings)
+        /// independently from the console log buffer. Safe to call multiple times.
+        /// </summary>
+        public static void EnsureCompilationHook()
+        {
+            if (_compilationHooked) return;
+            CompilationPipeline.compilationStarted += OnCompilationStarted;
+            CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
+            _compilationHooked = true;
+        }
+
+        private static void OnCompilationStarted(object context)
+        {
+            // Fresh compilation cycle — clear previous results
+            lock (_compilationErrors) { _compilationErrors.Clear(); }
+        }
+
+        private static void OnAssemblyCompilationFinished(string assemblyPath, CompilerMessage[] messages)
+        {
+            // Extract assembly name from path (e.g. "Library/ScriptAssemblies/Assembly-CSharp.dll" → "Assembly-CSharp")
+            string asmName = System.IO.Path.GetFileNameWithoutExtension(assemblyPath);
+
+            lock (_compilationErrors)
+            {
+                foreach (var msg in messages)
+                {
+                    // Only capture errors and warnings, skip info
+                    if (msg.type != CompilerMessageType.Error && msg.type != CompilerMessageType.Warning)
+                        continue;
+
+                    _compilationErrors.Add(new CompilationError
+                    {
+                        file = msg.file ?? "",
+                        line = msg.line,
+                        column = msg.column,
+                        message = msg.message ?? "",
+                        severity = msg.type == CompilerMessageType.Error ? "error" : "warning",
+                        assembly = asmName,
+                        timestamp = DateTime.Now,
+                    });
+                }
+            }
         }
 
         private static void OnLogMessage(string message, string stackTrace, LogType type)
@@ -103,6 +168,51 @@ namespace UnityMCP.Editor
             return new Dictionary<string, object>
             {
                 { "count", entries.Count },
+                { "entries", entries },
+            };
+        }
+
+        /// <summary>
+        /// Get compilation errors/warnings captured via CompilationPipeline.
+        /// Independent of the console log buffer — not affected by Clear().
+        /// </summary>
+        public static object GetCompilationErrors(Dictionary<string, object> args)
+        {
+            EnsureCompilationHook();
+
+            int count = args.ContainsKey("count") ? Convert.ToInt32(args["count"]) : 50;
+            string severityFilter = args.ContainsKey("severity") ? args["severity"].ToString().ToLower() : "all";
+
+            var entries = new List<Dictionary<string, object>>();
+            lock (_compilationErrors)
+            {
+                // Walk backwards to get most recent first, then reverse for chronological order
+                for (int i = _compilationErrors.Count - 1; i >= 0 && entries.Count < count; i--)
+                {
+                    var err = _compilationErrors[i];
+
+                    if (severityFilter != "all" && err.severity != severityFilter)
+                        continue;
+
+                    entries.Add(new Dictionary<string, object>
+                    {
+                        { "file", err.file },
+                        { "line", err.line },
+                        { "column", err.column },
+                        { "message", err.message },
+                        { "severity", err.severity },
+                        { "assembly", err.assembly },
+                        { "timestamp", err.timestamp.ToString("HH:mm:ss.fff") },
+                    });
+                }
+            }
+
+            entries.Reverse();
+
+            return new Dictionary<string, object>
+            {
+                { "count", entries.Count },
+                { "isCompiling", EditorApplication.isCompiling },
                 { "entries", entries },
             };
         }

@@ -2,6 +2,19 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.24.0] - 2026-03-20
+
+### Added
+- **Compilation error tracking via CompilationPipeline** — Dedicated error buffer independent of console log
+  - `CompilationPipeline.assemblyCompilationFinished` captures errors/warnings per assembly
+  - `CompilationPipeline.compilationStarted` auto-clears buffer on new compilation cycle
+  - Thread-safe with lock-based synchronization
+  - Not affected by console `Clear()` or Play Mode log flooding
+  - Returns file, line, column, message, severity, assembly, and timestamp
+  - Supports filtering by severity (`error`, `warning`, `all`) and count limit
+  - Includes `isCompiling` flag in response
+- **HTTP route `compilation/errors`** — New endpoint on the bridge server for the MCP server's `unity_get_compilation_errors` tool
+
 ## [2.9.1] - 2026-02-26
 
 ### Changed

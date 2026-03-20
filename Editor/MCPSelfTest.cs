@@ -120,6 +120,7 @@ namespace UnityMCP.Editor
             { "asmdef",     TestAssemblyDef },
             { "profiler",   TestProfiler },
             { "debugger",   TestDebugger },
+            { "testing",    TestTesting },
         };
 
         // ─── Run tests ──────────────────────────────────────────────
@@ -559,6 +560,23 @@ namespace UnityMCP.Editor
             catch (Exception ex)
             {
                 return $"Debugger test threw: {ex.Message}";
+            }
+        }
+
+        // --- Testing ---
+        private static string TestTesting()
+        {
+            try
+            {
+                // Read-only probe: list EditMode tests
+                var result = MCPTestRunnerCommands.ListTests(
+                    new Dictionary<string, object> { { "mode", "EditMode" }, { "maxResults", "5" } });
+                if (result == null) return "ListTests returned null";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Testing test threw: {ex.Message}";
             }
         }
 

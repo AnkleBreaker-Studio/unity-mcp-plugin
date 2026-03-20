@@ -1146,6 +1146,14 @@ namespace UnityMCP.Editor
                 case "scenario/info":
                     return MCPScenarioCommands.GetMultiplayerInfo(ParseJson(body));
 
+                // ─── Testing ───
+                case "testing/run-tests":
+                    return MCPTestRunnerCommands.RunTests(ParseJson(body));
+                case "testing/get-job":
+                    return MCPTestRunnerCommands.GetTestJob(ParseJson(body));
+                case "testing/list-tests":
+                    return MCPTestRunnerCommands.ListTests(ParseJson(body));
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }

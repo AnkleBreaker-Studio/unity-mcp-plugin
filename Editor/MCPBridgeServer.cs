@@ -38,6 +38,14 @@ namespace UnityMCP.Editor
         // Legacy main-thread queue (kept for direct ExecuteOnMainThread calls)
         private static readonly Queue<Action> _mainThreadQueue = new Queue<Action>();
 
+        // Routes whose Unity APIs use async callbacks (fire on next editor frame).
+        // Register here instead of adding per-route if-conditions in HandleRequest/HandleQueueSubmit.
+        private static readonly Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
+            _deferredRoutes = new Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
+        {
+            { "testing/list-tests", MCPTestRunnerCommands.ListTests },
+        };
+
         // SessionState key to persist running state across domain reloads (Play Mode, recompile)
         private const string WasRunningKey = "UnityMCP_WasRunningBeforeReload";
 
@@ -259,10 +267,22 @@ namespace UnityMCP.Editor
                     return;
                 }
 
+                // ═══ Deferred paths (Unity APIs with async callbacks) ═══
+                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                {
+                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
+                        () => ExecuteOnMainThreadDeferred(resolve =>
+                            deferredHandler(ParseJson(body), resolve)));
+                    SendJson(response, 200, result);
+                    return;
+                }
+
                 // ═══ Legacy synchronous path (blocks until main thread processes) ═══
-                var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                    () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));
-                SendJson(response, 200, result);
+                {
+                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
+                        () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));
+                    SendJson(response, 200, result);
+                }
             }
             catch (Exception ex)
             {
@@ -290,11 +310,17 @@ namespace UnityMCP.Editor
                 if (args.ContainsKey("agentId") && !string.IsNullOrEmpty(args["agentId"]?.ToString()))
                     agentId = args["agentId"].ToString();
 
-                // Submit to queue — the action captures the routing logic
-                var ticket = MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
+                MCPRequestQueue.RequestTicket ticket;
+                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
                 {
-                    return RouteRequest(apiPath, "POST", innerBody);
-                });
+                    ticket = MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, resolve =>
+                        deferredHandler(ParseJson(innerBody), resolve));
+                }
+                else
+                {
+                    ticket = MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
+                        RouteRequest(apiPath, "POST", innerBody));
+                }
 
                 // Return immediately with ticket info
                 SendJson(response, 202, new Dictionary<string, object>
@@ -364,6 +390,7 @@ namespace UnityMCP.Editor
                 "material/create", "material/set-material",
                 "build/build", "build/play-mode",
                 "console/log", "console/clear",
+                "compilation/errors",
                 "selection/get", "selection/set", "selection/focus-scene-view", "selection/find-by-type",
                 "search/by-component", "search/by-tag", "search/by-layer", "search/by-name",
                 "search/assets", "search/missing-references",
@@ -561,6 +588,10 @@ namespace UnityMCP.Editor
                     return MCPConsoleCommands.GetLog(ParseJson(body));
                 case "console/clear":
                     return MCPConsoleCommands.Clear();
+
+                // ─── Compilation ───
+                case "compilation/errors":
+                    return MCPConsoleCommands.GetCompilationErrors(ParseJson(body));
 
                 // ─── Project ───
                 case "project/info":
@@ -1181,6 +1212,13 @@ namespace UnityMCP.Editor
                     case "uma/rename-asset":
                         return MCPUMACommands.RenameAsset(ParseJson(body));
 #endif
+                // ─── Testing ───
+                case "testing/run-tests":
+                    return MCPTestRunnerCommands.RunTests(ParseJson(body));
+                case "testing/get-job":
+                    return MCPTestRunnerCommands.GetTestJob(ParseJson(body));
+                // testing/list-tests is handled via the deferred path in HandleRequest
+
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };
             }
@@ -1222,6 +1260,47 @@ namespace UnityMCP.Editor
 
             if (!resetEvent.Wait(MCPRequestQueue.SyncTimeoutMs))
                 return new { error = $"Timeout waiting for Unity main thread after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
+
+            if (exception != null)
+                return new { error = exception.Message, stackTrace = exception.StackTrace };
+
+            return result;
+        }
+
+        /// <summary>
+        /// Execute an action on the main thread that completes asynchronously via callback.
+        /// Unlike ExecuteOnMainThread, the calling thread blocks until the resolve callback
+        /// is invoked — not when the action returns. Use for Unity APIs whose callbacks
+        /// fire on a subsequent editor frame (e.g. TestRunnerApi.RetrieveTestList).
+        /// </summary>
+        private static object ExecuteOnMainThreadDeferred(Action<Action<object>> asyncAction)
+        {
+            object result = null;
+            Exception exception = null;
+            var resetEvent = new ManualResetEventSlim(false);
+
+            lock (_mainThreadQueue)
+            {
+                _mainThreadQueue.Enqueue(() =>
+                {
+                    try
+                    {
+                        asyncAction(r =>
+                        {
+                            result = r;
+                            resetEvent.Set();
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        exception = ex;
+                        resetEvent.Set();
+                    }
+                });
+            }
+
+            if (!resetEvent.Wait(MCPRequestQueue.SyncTimeoutMs))
+                return new { error = $"Timeout waiting for Unity callback after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
 
             if (exception != null)
                 return new { error = exception.Message, stackTrace = exception.StackTrace };

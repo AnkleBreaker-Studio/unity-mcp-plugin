@@ -2,8 +2,8 @@
   "name": "AnkleBreaker.UnityMCP.Editor",
   "rootNamespace": "UnityMCP.Editor",
   "references": [
-    "UMA_Core",
-    "UMA_Core_Editor"
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
   ],
   "includePlatforms": [
     "Editor"

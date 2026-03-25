@@ -2,24 +2,28 @@
 
 All notable changes to this package will be documented in this file.
 
-## [2.24.0] - 2026-03-16
+## [2.24.0] - 2026-03-25
 
 ### Added
-- **UMA (Unity Multipurpose Avatar) integration** — Full UMA asset pipeline via `MCPUMACommands.cs`:
-  - `uma/inspect-fbx` — Inspect FBX meshes for UMA compatibility (bone structure, submeshes)
-  - `uma/create-slot` — Create SlotDataAsset from mesh data
-  - `uma/create-overlay` — Create OverlayDataAsset with texture assignments
-  - `uma/create-wardrobe-recipe` — Create WardrobeRecipe combining slots and overlays
-  - `uma/create-wardrobe-from-fbx` — Atomic FBX-to-wardrobe pipeline (full asset creation in one call)
-  - `uma/wardrobe-equip` — Equip/unequip wardrobe items on DynamicCharacterAvatar
-  - `uma/list-global-library` — Browse UMA Global Library contents
-  - `uma/list-wardrobe-slots` — List available wardrobe slots
-  - `uma/list-uma-materials` — List UMA-compatible materials in the project
-  - `uma/get-project-config` — Get UMA project configuration and installed version
-  - `uma/verify-recipe` — Validate WardrobeRecipe for missing references
-  - `uma/rebuild-global-library` — Force rebuild the Global Library index
-  - `uma/register-assets` — Register Slot/Overlay/Recipe assets in the Global Library
-- All UMA tools are conditional on the `UMA` package being installed — returns helpful install message otherwise
+- **Unity Test Runner integration** — Run and manage tests directly from AI assistants
+  - `testing/run-tests` — Start EditMode/PlayMode test runs, returns job ID for async polling
+  - `testing/get-job` — Poll test job status and results (passed/failed/skipped counts, duration)
+  - `testing/list-tests` — Discover available tests with names, categories, and run state
+  - Async job-based pattern with deferred execution on Unity main thread
+  - Supports filtering by test name, category, assembly, or group
+- **Compilation error tracking via CompilationPipeline** — Dedicated error buffer independent of console log
+  - `CompilationPipeline.assemblyCompilationFinished` captures errors/warnings per assembly
+  - `CompilationPipeline.compilationStarted` auto-clears buffer on new compilation cycle
+  - Thread-safe with lock-based synchronization
+  - Not affected by console `Clear()` or Play Mode log flooding
+  - Returns file, line, column, message, severity, assembly, and timestamp
+  - Supports filtering by severity (`error`, `warning`, `all`) and count limit
+  - Includes `isCompiling` flag in response
+- **HTTP route `compilation/errors`** — New endpoint on the bridge server for the MCP server's `unity_get_compilation_errors` tool
+
+### Fixed
+- **Unity 2021.3 LTS compilation compatibility** — Replaced `string.Contains(string, StringComparison)` with `IndexOf` for .NET Standard 2.0 compatibility
+- **Operator precedence bug** — Fixed `!IndexOf >= 0` (CS0023) to `IndexOf < 0` in test name filtering
 
 ## [2.9.1] - 2026-02-26
 

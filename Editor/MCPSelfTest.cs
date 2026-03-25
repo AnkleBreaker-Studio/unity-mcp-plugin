@@ -120,6 +120,7 @@ namespace UnityMCP.Editor
             { "asmdef",     TestAssemblyDef },
             { "profiler",   TestProfiler },
             { "debugger",   TestDebugger },
+            { "testing",    TestTesting },
         };
 
         // ─── Run tests ──────────────────────────────────────────────
@@ -559,6 +560,32 @@ namespace UnityMCP.Editor
             catch (Exception ex)
             {
                 return $"Debugger test threw: {ex.Message}";
+            }
+        }
+
+        // --- Testing ---
+        private static string TestTesting()
+        {
+            try
+            {
+                // Verify GetTestJob works (read-only, no side effects)
+                var jobResult = MCPTestRunnerCommands.GetTestJob(
+                    new Dictionary<string, object>()) as Dictionary<string, object>;
+                if (jobResult == null) return "GetTestJob returned null";
+
+                // Either returns a job or "No test jobs found" — both are valid
+                if (jobResult.ContainsKey("error"))
+                {
+                    string error = jobResult["error"].ToString();
+                    if (!error.Contains("No test jobs found"))
+                        return $"GetTestJob error: {error}";
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Testing test threw: {ex.Message}";
             }
         }
 

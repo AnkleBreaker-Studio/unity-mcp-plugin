@@ -19,6 +19,7 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 - **Scripts** — Create, read, update C# scripts
 - **Builds** — Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL)
 - **Console & Compilation** — Read errors/warnings/logs, clear console; get C# compilation errors via CompilationPipeline (independent of console buffer)
+- **Testing** — Run EditMode/PlayMode tests, poll results, list available tests via Unity Test Runner API
 - **Play Mode** — Play, pause, stop
 - **Editor** — Execute menu items, run arbitrary C# code, check editor state, get project info
 

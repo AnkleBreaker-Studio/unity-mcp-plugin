@@ -227,8 +227,12 @@ namespace UnityMCP.Editor
         /// <summary>
         /// List available tests (discovery).
         /// Route: testing/list-tests
+        ///
+        /// Uses a callback because RetrieveTestList fires its callback on the
+        /// next editor frame, not synchronously. The bridge's deferred execution
+        /// path blocks the HTTP thread until resolve is called.
         /// </summary>
-        public static object ListTests(Dictionary<string, object> args)
+        public static void ListTests(Dictionary<string, object> args, Action<object> resolve)
         {
             string modeStr = args.ContainsKey("mode") ? args["mode"].ToString() : "EditMode";
             TestMode testMode;
@@ -243,10 +247,11 @@ namespace UnityMCP.Editor
                     testMode = TestMode.PlayMode;
                     break;
                 default:
-                    return new Dictionary<string, object>
+                    resolve(new Dictionary<string, object>
                     {
                         { "error", $"Unknown test mode: {modeStr}. Use 'EditMode' or 'PlayMode'." }
-                    };
+                    });
+                    return;
             }
 
             string nameFilter = args.ContainsKey("nameFilter") ? args["nameFilter"].ToString() : null;
@@ -254,30 +259,29 @@ namespace UnityMCP.Editor
 
             EnsureCallbacksRegistered();
 
-            // Use RetrieveTestList to get available tests
-            ITestAdaptor rootTest = null;
-            _testRunnerApi.RetrieveTestList(testMode, (root) => { rootTest = root; });
-
-            // Callback fires synchronously on main thread
-            if (rootTest == null)
+            _testRunnerApi.RetrieveTestList(testMode, root =>
             {
-                return new Dictionary<string, object>
+                if (root == null)
                 {
-                    { "error", "Failed to retrieve test list. The callback may not have fired synchronously." },
-                    { "mode", testMode.ToString() }
-                };
-            }
+                    resolve(new Dictionary<string, object>
+                    {
+                        { "error", "Unity returned a null test tree." },
+                        { "mode", testMode.ToString() }
+                    });
+                    return;
+                }
 
-            var tests = new List<Dictionary<string, object>>();
-            CollectLeafTests(rootTest, tests, nameFilter, maxResults);
+                var tests = new List<Dictionary<string, object>>();
+                CollectLeafTests(root, tests, nameFilter, maxResults);
 
-            return new Dictionary<string, object>
-            {
-                { "mode", testMode.ToString() },
-                { "totalTests", tests.Count },
-                { "truncated", tests.Count >= maxResults },
-                { "tests", tests }
-            };
+                resolve(new Dictionary<string, object>
+                {
+                    { "mode", testMode.ToString() },
+                    { "totalTests", tests.Count },
+                    { "truncated", tests.Count >= maxResults },
+                    { "tests", tests }
+                });
+            });
         }
 
         // ─── Test Runner Callbacks ───────────────────────────────────

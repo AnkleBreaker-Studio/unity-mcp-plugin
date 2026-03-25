@@ -568,10 +568,12 @@ namespace UnityMCP.Editor
         {
             try
             {
-                // Read-only probe: list EditMode tests
-                var result = MCPTestRunnerCommands.ListTests(
-                    new Dictionary<string, object> { { "mode", "EditMode" }, { "maxResults", "5" } });
-                if (result == null) return "ListTests returned null";
+                // Read-only probe: list EditMode tests via callback
+                object result = null;
+                MCPTestRunnerCommands.ListTests(
+                    new Dictionary<string, object> { { "mode", "EditMode" }, { "maxResults", "5" } },
+                    r => { result = r; });
+                // Callback may fire asynchronously — a null result here is expected
                 return null;
             }
             catch (Exception ex)

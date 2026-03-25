@@ -390,6 +390,7 @@ namespace UnityMCP.Editor
                 "material/create", "material/set-material",
                 "build/build", "build/play-mode",
                 "console/log", "console/clear",
+                "compilation/errors",
                 "selection/get", "selection/set", "selection/focus-scene-view", "selection/find-by-type",
                 "search/by-component", "search/by-tag", "search/by-layer", "search/by-name",
                 "search/assets", "search/missing-references",
@@ -587,6 +588,10 @@ namespace UnityMCP.Editor
                     return MCPConsoleCommands.GetLog(ParseJson(body));
                 case "console/clear":
                     return MCPConsoleCommands.Clear();
+
+                // ─── Compilation ───
+                case "compilation/errors":
+                    return MCPConsoleCommands.GetCompilationErrors(ParseJson(body));
 
                 // ─── Project ───
                 case "project/info":

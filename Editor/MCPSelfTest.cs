@@ -568,12 +568,19 @@ namespace UnityMCP.Editor
         {
             try
             {
-                // Read-only probe: list EditMode tests via callback
-                object result = null;
-                MCPTestRunnerCommands.ListTests(
-                    new Dictionary<string, object> { { "mode", "EditMode" }, { "maxResults", "5" } },
-                    r => { result = r; });
-                // Callback may fire asynchronously — a null result here is expected
+                // Verify GetTestJob works (read-only, no side effects)
+                var jobResult = MCPTestRunnerCommands.GetTestJob(
+                    new Dictionary<string, object>()) as Dictionary<string, object>;
+                if (jobResult == null) return "GetTestJob returned null";
+
+                // Either returns a job or "No test jobs found" — both are valid
+                if (jobResult.ContainsKey("error"))
+                {
+                    string error = jobResult["error"].ToString();
+                    if (!error.Contains("No test jobs found"))
+                        return $"GetTestJob error: {error}";
+                }
+
                 return null;
             }
             catch (Exception ex)

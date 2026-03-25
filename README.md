@@ -11,11 +11,11 @@
 This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI assistants across **30+ feature categories** — scenes, GameObjects, components, builds, profiling, Shader Graph, Amplify Shader Editor, terrain, physics, NavMesh, animation, multiplayer, and much more.
 
 <p align="center">
-  <img src="docs/unity-mcp-demo.gif" alt="Unity MCP Demo — AI controlling Unity Editor via Model Context Protocol" width="800" />
+  <img src="docs/unity-mcp-showcase-brickbreaker.gif" alt="Unity MCP — AI building a neon brick breaker game in Unity Editor" width="800" />
 </p>
 
 <p align="center">
-  <img src="docs/unity-mcp-architecture.gif" alt="Unity MCP Architecture — AI Assistant → MCP Server → Unity Plugin → Unity Editor" width="800" />
+  <img src="docs/unity-mcp-showcase-village.gif" alt="Unity MCP — AI building a 3D medieval village with houses, trees, and terrain" width="800" />
 </p>
 
 **Core Capabilities:**
@@ -152,7 +152,7 @@ Settings are stored in `EditorPrefs` and persist across sessions.
 - Multi-agent requests are queued to prevent conflicts
 
 <p align="center">
-  <img src="docs/unity-mcp-features.gif" alt="Unity MCP Features — 268 tools across 30+ categories for AI-powered game development" width="800" />
+  <img src="docs/unity-mcp-showcase-castle.gif" alt="Unity MCP — AI building a 3D castle with FPS walkthrough in Unity Editor" width="800" />
 </p>
 
 ## Why AnkleBreaker Unity MCP?

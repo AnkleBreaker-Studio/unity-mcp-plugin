@@ -1174,6 +1174,12 @@ namespace UnityMCP.Editor
                         return MCPUMACommands.CreateWardrobeFromFbx(ParseJson(body));
                     case "uma/wardrobe-equip":
                         return MCPUMACommands.WardrobeEquip(ParseJson(body));
+                    case "uma/edit-race":
+                        return MCPUMACommands.EditRace(ParseJson(body));
+                    case "uma/create-race":
+                        return MCPUMACommands.CreateRace(ParseJson(body));
+                    case "uma/rename-asset":
+                        return MCPUMACommands.RenameAsset(ParseJson(body));
 #endif
                 default:
                     return new { error = $"Unknown API endpoint: {path}" };

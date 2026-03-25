@@ -968,80 +968,37 @@ namespace UnityMCP.Editor
 
             var indexer = UMAAssetIndexer.Instance;
 
-            // Parse slotsV3 to extract slot and overlay names
-            // Simple JSON parsing — find slotsV3 array and extract id fields
+            // Parse slotsV3 to extract slot and overlay names using Newtonsoft.Json
             var slotNames = new List<string>();
             var overlayNames = new List<string>();
             int maxColorIdx = -1;
 
             try
             {
-                // Extract slot IDs from slotsV3
-                int slotsStart = recipeJson.IndexOf("\"slotsV3\":[");
-                if (slotsStart < 0)
+                var recipeDoc = Newtonsoft.Json.Linq.JObject.Parse(recipeJson);
+                var slotsV3 = recipeDoc["slotsV3"] as Newtonsoft.Json.Linq.JArray;
+                if (slotsV3 == null || slotsV3.Count == 0)
                 {
                     issues.Add(MakeIssue("critical", "slotsV3", "No slotsV3 array found in recipeString."));
                     return BuildVerifyResult(info, issues);
                 }
 
-                // Parse slot IDs — find all "id":"xxx" within slotsV3
-                int searchPos = slotsStart;
-                int slotsEnd = FindMatchingBracket(recipeJson, recipeJson.IndexOf('[', slotsStart));
-
-                // Find slot-level IDs (direct children of slotsV3 array items)
-                // and overlay IDs (inside overlays arrays within each slot)
-                bool inOverlays = false;
-                int pos = slotsStart;
-                while (pos < slotsEnd && pos >= 0)
+                foreach (var slotToken in slotsV3)
                 {
-                    int overlaysIdx = recipeJson.IndexOf("\"overlays\":[", pos);
-                    int idIdx = recipeJson.IndexOf("\"id\":\"", pos);
+                    string slotId = slotToken["id"]?.ToString() ?? "";
+                    slotNames.Add(slotId);
 
-                    if (idIdx < 0 || idIdx >= slotsEnd) break;
-
-                    // Check if we hit an overlays array before the next id
-                    if (overlaysIdx >= 0 && overlaysIdx < idIdx)
+                    var overlaysArr = slotToken["overlays"] as Newtonsoft.Json.Linq.JArray;
+                    if (overlaysArr != null)
                     {
-                        inOverlays = true;
+                        foreach (var ovToken in overlaysArr)
+                        {
+                            string ovId = ovToken["id"]?.ToString() ?? "";
+                            overlayNames.Add(ovId);
+                            int colorIdx = (ovToken["colorIdx"] != null ? (int)ovToken["colorIdx"] : -1);
+                            if (colorIdx > maxColorIdx) maxColorIdx = colorIdx;
+                        }
                     }
-
-                    // Extract the id value
-                    int valueStart = idIdx + 6; // after "id":"
-                    int valueEnd = recipeJson.IndexOf('"', valueStart);
-                    if (valueEnd < 0) break;
-                    string idValue = recipeJson.Substring(valueStart, valueEnd - valueStart);
-
-                    if (inOverlays)
-                        overlayNames.Add(idValue);
-                    else
-                        slotNames.Add(idValue);
-
-                    pos = valueEnd + 1;
-
-                    // Reset overlay flag at closing bracket
-                    if (inOverlays)
-                    {
-                        int closeBracket = recipeJson.IndexOf(']', pos);
-                        if (closeBracket >= 0 && closeBracket < recipeJson.IndexOf("\"id\":\"", pos))
-                            inOverlays = false;
-                    }
-                }
-
-                // Extract colorIdx values
-                int colorIdxPos = 0;
-                while (true)
-                {
-                    int ci = recipeJson.IndexOf("\"colorIdx\":", colorIdxPos);
-                    if (ci < 0) break;
-                    int numStart = ci + 11;
-                    int numEnd = numStart;
-                    while (numEnd < recipeJson.Length && (char.IsDigit(recipeJson[numEnd]) || recipeJson[numEnd] == '-'))
-                        numEnd++;
-                    if (int.TryParse(recipeJson.Substring(numStart, numEnd - numStart), out int idx))
-                    {
-                        if (idx > maxColorIdx) maxColorIdx = idx;
-                    }
-                    colorIdxPos = numEnd;
                 }
             }
             catch (Exception ex)
@@ -1057,6 +1014,9 @@ namespace UnityMCP.Editor
             // Verify slots exist in Global Library and have materialName
             foreach (string sName in slotNames)
             {
+                // Skip empty placeholder slots (used in body-base wardrobe recipes)
+                if (string.IsNullOrEmpty(sName)) continue;
+
                 if (!indexer.HasAsset<SlotDataAsset>(sName))
                 {
                     issues.Add(MakeIssue("critical", "slot_missing",
@@ -1087,6 +1047,84 @@ namespace UnityMCP.Editor
                         "Overlay '" + oName + "' not found in Global Library. The recipe will crash at runtime."));
                 }
             }
+
+
+            // Verify body-base slot placeholder pattern
+            // When a wardrobe recipe references a body-base slot (one that belongs to the race's
+            // base recipe), UMA's recipe editor requires an empty placeholder slot at index 0.
+            // Without it, the slot won't display in the UMA Recipe Editor and may fail at runtime.
+            if (slotNames.Count > 0 && !string.IsNullOrEmpty(recipe.wardrobeSlot))
+            {
+                try
+                {
+                    var recipeDoc = Newtonsoft.Json.Linq.JObject.Parse(recipeJson);
+                    string raceField = recipeDoc["race"]?.ToString() ?? "";
+
+                    if (!string.IsNullOrEmpty(raceField))
+                    {
+                        // Find the RaceData for this race
+                        var allRaces = indexer.GetAllAssets<RaceData>();
+                        RaceData raceData = null;
+                        foreach (var r in allRaces)
+                        {
+                            if (r != null && r.raceName == raceField)
+                            {
+                                raceData = r;
+                                break;
+                            }
+                        }
+
+                        if (raceData != null && raceData.baseRaceRecipe != null)
+                        {
+                            // Parse the base recipe to get body base slot names
+                            var baseRecipeSO = new SerializedObject(raceData.baseRaceRecipe);
+                            string baseRecipeJson = baseRecipeSO.FindProperty("recipeString").stringValue;
+                            var bodyBaseSlotNames = new HashSet<string>();
+
+                            if (!string.IsNullOrEmpty(baseRecipeJson))
+                            {
+                                var baseDoc = Newtonsoft.Json.Linq.JObject.Parse(baseRecipeJson);
+                                var baseSlotsV3 = baseDoc["slotsV3"] as Newtonsoft.Json.Linq.JArray;
+                                if (baseSlotsV3 != null)
+                                {
+                                    foreach (var bs in baseSlotsV3)
+                                    {
+                                        string bsId = bs["id"]?.ToString() ?? "";
+                                        if (!string.IsNullOrEmpty(bsId))
+                                            bodyBaseSlotNames.Add(bsId);
+                                    }
+                                }
+                            }
+
+                            // Check if any slot in this wardrobe recipe is a body base slot
+                            foreach (string sName in slotNames)
+                            {
+                                if (string.IsNullOrEmpty(sName)) continue;
+                                if (bodyBaseSlotNames.Contains(sName))
+                                {
+                                    // This recipe uses a body base slot. Check for placeholder at index 0.
+                                    bool hasPlaceholder = slotNames.Count >= 2
+                                        && string.IsNullOrEmpty(slotNames[0])
+                                        && slotNames.IndexOf(sName) > 0;
+
+                                    if (!hasPlaceholder)
+                                    {
+                                        issues.Add(MakeIssue("critical", "body_base_slot_no_placeholder",
+                                            "Slot '" + sName + "' is a body-base slot from the race's base recipe. " +
+                                            "Wardrobe recipes that reference body-base slots must have an empty " +
+                                            "placeholder slot at index 0 (id=\"\", scale=1) before the actual slot. " +
+                                            "Without this, the UMA Recipe Editor cannot display the recipe and " +
+                                            "the slot may not resolve at runtime."));
+                                    }
+                                    break; // Only need to flag once per recipe
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception) { /* race parsing failure is non-fatal for this check */ }
+            }
+
 
             // Verify fColors
             int fColorCount = 0;
@@ -2217,6 +2255,960 @@ namespace UnityMCP.Editor
             return result;
         }
 
+        // ═══════════════════════ uma/edit-race ═══════════════════════
+
+        /// <summary>
+        /// Edit properties of an existing RaceData asset.
+        /// Supports renaming with cascade to all recipes (compatibleRaces + recipeString),
+        /// DCA in scene (activeRace.name), asset file rename, and Global Library rebuild.
+        /// </summary>
+        public static object EditRace(Dictionary<string, object> args)
+        {
+            try
+            {
+                // 1. RESOLVE — Find the RaceData
+                string raceName = GetOptionalString(args, "raceName", null);
+                string racePath = GetOptionalString(args, "racePath", null);
+                RaceData race = ResolveRace(raceName, racePath);
+                if (race == null)
+                    return Error("Race not found. Provide a valid raceName (from Global Library) or racePath.");
+
+                string oldRaceName = race.raceName;
+                bool nameChanged = false;
+
+                // 2. EDIT — Apply requested modifications
+                Undo.RecordObject(race, "MCP Edit Race");
+
+                // 2a. Rename
+                string newName = GetOptionalString(args, "newRaceName", null);
+                if (newName != null && newName != oldRaceName)
+                {
+                    race.raceName = newName;
+                    nameChanged = true;
+                }
+
+                // 2b. Wardrobe slots (3 mutually exclusive modes)
+                var fullSlots = GetOptionalList(args, "wardrobeSlots");
+                var addSlots = GetOptionalList(args, "addWardrobeSlots");
+                var removeSlots = GetOptionalList(args, "removeWardrobeSlots");
+
+                if (fullSlots != null)
+                {
+                    // Full replacement
+                    race.wardrobeSlots = fullSlots.Select(s => s.ToString()).ToList();
+                }
+                else
+                {
+                    // Incremental add
+                    if (addSlots != null)
+                        foreach (var s in addSlots)
+                            if (!race.wardrobeSlots.Contains(s.ToString()))
+                                race.wardrobeSlots.Add(s.ToString());
+
+                    // Remove
+                    if (removeSlots != null)
+                        foreach (var s in removeSlots)
+                            race.wardrobeSlots.Remove(s.ToString());
+                }
+
+                // 2c. Simple fields
+                string umaTargetStr = GetOptionalString(args, "umaTarget", null);
+                if (umaTargetStr != null)
+                {
+                    if (umaTargetStr.Equals("Humanoid", StringComparison.OrdinalIgnoreCase))
+                        race.umaTarget = RaceData.UMATarget.Humanoid;
+                    else if (umaTargetStr.Equals("Generic", StringComparison.OrdinalIgnoreCase))
+                        race.umaTarget = RaceData.UMATarget.Generic;
+                }
+
+                if (args.ContainsKey("fixupRotations"))
+                    race.FixupRotations = GetOptionalBool(args, "fixupRotations", race.FixupRotations);
+
+                if (args.ContainsKey("raceHeight"))
+                    race.raceHeight = GetOptionalFloat(args, "raceHeight", race.raceHeight);
+
+                if (args.ContainsKey("raceRadius"))
+                    race.raceRadius = GetOptionalFloat(args, "raceRadius", race.raceRadius);
+
+                if (args.ContainsKey("raceMass"))
+                    race.raceMass = GetOptionalFloat(args, "raceMass", race.raceMass);
+
+                // 2d. Tags
+                var tags = GetOptionalList(args, "tags");
+                if (tags != null)
+                    race.tags = tags.Select(t => t.ToString()).ToList();
+
+                // 2e. Backwards compatibility
+                var compat = GetOptionalList(args, "backwardsCompatibleWith");
+                if (compat != null)
+                    race.backwardsCompatibleWith = compat.Select(c => c.ToString()).ToList();
+
+                // 2f. Base race recipe (change the ref to another asset)
+                string newBaseRecipePath = GetOptionalString(args, "baseRaceRecipePath", null);
+                if (newBaseRecipePath != null)
+                {
+                    var newBaseRecipe = AssetDatabase.LoadAssetAtPath<UMARecipeBase>(newBaseRecipePath);
+                    if (newBaseRecipe != null)
+                        race.baseRaceRecipe = newBaseRecipe;
+                    else
+                        Debug.LogWarning("[MCP UMA] baseRaceRecipePath not found: " + newBaseRecipePath);
+                }
+
+                // 3. SAVE the RaceData
+                EditorUtility.SetDirty(race);
+                AssetDatabase.SaveAssets();
+
+                // 4. CASCADE — If renamed, update ALL references
+                int recipesUpdated = 0;
+                int dcaUpdated = 0;
+                bool baseRecipeUpdatedFlag = false;
+                var updatedRecipePaths = new List<string>();
+                var updatedDcaPaths = new List<string>();
+                string baseRecipePath = null;
+
+                if (nameChanged && GetOptionalBool(args, "updateRecipes", true))
+                {
+                    // ── 4a. BASE RECIPE (UMATextRecipe referenced by baseRaceRecipe) ──
+                    if (race.baseRaceRecipe != null)
+                    {
+                        var baseRecipe = race.baseRaceRecipe as UMATextRecipe;
+                        if (baseRecipe != null)
+                        {
+                            Undo.RecordObject(baseRecipe, "MCP Cascade Race Rename - Base Recipe");
+
+                            // Update compatibleRaces
+                            if (baseRecipe.compatibleRaces != null &&
+                                baseRecipe.compatibleRaces.Contains(oldRaceName))
+                            {
+                                baseRecipe.compatibleRaces.Remove(oldRaceName);
+                                if (!baseRecipe.compatibleRaces.Contains(newName))
+                                    baseRecipe.compatibleRaces.Add(newName);
+                            }
+
+                            // Update recipeString JSON ("race":"OldName")
+                            if (!string.IsNullOrEmpty(baseRecipe.recipeString))
+                            {
+                                baseRecipe.recipeString = baseRecipe.recipeString
+                                    .Replace("\"race\":\"" + oldRaceName + "\"",
+                                             "\"race\":\"" + newName + "\"")
+                                    .Replace("\"race\": \"" + oldRaceName + "\"",
+                                             "\"race\": \"" + newName + "\"");
+                            }
+
+                            EditorUtility.SetDirty(baseRecipe);
+                            baseRecipePath = AssetDatabase.GetAssetPath(baseRecipe);
+                            baseRecipeUpdatedFlag = true;
+                        }
+                    }
+
+                    // ── 4b. ALL UMATextRecipe assets (wardrobe + base + shared) ──
+                    var indexer = UMAAssetIndexer.Instance;
+                    var allTextRecipes = new HashSet<UMATextRecipe>();
+
+                    // From Global Library
+                    if (indexer != null)
+                    {
+                        var libraryRecipes = GetAllRecipesFromLibrary(indexer);
+                        foreach (var r in libraryRecipes)
+                            if (r != null) allTextRecipes.Add(r);
+                    }
+
+                    // From AssetDatabase (catches unregistered recipes)
+                    string[] textRecipeGuids = AssetDatabase.FindAssets("t:UMATextRecipe");
+                    foreach (string guid in textRecipeGuids)
+                    {
+                        var tr = AssetDatabase.LoadAssetAtPath<UMATextRecipe>(
+                            AssetDatabase.GUIDToAssetPath(guid));
+                        if (tr != null) allTextRecipes.Add(tr);
+                    }
+
+                    foreach (var recipe in allTextRecipes)
+                    {
+                        bool modified = false;
+
+                        // Update compatibleRaces
+                        if (recipe.compatibleRaces != null &&
+                            recipe.compatibleRaces.Contains(oldRaceName))
+                        {
+                            Undo.RecordObject(recipe, "MCP Cascade Race Rename");
+                            recipe.compatibleRaces.Remove(oldRaceName);
+                            if (!recipe.compatibleRaces.Contains(newName))
+                                recipe.compatibleRaces.Add(newName);
+                            modified = true;
+                        }
+
+                        // Update recipeString JSON
+                        if (!string.IsNullOrEmpty(recipe.recipeString) &&
+                            (recipe.recipeString.Contains("\"race\":\"" + oldRaceName + "\"") ||
+                             recipe.recipeString.Contains("\"race\": \"" + oldRaceName + "\"")))
+                        {
+                            if (!modified) Undo.RecordObject(recipe, "MCP Cascade Race Rename");
+                            recipe.recipeString = recipe.recipeString
+                                .Replace("\"race\":\"" + oldRaceName + "\"",
+                                         "\"race\":\"" + newName + "\"")
+                                .Replace("\"race\": \"" + oldRaceName + "\"",
+                                         "\"race\": \"" + newName + "\"");
+                            modified = true;
+                        }
+
+                        if (modified)
+                        {
+                            EditorUtility.SetDirty(recipe);
+                            recipesUpdated++;
+                            updatedRecipePaths.Add(AssetDatabase.GetAssetPath(recipe));
+                        }
+                    }
+                    AssetDatabase.SaveAssets();
+                }
+
+                if (nameChanged && GetOptionalBool(args, "updateDCA", true))
+                {
+                    // ── 4c. DCA in scene ──
+                    var dcas = GameObject.FindObjectsByType<DynamicCharacterAvatar>(
+                        FindObjectsSortMode.None);
+                    foreach (var dca in dcas)
+                    {
+                        var so = new SerializedObject(dca);
+                        var activeRaceProp = so.FindProperty("activeRace");
+                        if (activeRaceProp != null)
+                        {
+                            var nameProp = activeRaceProp.FindPropertyRelative("name");
+                            if (nameProp != null && nameProp.stringValue == oldRaceName)
+                            {
+                                nameProp.stringValue = newName;
+                                so.ApplyModifiedProperties();
+                                EditorUtility.SetDirty(dca);
+                                dcaUpdated++;
+                                updatedDcaPaths.Add(GetGameObjectPath(dca.gameObject));
+                            }
+                        }
+                    }
+                }
+
+                // 5. RENAME ASSET FILE (optional)
+                bool assetRenamed = false;
+                if (nameChanged && GetOptionalBool(args, "renameAssetFile", true))
+                {
+                    string currentPath = AssetDatabase.GetAssetPath(race);
+                    string result = AssetDatabase.RenameAsset(currentPath, newName);
+                    assetRenamed = string.IsNullOrEmpty(result); // empty = success
+                    if (!assetRenamed)
+                        Debug.LogWarning("[MCP UMA] Asset rename failed: " + result);
+                }
+
+                // 6. REBUILD LIBRARY
+                bool libraryRebuilt = false;
+                if (GetOptionalBool(args, "rebuildLibrary", true))
+                {
+                    var indexer2 = UMAAssetIndexer.Instance;
+                    if (indexer2 != null)
+                    {
+                        indexer2.RebuildIndex();
+                        libraryRebuilt = true;
+                    }
+                }
+
+                // 7. RETURN
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "race", BuildRaceInfo(race) },
+                    { "cascade", new Dictionary<string, object>
+                        {
+                            { "baseRecipeUpdated", baseRecipeUpdatedFlag },
+                            { "baseRecipePath", baseRecipePath ?? "" },
+                            { "recipesUpdated", recipesUpdated },
+                            { "recipePaths", updatedRecipePaths },
+                            { "dcaUpdated", dcaUpdated },
+                            { "dcaPaths", updatedDcaPaths },
+                            { "assetRenamed", assetRenamed },
+                            { "libraryRebuilt", libraryRebuilt }
+                        }
+                    }
+                };
+            }
+            catch (System.Exception ex)
+            {
+                return Error("EditRace failed: " + ex.Message + "\n" + ex.StackTrace);
+            }
+        }
+
+        /// <summary>
+        /// Create a new UMA RaceData asset, either by duplicating an existing race or from scratch.
+        /// In duplicate mode, also duplicates the base recipe with updated race name references.
+        /// </summary>
+        public static object CreateRace(Dictionary<string, object> args)
+        {
+            try
+            {
+                string raceName = GetRequiredString(args, "raceName");
+                string sourceRaceName = GetOptionalString(args, "sourceRaceName", null);
+                string sourceRacePath = GetOptionalString(args, "sourceRacePath", null);
+                string outputFolder = GetOptionalString(args, "outputFolder", null);
+                bool duplicateBaseRecipe = GetOptionalBool(args, "duplicateBaseRecipe", true);
+                bool registerInLibrary = GetOptionalBool(args, "registerInLibrary", true);
+                string fbxPath = GetOptionalString(args, "fbxPath", null);
+                string umaMaterialPath = GetOptionalString(args, "umaMaterialPath", null);
+                bool isFbxMode = !string.IsNullOrEmpty(fbxPath);
+
+                if (isFbxMode && string.IsNullOrEmpty(umaMaterialPath))
+                    return Error("umaMaterialPath is required when fbxPath is provided.");
+
+                // Check the new race name doesn't already exist
+                var existingRace = ResolveRace(raceName, null);
+                if (existingRace != null)
+                    return Error("A race named '" + raceName + "' already exists at: " + AssetDatabase.GetAssetPath(existingRace));
+
+                bool isDuplicate = !string.IsNullOrEmpty(sourceRaceName) || !string.IsNullOrEmpty(sourceRacePath);
+                RaceData sourceRace = null;
+
+                if (isDuplicate)
+                {
+                    sourceRace = ResolveRace(sourceRaceName, sourceRacePath);
+                    if (sourceRace == null)
+                        return Error("Source race not found: " + (sourceRaceName ?? sourceRacePath));
+
+                    // Default output folder = same as source
+                    if (string.IsNullOrEmpty(outputFolder))
+                    {
+                        string sourcePath = AssetDatabase.GetAssetPath(sourceRace);
+                        outputFolder = System.IO.Path.GetDirectoryName(sourcePath).Replace("\\", "/");
+                    }
+                }
+                else
+                {
+                    // Scratch/FBX mode requires outputFolder
+                    if (string.IsNullOrEmpty(outputFolder))
+                        return Error("outputFolder is required when creating a race from scratch or FBX (no sourceRaceName provided).");
+                }
+
+                EnsureFolderExists(outputFolder);
+
+                // ──── 1. CREATE the RaceData asset ────
+                RaceData newRace;
+                string newRacePath = outputFolder + "/" + raceName + ".asset";
+
+                if (isDuplicate)
+                {
+                    // Duplicate the source asset
+                    string sourcePath = AssetDatabase.GetAssetPath(sourceRace);
+                    AssetDatabase.CopyAsset(sourcePath, newRacePath);
+                    AssetDatabase.Refresh();
+                    newRace = AssetDatabase.LoadAssetAtPath<RaceData>(newRacePath);
+                    if (newRace == null)
+                        return Error("Failed to duplicate RaceData to: " + newRacePath);
+                }
+                else
+                {
+                    // Create from scratch
+                    newRace = ScriptableObject.CreateInstance<RaceData>();
+                    AssetDatabase.CreateAsset(newRace, newRacePath);
+                    AssetDatabase.Refresh();
+                    newRace = AssetDatabase.LoadAssetAtPath<RaceData>(newRacePath);
+                    if (newRace == null)
+                        return Error("Failed to create RaceData at: " + newRacePath);
+                }
+
+                // ──── 2. SET properties ────
+                Undo.RecordObject(newRace, "MCP Create Race");
+
+                // Always set the race name
+                newRace.raceName = raceName;
+
+                // Wardrobe slots
+                var slotsParam = GetOptionalList(args, "wardrobeSlots");
+                if (slotsParam != null)
+                {
+                    newRace.wardrobeSlots = slotsParam.Select(s => s.ToString()).ToList();
+                }
+                else if (!isDuplicate)
+                {
+                    // Sensible defaults for scratch mode
+                    newRace.wardrobeSlots = new List<string> {
+                        "None", "Face", "Hair", "Complexion", "Eyebrows", "Beard", "Ears",
+                        "Helmet", "Shoulders", "Chest", "Arms", "Hands", "Waist", "Legs", "Feet"
+                    };
+                }
+
+                // UMA target
+                string umaTargetStr = GetOptionalString(args, "umaTarget", null);
+                if (umaTargetStr != null)
+                {
+                    if (umaTargetStr.Equals("Generic", System.StringComparison.OrdinalIgnoreCase))
+                        newRace.umaTarget = RaceData.UMATarget.Generic;
+                    else
+                        newRace.umaTarget = RaceData.UMATarget.Humanoid;
+                }
+                else if (!isDuplicate)
+                {
+                    newRace.umaTarget = RaceData.UMATarget.Humanoid;
+                }
+
+                // Fixup rotations
+                if (args.ContainsKey("fixupRotations"))
+                    newRace.FixupRotations = GetOptionalBool(args, "fixupRotations", true);
+                else if (!isDuplicate)
+                    newRace.FixupRotations = true;
+
+                // Physics
+                if (args.ContainsKey("raceHeight"))
+                    newRace.raceHeight = GetOptionalFloat(args, "raceHeight", 2f);
+                if (args.ContainsKey("raceRadius"))
+                    newRace.raceRadius = GetOptionalFloat(args, "raceRadius", 0.25f);
+                if (args.ContainsKey("raceMass"))
+                    newRace.raceMass = GetOptionalFloat(args, "raceMass", 50f);
+
+                // Tags
+                var tagsParam = GetOptionalList(args, "tags");
+                if (tagsParam != null)
+                    newRace.tags = tagsParam.Select(t => t.ToString()).ToList();
+
+                // Backwards compatibility
+                var compatParam = GetOptionalList(args, "backwardsCompatibleWith");
+                if (compatParam != null)
+                    newRace.backwardsCompatibleWith = compatParam.Select(c => c.ToString()).ToList();
+
+                EditorUtility.SetDirty(newRace);
+                AssetDatabase.SaveAssets();
+
+                // ──── 3. BASE RECIPE ────
+                string baseRecipePath = null;
+                bool baseRecipeCreated = false;
+                var createdSlotPaths = new List<string>();
+                var createdOverlayPaths = new List<string>();
+
+                if (isFbxMode)
+                {
+                    // ════ FBX MODE: Create body slots, overlays, and base recipe from FBX ════
+                    var fbx = AssetDatabase.LoadAssetAtPath<GameObject>(fbxPath);
+                    if (fbx == null)
+                        return Error("FBX not found at: " + fbxPath);
+
+                    // Resolve UMA Material
+                    if (!umaMaterialPath.Contains("/") && !umaMaterialPath.EndsWith(".asset"))
+                    {
+                        var matGuids = AssetDatabase.FindAssets("t:UMA.Core.UMAMaterial " + umaMaterialPath);
+                        if (matGuids.Length == 1)
+                            umaMaterialPath = AssetDatabase.GUIDToAssetPath(matGuids[0]);
+                        else
+                            return Error("umaMaterialPath '" + umaMaterialPath + "' could not be resolved. Pass the full asset path.");
+                    }
+                    var umaMaterial = AssetDatabase.LoadAssetAtPath<UMAMaterial>(umaMaterialPath);
+                    if (umaMaterial == null)
+                        return Error("UMA Material not found at: " + umaMaterialPath);
+                    int channelCount = umaMaterial.channels.Length;
+
+                    // —— TPose extraction from FBX via ModelImporter ——
+                    // UMA requires a UmaTPose ScriptableObject on each RaceData.
+                    // We extract it from the FBX's humanoid ModelImporter data,
+                    // matching exactly what UMA's TPoseExtracter does.
+                    var modelImporter = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
+                    if (modelImporter != null && modelImporter.animationType == ModelImporterAnimationType.Human)
+                    {
+                        var tpose = ScriptableObject.CreateInstance<UmaTPose>();
+                        tpose.ReadFromHumanDescription(modelImporter.humanDescription);
+                        string tposePath = outputFolder + "/" + raceName + "_TPose.asset";
+                        AssetDatabase.CreateAsset(tpose, tposePath);
+                        AssetDatabase.SaveAssets();
+                        tpose = AssetDatabase.LoadAssetAtPath<UmaTPose>(tposePath);
+                        if (tpose != null)
+                        {
+                            newRace.TPose = tpose;
+                            EditorUtility.SetDirty(newRace);
+                            AssetDatabase.SaveAssets();
+                            Debug.Log("[MCP-UMA] Created TPose from FBX ModelImporter: " + tposePath);
+                        }
+                        else
+                        {
+                            Debug.LogWarning("[MCP-UMA] TPose asset created but failed to reload at: " + tposePath);
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[MCP-UMA] FBX at '" + fbxPath + "' is not set to Humanoid animation type. " +
+                            "TPose could not be extracted. Set the FBX to Humanoid in Import Settings, or assign a TPose manually.");
+                    }
+
+                    // CreateSlotData internally clones sbp.slotMesh.transform.parent.gameObject.
+                    // For multi-SMR body FBXes, SMRs are nested under intermediate nodes
+                    // (e.g. Geometry/Base/Boots_Naked) and the bone hierarchy is a sibling.
+                    // Cloning just the intermediate parent misses bones entirely.
+                    // Fix: instantiate FBX, reparent SMRs under root so clone includes bones.
+                    var fbxInstance = (GameObject)UnityEngine.Object.Instantiate(fbx);
+                    var allSmrs = fbxInstance.GetComponentsInChildren<SkinnedMeshRenderer>();
+                    if (allSmrs == null || allSmrs.Length == 0)
+                    {
+                        GameObject.DestroyImmediate(fbxInstance);
+                        return Error("No SkinnedMeshRenderer found in " + fbxPath);
+                    }
+
+                    // Auto-detect root bone name from the first SMR's rootBone property
+                    string rootBoneName = "Root";
+                    if (allSmrs[0].rootBone != null)
+                        rootBoneName = allSmrs[0].rootBone.name;
+                    else
+                    {
+                        foreach (string candidate in new[] { "Root", "root", "Armature" })
+                        {
+                            var found = fbxInstance.transform.Find(candidate);
+                            if (found != null) { rootBoneName = candidate; break; }
+                        }
+                    }
+                    Debug.Log("[MCP-UMA] FBX root bone: '" + rootBoneName + "', SMR count: " + allSmrs.Length);
+
+                    // Reparent all SMRs to be direct children of the FBX root
+                    // so CreateSlotData's Instantiate(parent) clones the full hierarchy.
+                    foreach (var s in allSmrs)
+                        s.transform.SetParent(fbxInstance.transform, true);
+
+                    string bodyFolder = outputFolder + "/BodyBase";
+                    EnsureFolderExists(bodyFolder);
+
+                    // ── 3a. Create one Slot per SMR via UMA SlotBuilder ──
+                    var slotNames = new List<string>();
+                    var slotToSmrIndex = new Dictionary<string, int>(); // slotName → SMR index
+
+                    for (int smrIdx = 0; smrIdx < allSmrs.Length; smrIdx++)
+                    {
+                        var smr = allSmrs[smrIdx];
+                        if (smr == null || smr.sharedMesh == null) continue;
+
+                        string smrName = smr.name;
+                        // Clean name: remove trailing " 1", " 2" etc. that Unity adds
+                        string cleanName = System.Text.RegularExpressions.Regex.Replace(smrName, @"\s+\d+$", "");
+                        string slotName = cleanName + "_slot";
+
+                        var sbp = new SlotBuilderParameters();
+                        sbp.slotMesh = smr;
+                        sbp.seamsMesh = null;
+                        sbp.material = umaMaterial;
+                        sbp.rootBone = rootBoneName;
+                        sbp.assetName = cleanName;
+                        sbp.slotName = cleanName;
+                        sbp.assetFolder = cleanName;
+                        sbp.slotFolder = bodyFolder;
+                        sbp.binarySerialization = false;
+                        sbp.calculateNormals = false;
+                        sbp.calculateTangents = true;
+                        sbp.udimAdjustment = true;
+                        sbp.useRootFolder = false;
+                        sbp.nameByMaterial = false;
+                        sbp.keepAllBones = false;
+                        sbp.stripBones = "";
+                        sbp.keepList = new List<string>();
+
+                        SlotDataAsset createdSlot;
+                        try { createdSlot = UMASlotProcessingUtil.CreateSlotData(sbp); }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning("[MCP-UMA] CreateSlotData failed for SMR '" + smrName + "': " + ex.Message);
+                            continue;
+                        }
+                        if (createdSlot == null)
+                        {
+                            Debug.LogWarning("[MCP-UMA] CreateSlotData returned null for SMR '" + smrName + "'");
+                            continue;
+                        }
+
+                        // Post-process
+                        createdSlot.meshData.SlotName = cleanName;
+                        createdSlot.material = umaMaterial;
+                        createdSlot.materialName = umaMaterial.name;
+                        createdSlot.tags = new string[0];
+                        createdSlot.Races = new string[0];
+                        EditorUtility.SetDirty(createdSlot);
+                        AssetDatabase.SaveAssets();
+
+                        // Move files from subfolder created by SlotBuilder
+                        string subfolder = bodyFolder + "/" + cleanName;
+                        if (AssetDatabase.IsValidFolder(subfolder))
+                        {
+                            var guids = AssetDatabase.FindAssets("", new[] { subfolder });
+                            foreach (var guid in guids)
+                            {
+                                string src = AssetDatabase.GUIDToAssetPath(guid);
+                                string fileName = System.IO.Path.GetFileName(src);
+                                AssetDatabase.MoveAsset(src, bodyFolder + "/" + fileName);
+                            }
+                            AssetDatabase.DeleteAsset(subfolder);
+                        }
+
+                        // Clean parasite folders
+                        if (AssetDatabase.IsValidFolder("Assets/Assets"))
+                            AssetDatabase.DeleteAsset("Assets/Assets");
+                        if (AssetDatabase.IsValidFolder(bodyFolder + "/Assets"))
+                            AssetDatabase.DeleteAsset(bodyFolder + "/Assets");
+                    }
+
+                    // Build SMR name -> material lookup BEFORE destroying the FBX instance
+                    // (after DestroyImmediate, allSmrs refs become null and we lose material info)
+                    var smrMaterialMap = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var smr in allSmrs)
+                    {
+                        if (smr == null) continue;
+                        string cleanName = System.Text.RegularExpressions.Regex.Replace(smr.name, @"\s+\d+$", "");
+                        if (smr.sharedMaterials != null && smr.sharedMaterials.Length > 0)
+                            smrMaterialMap[cleanName] = smr.sharedMaterials[0];
+                    }
+
+                    // Destroy the FBX instance now that all slots are created
+                    GameObject.DestroyImmediate(fbxInstance);
+                    AssetDatabase.Refresh();
+
+                    // Collect all created SlotDataAssets from the bodyFolder
+                    var allSlotGuids = AssetDatabase.FindAssets("t:SlotDataAsset", new[] { bodyFolder });
+                    foreach (var guid in allSlotGuids)
+                    {
+                        string slotPath = AssetDatabase.GUIDToAssetPath(guid);
+                        var sda = AssetDatabase.LoadAssetAtPath<SlotDataAsset>(slotPath);
+                        if (sda == null) continue;
+                        sda.material = umaMaterial;
+                        if (string.IsNullOrEmpty(sda.materialName)) sda.materialName = umaMaterial.name;
+                        if (sda.meshData != null && string.IsNullOrEmpty(sda.meshData.SlotName))
+                            sda.meshData.SlotName = sda.slotName;
+                        if (sda.tags == null) sda.tags = new string[0];
+                        if (sda.Races == null) sda.Races = new string[0];
+                        EditorUtility.SetDirty(sda);
+                        slotNames.Add(sda.slotName);
+                        createdSlotPaths.Add(slotPath);
+                    }
+                    AssetDatabase.SaveAssets();
+                    slotNames.Sort();
+                    createdSlotPaths.Sort();
+
+
+                    var overlayNames = new Dictionary<int, string>(); // slot index → overlayName
+                    for (int si = 0; si < slotNames.Count; si++)
+                    {
+                        string overlayName = slotNames[si] + "_Overlay";
+                        var overlay = ScriptableObject.CreateInstance<OverlayDataAsset>();
+                        overlay.overlayName = overlayName;
+                        overlay.material = umaMaterial;
+                        overlay.textureList = new Texture2D[channelCount];
+
+                        // Find the material for this slot's SMR
+                        Material srcMat = null;
+                        smrMaterialMap.TryGetValue(slotNames[si], out srcMat);
+
+                        if (srcMat != null)
+                        {
+                            var (diffuse, normal, metallicR) = ExtractTexturesFromMaterial(srcMat);
+                            if (!string.IsNullOrEmpty(diffuse))
+                            {
+                                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(diffuse);
+                                if (tex != null) overlay.textureList[0] = tex;
+                            }
+                            if (!string.IsNullOrEmpty(normal) && channelCount > 1)
+                            {
+                                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(normal);
+                                if (tex != null) overlay.textureList[1] = tex;
+                            }
+                            if (!string.IsNullOrEmpty(metallicR) && channelCount > 2)
+                            {
+                                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(metallicR);
+                                if (tex != null) overlay.textureList[2] = tex;
+                            }
+                        }
+
+                        string overlayPath = bodyFolder + "/" + overlayName + ".asset";
+                        AssetDatabase.CreateAsset(overlay, overlayPath);
+                        createdOverlayPaths.Add(overlayPath);
+                        overlayNames[si] = overlayName;
+                    }
+                    AssetDatabase.SaveAssets();
+
+                    // ── 3c. Build Base Race Recipe (UMATextRecipe) ──
+                    string baseRecipeName = raceName + "BaseRaceData";
+                    baseRecipePath = outputFolder + "/" + baseRecipeName + ".asset";
+
+                    var baseRecipe = ScriptableObject.CreateInstance<UMATextRecipe>();
+                    baseRecipe.name = baseRecipeName;
+
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append("{");
+                    sb.Append("\"version\":3,");
+                    sb.Append("\"packedSlotDataList\":[],");
+                    sb.Append("\"slotsV2\":[],");
+                    sb.Append("\"slotsV3\":[");
+
+                    for (int si = 0; si < slotNames.Count; si++)
+                    {
+                        if (si > 0) sb.Append(",");
+                        string slotId = slotNames[si];
+                        string overlayId = overlayNames.ContainsKey(si) ? overlayNames[si] : "";
+
+                        sb.Append("{");
+                        sb.Append("\"id\":\"" + EscapeJson(slotId) + "\",");
+                        sb.Append("\"scale\":100,");
+                        sb.Append("\"copyIdx\":-1,");
+                        sb.Append("\"overlays\":[{");
+                        sb.Append("\"id\":\"" + EscapeJson(overlayId) + "\",");
+                        sb.Append("\"colorIdx\":0,");
+                        sb.Append("\"rect\":[0.0,0.0,0.0,0.0],");
+                        sb.Append("\"isTransformed\":false,");
+                        sb.Append("\"scale\":{\"x\":1.0,\"y\":1.0,\"z\":1.0},");
+                        sb.Append("\"rotation\":0.0,");
+                        sb.Append("\"blendModes\":[" + string.Join(",", Enumerable.Repeat("0", channelCount)) + "],");
+                        sb.Append("\"Tags\":[],");
+                        sb.Append("\"tiling\":[" + string.Join(",", Enumerable.Repeat("false", channelCount)) + "],");
+                        sb.Append("\"uvOverride\":0");
+                        sb.Append("}],");
+                        sb.Append("\"Tags\":[],\"Races\":[],");
+                        sb.Append("\"blendShapeTarget\":\"\",");
+                        sb.Append("\"overSmoosh\":0.009999999776482582,");
+                        sb.Append("\"smooshDistance\":0.0010000000474974514,");
+                        sb.Append("\"smooshInvertX\":false,");
+                        sb.Append("\"smooshInvertY\":true,");
+                        sb.Append("\"smooshInvertZ\":false,");
+                        sb.Append("\"smooshInvertDist\":true,");
+                        sb.Append("\"smooshTargetTag\":\"\",");
+                        sb.Append("\"smooshableTag\":\"\",");
+                        sb.Append("\"isSwapSlot\":false,");
+                        sb.Append("\"swapTag\":\"LongHair\",");
+                        sb.Append("\"uvOverride\":0,");
+                        sb.Append("\"isDisabled\":false,");
+                        sb.Append("\"expandAlongNormal\":0");
+                        sb.Append("}");
+                    }
+
+                    sb.Append("],");
+                    sb.Append("\"colors\":[],");
+                    // fColors: single neutral entry
+                    sb.Append("\"fColors\":[{");
+                    sb.Append("\"name\":\"-\",");
+                    sb.Append("\"colors\":[");
+                    var channelColors = new List<string>();
+                    for (int c = 0; c < channelCount; c++)
+                        channelColors.Add("255,255,255,255,0,0,0,0");
+                    sb.Append(string.Join(",", channelColors));
+                    sb.Append("],");
+                    sb.Append("\"ShaderParms\":[],");
+                    sb.Append("\"alwaysUpdate\":false,");
+                    sb.Append("\"alwaysUpdateParms\":false,");
+                    sb.Append("\"isBaseColor\":false,");
+                    sb.Append("\"displayColor\":-1");
+                    sb.Append("}],");
+                    sb.Append("\"sharedColorCount\":0,");
+                    sb.Append("\"race\":\"" + EscapeJson(raceName) + "\",");
+                    sb.Append("\"packedDna\":[],");
+                    sb.Append("\"uvOverride\":0");
+                    sb.Append("}");
+
+                    AssetDatabase.CreateAsset(baseRecipe, baseRecipePath);
+
+                    var so = new SerializedObject(baseRecipe);
+                    so.FindProperty("recipeString").stringValue = sb.ToString();
+                    so.FindProperty("recipeType").stringValue = "Standard";
+
+                    var racesProp = so.FindProperty("compatibleRaces");
+                    racesProp.arraySize = 1;
+                    racesProp.GetArrayElementAtIndex(0).stringValue = raceName;
+
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(baseRecipe);
+                    AssetDatabase.SaveAssets();
+
+                    // Wire the base recipe to the RaceData
+                    Undo.RecordObject(newRace, "MCP Create Race - Assign Base Recipe");
+                    newRace.baseRaceRecipe = baseRecipe;
+                    EditorUtility.SetDirty(newRace);
+                    AssetDatabase.SaveAssets();
+                    baseRecipeCreated = true;
+
+                    Debug.Log("[MCP-UMA] FBX mode: created " + slotNames.Count + " body slots, " +
+                        createdOverlayPaths.Count + " overlays, and base recipe for race " + raceName);
+                }
+                else if (isDuplicate && duplicateBaseRecipe && sourceRace.baseRaceRecipe != null)
+                {
+                    // ════ DUPLICATE MODE: Copy base recipe from source ════
+                    var sourceBaseRecipe = sourceRace.baseRaceRecipe as UMATextRecipe;
+                    if (sourceBaseRecipe != null)
+                    {
+                        string sourceBaseRecipePath = AssetDatabase.GetAssetPath(sourceBaseRecipe);
+                        string baseRecipeName = raceName + "BaseRaceData";
+                        baseRecipePath = outputFolder + "/" + baseRecipeName + ".asset";
+
+                        AssetDatabase.CopyAsset(sourceBaseRecipePath, baseRecipePath);
+                        AssetDatabase.Refresh();
+
+                        var newBaseRecipe = AssetDatabase.LoadAssetAtPath<UMATextRecipe>(baseRecipePath);
+                        if (newBaseRecipe != null)
+                        {
+                            Undo.RecordObject(newBaseRecipe, "MCP Create Race - Base Recipe");
+
+                            string oldRaceName = sourceRace.raceName;
+
+                            if (newBaseRecipe.compatibleRaces != null)
+                            {
+                                newBaseRecipe.compatibleRaces.Remove(oldRaceName);
+                                if (!newBaseRecipe.compatibleRaces.Contains(raceName))
+                                    newBaseRecipe.compatibleRaces.Add(raceName);
+                            }
+                            else
+                            {
+                                newBaseRecipe.compatibleRaces = new List<string> { raceName };
+                            }
+
+                            if (!string.IsNullOrEmpty(newBaseRecipe.recipeString))
+                            {
+                                newBaseRecipe.recipeString = newBaseRecipe.recipeString
+                                    .Replace("\"race\":\"" + oldRaceName + "\"",
+                                             "\"race\":\"" + raceName + "\"")
+                                    .Replace("\"race\": \"" + oldRaceName + "\"",
+                                             "\"race\": \"" + raceName + "\"");
+                            }
+
+                            EditorUtility.SetDirty(newBaseRecipe);
+                            AssetDatabase.SaveAssets();
+
+                            Undo.RecordObject(newRace, "MCP Create Race - Assign Base Recipe");
+                            newRace.baseRaceRecipe = newBaseRecipe;
+                            EditorUtility.SetDirty(newRace);
+                            AssetDatabase.SaveAssets();
+
+                            baseRecipeCreated = true;
+                        }
+                    }
+                }
+
+                // ──── 4. REGISTER in Global Library ────
+                bool registered = false;
+                if (registerInLibrary)
+                {
+                    var indexer = UMAAssetIndexer.Instance;
+                    if (indexer != null)
+                    {
+                        indexer.EvilAddAsset(typeof(RaceData), newRace);
+                        if (baseRecipeCreated && newRace.baseRaceRecipe != null)
+                            indexer.EvilAddAsset(typeof(UMATextRecipe), newRace.baseRaceRecipe);
+
+                        // Register FBX-created slots and overlays
+                        foreach (string path in createdSlotPaths)
+                        {
+                            var slot = AssetDatabase.LoadAssetAtPath<SlotDataAsset>(path);
+                            if (slot != null && !indexer.HasAsset<SlotDataAsset>(slot.slotName))
+                                indexer.EvilAddAsset(typeof(SlotDataAsset), slot);
+                        }
+                        foreach (string path in createdOverlayPaths)
+                        {
+                            var overlay = AssetDatabase.LoadAssetAtPath<OverlayDataAsset>(path);
+                            if (overlay != null && !indexer.HasAsset<OverlayDataAsset>(overlay.overlayName))
+                                indexer.EvilAddAsset(typeof(OverlayDataAsset), overlay);
+                        }
+
+                        EditorUtility.SetDirty(indexer);
+                        AssetDatabase.SaveAssets();
+                        registered = true;
+                    }
+                }
+
+                // ──── 5. RETURN ────
+                string mode = isFbxMode ? "fbx" : (isDuplicate ? "duplicate" : "scratch");
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "mode", mode },
+                    { "race", BuildRaceInfo(newRace) },
+                    { "sourceRace", isDuplicate && sourceRace != null ? sourceRace.raceName : "" },
+                    { "baseRecipe", new Dictionary<string, object>
+                        {
+                            { "created", baseRecipeCreated },
+                            { "path", baseRecipePath ?? "" }
+                        }
+                    },
+                    { "bodySlots", createdSlotPaths },
+                    { "bodyOverlays", createdOverlayPaths },
+                    { "tposePath", newRace.TPose != null ? AssetDatabase.GetAssetPath(newRace.TPose) : "" },
+                    { "registeredInLibrary", registered }
+                };
+            }
+            catch (System.Exception ex)
+            {
+                return Error("CreateRace failed: " + ex.Message + "\n" + ex.StackTrace);
+            }
+        }
+
+        /// <summary>
+        /// Resolve a RaceData by name (Global Library + fallback) or by direct asset path.
+        /// </summary>
+        private static RaceData ResolveRace(string raceName, string racePath)
+        {
+            // By direct path
+            if (!string.IsNullOrEmpty(racePath))
+                return AssetDatabase.LoadAssetAtPath<RaceData>(racePath);
+
+            // By name via Global Library
+            if (!string.IsNullOrEmpty(raceName))
+            {
+                var indexer = UMAAssetIndexer.Instance;
+                if (indexer != null)
+                {
+                    var allRaces = indexer.GetAllAssets<RaceData>();
+                    foreach (var r in allRaces)
+                        if (r != null && r.raceName == raceName)
+                            return r;
+                }
+
+                // Fallback: FindAssets
+                string[] guids = AssetDatabase.FindAssets("t:RaceData " + raceName);
+                foreach (string guid in guids)
+                {
+                    var r = AssetDatabase.LoadAssetAtPath<RaceData>(
+                        AssetDatabase.GUIDToAssetPath(guid));
+                    if (r != null && r.raceName == raceName)
+                        return r;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Build a summary dictionary of a RaceData for JSON response.
+        /// </summary>
+        private static Dictionary<string, object> BuildRaceInfo(RaceData race)
+        {
+            return new Dictionary<string, object>
+            {
+                { "raceName", race.raceName },
+                { "assetPath", AssetDatabase.GetAssetPath(race) },
+                { "wardrobeSlots", race.wardrobeSlots?.ToList() ?? new List<string>() },
+                { "umaTarget", race.umaTarget.ToString() },
+                { "fixupRotations", race.FixupRotations },
+                { "tags", race.tags?.ToList() ?? new List<string>() },
+                { "raceHeight", race.raceHeight },
+                { "raceRadius", race.raceRadius },
+                { "raceMass", race.raceMass },
+                { "baseRaceRecipePath", race.baseRaceRecipe != null ? AssetDatabase.GetAssetPath(race.baseRaceRecipe) : "" }
+            };
+        }
+
+        /// <summary>
+        /// Get the full hierarchy path of a GameObject in the scene (e.g. "Parent/Child/Leaf").
+        /// </summary>
+        private static string GetGameObjectPath(GameObject go)
+        {
+            string path = go.name;
+            Transform t = go.transform.parent;
+            while (t != null)
+            {
+                path = t.name + "/" + path;
+                t = t.parent;
+            }
+            return path;
+        }
+
+        private static float GetOptionalFloat(Dictionary<string, object> args, string key, float defaultValue)
+        {
+            if (args.ContainsKey(key) && args[key] != null)
+            {
+                if (float.TryParse(args[key].ToString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float val))
+                    return val;
+            }
+            return defaultValue;
+        }
+
                 private static void EnsureFolderExists(string folderPath)
         {
             if (AssetDatabase.IsValidFolder(folderPath))
@@ -2230,6 +3222,428 @@ namespace UnityMCP.Editor
                 if (!AssetDatabase.IsValidFolder(next))
                     AssetDatabase.CreateFolder(current, parts[i]);
                 current = next;
+            }
+        }
+
+        // ========================================================================
+        // RenameAsset — Atomic UMA asset rename (file + internal fields + propagation)
+        // ========================================================================
+
+        public static object RenameAsset(Dictionary<string, object> args)
+        {
+            try
+            {
+                string assetType = GetRequiredString(args, "assetType").ToLowerInvariant(); // slot, overlay, recipe
+                string oldName   = GetRequiredString(args, "oldName");
+                string newName   = GetRequiredString(args, "newName");
+                bool propagate   = GetOptionalBool(args, "propagate", true);
+                bool dryRun      = GetOptionalBool(args, "dryRun", false);
+
+                if (oldName == newName)
+                    return Error("oldName and newName are identical.");
+
+                if (assetType != "slot" && assetType != "overlay" && assetType != "recipe")
+                    return Error($"Invalid assetType '{assetType}'. Must be 'slot', 'overlay', or 'recipe'.");
+
+                var report = new Dictionary<string, object>();
+                report["oldName"] = oldName;
+                report["newName"] = newName;
+                report["assetType"] = assetType;
+                report["dryRun"] = dryRun;
+
+                // --- Step 1: Find the asset ---
+                string assetPath = null;
+                UnityEngine.Object asset = null;
+
+                if (assetType == "slot")
+                {
+                    string[] guids = AssetDatabase.FindAssets("t:SlotDataAsset " + oldName);
+                    foreach (string g in guids)
+                    {
+                        string p = AssetDatabase.GUIDToAssetPath(g);
+                        var s = AssetDatabase.LoadAssetAtPath<UMA.SlotDataAsset>(p);
+                        if (s != null && s.slotName == oldName)
+                        {
+                            asset = s;
+                            assetPath = p;
+                            break;
+                        }
+                    }
+                }
+                else if (assetType == "overlay")
+                {
+                    string[] guids = AssetDatabase.FindAssets("t:OverlayDataAsset " + oldName);
+                    foreach (string g in guids)
+                    {
+                        string p = AssetDatabase.GUIDToAssetPath(g);
+                        var o = AssetDatabase.LoadAssetAtPath<UMA.OverlayDataAsset>(p);
+                        if (o != null && o.overlayName == oldName)
+                        {
+                            asset = o;
+                            assetPath = p;
+                            break;
+                        }
+                    }
+                }
+                else // recipe
+                {
+                    string[] guids = AssetDatabase.FindAssets("t:UMAWardrobeRecipe " + oldName);
+                    foreach (string g in guids)
+                    {
+                        string p = AssetDatabase.GUIDToAssetPath(g);
+                        var r = AssetDatabase.LoadAssetAtPath<UMA.CharacterSystem.UMAWardrobeRecipe>(p);
+                        if (r != null && r.name == oldName)
+                        {
+                            asset = r;
+                            assetPath = p;
+                            break;
+                        }
+                    }
+                }
+
+                if (asset == null || string.IsNullOrEmpty(assetPath))
+                    return Error($"{assetType} '{oldName}' not found in the project.");
+
+                report["assetPath"] = assetPath;
+                var steps = new List<Dictionary<string, object>>();
+
+                // --- Step 2: Rename file (.asset) ---
+                string dir = System.IO.Path.GetDirectoryName(assetPath).Replace("\\", "/");
+                string expectedNewPath = dir + "/" + newName + ".asset";
+
+                steps.Add(new Dictionary<string, object>
+                {
+                    { "action", "rename_file" },
+                    { "from", assetPath },
+                    { "to", expectedNewPath }
+                });
+
+                // --- Step 3: Update internal name field ---
+                if (assetType == "slot")
+                {
+                    var slot = (UMA.SlotDataAsset)asset;
+                    steps.Add(new Dictionary<string, object>
+                    {
+                        { "action", "update_slotName" },
+                        { "from", slot.slotName },
+                        { "to", newName }
+                    });
+
+                    // Also update meshData.SlotName if present
+                    if (slot.meshData != null)
+                    {
+                        steps.Add(new Dictionary<string, object>
+                        {
+                            { "action", "update_meshData_SlotName" },
+                            { "from", slot.meshData.SlotName ?? "" },
+                            { "to", newName }
+                        });
+                    }
+                }
+                else if (assetType == "overlay")
+                {
+                    var overlay = (UMA.OverlayDataAsset)asset;
+                    steps.Add(new Dictionary<string, object>
+                    {
+                        { "action", "update_overlayName" },
+                        { "from", overlay.overlayName },
+                        { "to", newName }
+                    });
+                }
+                else // recipe
+                {
+                    steps.Add(new Dictionary<string, object>
+                    {
+                        { "action", "update_DisplayValue" },
+                        { "from", asset.name },
+                        { "to", newName }
+                    });
+                }
+
+                // --- Step 4: Propagation ---
+                var propagationSteps = new List<Dictionary<string, object>>();
+
+                if (propagate && (assetType == "slot" || assetType == "overlay"))
+                {
+                    // Find all recipes that reference oldName in recipeString and update
+                    string[] recipeGuids = AssetDatabase.FindAssets("t:UMAWardrobeRecipe");
+                    string idField = assetType == "slot" ? "id" : "id"; // both use "id" in their respective JSON sections
+
+                    foreach (string rg in recipeGuids)
+                    {
+                        string rp = AssetDatabase.GUIDToAssetPath(rg);
+                        var recipe = AssetDatabase.LoadAssetAtPath<UMA.CharacterSystem.UMAWardrobeRecipe>(rp);
+                        if (recipe == null) continue;
+
+                        var so = new SerializedObject(recipe);
+                        var recipeStringProp = so.FindProperty("recipeString");
+                        if (recipeStringProp == null) continue;
+
+                        string json = recipeStringProp.stringValue;
+                        if (string.IsNullOrEmpty(json)) continue;
+                        if (!json.Contains("\"" + oldName + "\"")) continue;
+
+                        // Parse and update
+                        try
+                        {
+                            var root = Newtonsoft.Json.Linq.JObject.Parse(json);
+                            bool modified = false;
+
+                            if (assetType == "slot")
+                            {
+                                var packedSlotArr = root["packedSlotDataList"] as Newtonsoft.Json.Linq.JArray;
+                                if (packedSlotArr != null)
+                                {
+                                    foreach (var entry in packedSlotArr)
+                                    {
+                                        if (entry["id"] != null && entry["id"].ToString() == oldName)
+                                        {
+                                            entry["id"] = newName;
+                                            modified = true;
+                                        }
+                                    }
+                                }
+                            }
+                            else // overlay
+                            {
+                                var packedSlotArr = root["packedSlotDataList"] as Newtonsoft.Json.Linq.JArray;
+                                if (packedSlotArr != null)
+                                {
+                                    foreach (var slotEntry in packedSlotArr)
+                                    {
+                                        var overlays = slotEntry["overlays"] as Newtonsoft.Json.Linq.JArray;
+                                        if (overlays == null) continue;
+                                        foreach (var ov in overlays)
+                                        {
+                                            if (ov["id"] != null && ov["id"].ToString() == oldName)
+                                            {
+                                                ov["id"] = newName;
+                                                modified = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (modified)
+                            {
+                                string updatedJson = root.ToString(Newtonsoft.Json.Formatting.None);
+                                propagationSteps.Add(new Dictionary<string, object>
+                                {
+                                    { "action", "update_recipeString" },
+                                    { "recipe", recipe.name },
+                                    { "recipePath", rp }
+                                });
+
+                                if (!dryRun)
+                                {
+                                    recipeStringProp.stringValue = updatedJson;
+                                    so.ApplyModifiedPropertiesWithoutUndo();
+                                    EditorUtility.SetDirty(recipe);
+                                }
+                            }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            propagationSteps.Add(new Dictionary<string, object>
+                            {
+                                { "action", "update_recipeString_FAILED" },
+                                { "recipe", recipe.name },
+                                { "error", ex.Message }
+                            });
+                        }
+                    }
+                }
+
+                if (propagate && assetType == "recipe")
+                {
+                    // Scan DCA in currently loaded scenes only (fast — no disk scan)
+                    for (int s = 0; s < UnityEngine.SceneManagement.SceneManager.sceneCount; s++)
+                    {
+                        var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(s);
+                        if (!scene.isLoaded) continue;
+
+                        foreach (var rootGo in scene.GetRootGameObjects())
+                        {
+                            var dcasInScene = rootGo.GetComponentsInChildren<UMA.CharacterSystem.DynamicCharacterAvatar>(true);
+                            foreach (var dca in dcasInScene)
+                            {
+                                var dcaSo = new SerializedObject(dca);
+                                var preloadProp = dcaSo.FindProperty("preloadWardrobeRecipes");
+                                if (preloadProp == null || !preloadProp.isArray) continue;
+
+                                bool dcaModified = false;
+                                for (int i = 0; i < preloadProp.arraySize; i++)
+                                {
+                                    var elem = preloadProp.GetArrayElementAtIndex(i);
+                                    var recipeNameProp = elem.FindPropertyRelative("_recipeName");
+                                    if (recipeNameProp != null && recipeNameProp.stringValue == oldName)
+                                    {
+                                        propagationSteps.Add(new Dictionary<string, object>
+                                        {
+                                            { "action", "update_DCA_recipeName" },
+                                            { "dca", GetGameObjectPath(dca.gameObject) },
+                                            { "scene", scene.name },
+                                            { "index", i },
+                                            { "from", oldName },
+                                            { "to", newName }
+                                        });
+
+                                        if (!dryRun)
+                                        {
+                                            recipeNameProp.stringValue = newName;
+                                            dcaModified = true;
+                                        }
+                                    }
+                                }
+
+                                if (dcaModified && !dryRun)
+                                {
+                                    dcaSo.ApplyModifiedPropertiesWithoutUndo();
+                                    EditorUtility.SetDirty(dca);
+                                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+                                }
+                            }
+                        }
+                    }
+
+                    // Also scan prefabs on disk — only those whose serialized data references oldName
+                    string[] prefabGuids = AssetDatabase.FindAssets("t:Prefab");
+                    foreach (string pg in prefabGuids)
+                    {
+                        string pp = AssetDatabase.GUIDToAssetPath(pg);
+                        if (pp.StartsWith("Packages/")) continue;
+
+                        // Quick text filter: skip prefabs that don't mention oldName at all
+                        try
+                        {
+                            string prefabText = System.IO.File.ReadAllText(pp);
+                            if (!prefabText.Contains(oldName)) continue;
+                        }
+                        catch { continue; }
+
+                        var prefabRoot = AssetDatabase.LoadAssetAtPath<GameObject>(pp);
+                        if (prefabRoot == null) continue;
+
+                        var dcasInPrefab = prefabRoot.GetComponentsInChildren<UMA.CharacterSystem.DynamicCharacterAvatar>(true);
+                        if (dcasInPrefab == null || dcasInPrefab.Length == 0) continue;
+
+                        foreach (var dca in dcasInPrefab)
+                        {
+                            var dcaSo = new SerializedObject(dca);
+                            var preloadProp = dcaSo.FindProperty("preloadWardrobeRecipes");
+                            if (preloadProp == null || !preloadProp.isArray) continue;
+
+                            bool dcaModified = false;
+                            for (int i = 0; i < preloadProp.arraySize; i++)
+                            {
+                                var elem = preloadProp.GetArrayElementAtIndex(i);
+                                var recipeNameProp = elem.FindPropertyRelative("_recipeName");
+                                if (recipeNameProp != null && recipeNameProp.stringValue == oldName)
+                                {
+                                    propagationSteps.Add(new Dictionary<string, object>
+                                    {
+                                        { "action", "update_Prefab_DCA_recipeName" },
+                                        { "prefab", pp },
+                                        { "dca", dca.gameObject.name },
+                                        { "index", i },
+                                        { "from", oldName },
+                                        { "to", newName }
+                                    });
+
+                                    if (!dryRun)
+                                    {
+                                        recipeNameProp.stringValue = newName;
+                                        dcaModified = true;
+                                    }
+                                }
+                            }
+
+                            if (dcaModified && !dryRun)
+                            {
+                                dcaSo.ApplyModifiedPropertiesWithoutUndo();
+                                EditorUtility.SetDirty(dca);
+                                EditorUtility.SetDirty(prefabRoot);
+                            }
+                        }
+                    }
+                }
+
+                // --- Step 5: Execute the rename (file + internal fields) if not dryRun ---
+                if (!dryRun)
+                {
+                    // Update internal name BEFORE renaming file
+                    if (assetType == "slot")
+                    {
+                        var slot = (UMA.SlotDataAsset)asset;
+                        slot.slotName = newName;
+                        if (slot.meshData != null)
+                            slot.meshData.SlotName = newName;
+                        EditorUtility.SetDirty(slot);
+                    }
+                    else if (assetType == "overlay")
+                    {
+                        var overlay = (UMA.OverlayDataAsset)asset;
+                        overlay.overlayName = newName;
+                        EditorUtility.SetDirty(overlay);
+                    }
+                    else // recipe
+                    {
+                        var recipeSo = new SerializedObject(asset);
+                        var displayProp = recipeSo.FindProperty("DisplayValue");
+                        if (displayProp != null)
+                        {
+                            displayProp.stringValue = newName;
+                            recipeSo.ApplyModifiedPropertiesWithoutUndo();
+                        }
+                        EditorUtility.SetDirty(asset);
+                    }
+
+                    AssetDatabase.SaveAssets();
+
+                    // Rename file
+                    string renameError = AssetDatabase.RenameAsset(assetPath, newName);
+                    if (!string.IsNullOrEmpty(renameError))
+                    {
+                        report["error"] = $"File rename failed: {renameError}";
+                        report["steps"] = steps;
+                        report["propagation"] = propagationSteps;
+                        return report;
+                    }
+
+                    AssetDatabase.SaveAssets();
+                    AssetDatabase.Refresh();
+
+                    // --- Step 6: Rebuild Global Library ---
+                    var indexer = UMAAssetIndexer.Instance;
+                    if (indexer != null)
+                    {
+                        indexer.SaveKeeps();
+                        indexer.Clear();
+                        indexer.BuildStringTypes();
+                        indexer.AddEverything(false);
+                        indexer.RestoreKeeps();
+                        indexer.ForceSave();
+                        Resources.UnloadUnusedAssets();
+                    }
+
+                    // Save all open scenes
+                    UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();
+                }
+
+                report["steps"] = steps;
+                report["propagation"] = propagationSteps;
+                report["propagationCount"] = propagationSteps.Count;
+                report["success"] = true;
+                report["message"] = dryRun
+                    ? $"[DRY RUN] Would rename {assetType} '{oldName}' → '{newName}' with {propagationSteps.Count} propagation(s)."
+                    : $"Renamed {assetType} '{oldName}' → '{newName}' with {propagationSteps.Count} propagation(s). Global Library rebuilt.";
+
+                return report;
+            }
+            catch (System.Exception ex)
+            {
+                return Error($"RenameAsset failed: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

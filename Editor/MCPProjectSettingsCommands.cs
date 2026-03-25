@@ -103,7 +103,11 @@ namespace UnityMCP.Editor
                 { "defaultMaxAngularSpeed", Physics.defaultMaxAngularSpeed },
                 { "queriesHitTriggers", Physics.queriesHitTriggers },
                 { "queriesHitBackfaces", Physics.queriesHitBackfaces },
+#if UNITY_2022_1_OR_NEWER
                 { "autoSimulation", Physics.simulationMode.ToString() },
+#else
+                { "autoSimulation", Physics.autoSimulation },
+#endif
             };
         }
 

@@ -2,6 +2,29 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.24.0] - 2026-03-25
+
+### Added
+- **Unity Test Runner integration** — Run and manage tests directly from AI assistants
+  - `testing/run-tests` — Start EditMode/PlayMode test runs, returns job ID for async polling
+  - `testing/get-job` — Poll test job status and results (passed/failed/skipped counts, duration)
+  - `testing/list-tests` — Discover available tests with names, categories, and run state
+  - Async job-based pattern with deferred execution on Unity main thread
+  - Supports filtering by test name, category, assembly, or group
+- **Compilation error tracking via CompilationPipeline** — Dedicated error buffer independent of console log
+  - `CompilationPipeline.assemblyCompilationFinished` captures errors/warnings per assembly
+  - `CompilationPipeline.compilationStarted` auto-clears buffer on new compilation cycle
+  - Thread-safe with lock-based synchronization
+  - Not affected by console `Clear()` or Play Mode log flooding
+  - Returns file, line, column, message, severity, assembly, and timestamp
+  - Supports filtering by severity (`error`, `warning`, `all`) and count limit
+  - Includes `isCompiling` flag in response
+- **HTTP route `compilation/errors`** — New endpoint on the bridge server for the MCP server's `unity_get_compilation_errors` tool
+
+### Fixed
+- **Unity 2021.3 LTS compilation compatibility** — Replaced `string.Contains(string, StringComparison)` with `IndexOf` for .NET Standard 2.0 compatibility
+- **Operator precedence bug** — Fixed `!IndexOf >= 0` (CS0023) to `IndexOf < 0` in test name filtering
+
 ## [2.9.1] - 2026-02-26
 
 ### Changed

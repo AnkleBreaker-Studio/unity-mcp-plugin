@@ -18,7 +18,8 @@ This package runs a lightweight HTTP server inside the Unity Editor on `localhos
 - **Assets** — List, import, delete assets; create prefabs and materials; assign materials
 - **Scripts** — Create, read, update C# scripts
 - **Builds** — Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL)
-- **Console** — Read errors/warnings/logs, clear console
+- **Console & Compilation** — Read errors/warnings/logs, clear console; get C# compilation errors via CompilationPipeline (independent of console buffer)
+- **Testing** — Run EditMode/PlayMode tests, poll results, list available tests via Unity Test Runner API
 - **Play Mode** — Play, pause, stop
 - **Editor** — Execute menu items, run arbitrary C# code, check editor state, get project info
 
@@ -210,6 +211,10 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 </a>
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
+
+## What's New in v2.24.0
+
+- **Compilation error tracking** — New dedicated compilation error buffer powered by `CompilationPipeline.assemblyCompilationFinished`. Captures errors and warnings per assembly with file, line, column, message, and severity. Independent of the console log buffer — not affected by `Clear()` or Play Mode log flooding. Auto-clears on each new compilation cycle via `compilationStarted`. Exposed via the `compilation/errors` HTTP route for the MCP server's `unity_get_compilation_errors` tool.
 
 ## What's New in v2.21.1
 

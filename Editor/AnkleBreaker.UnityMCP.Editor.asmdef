@@ -1,7 +1,10 @@
 {
   "name": "AnkleBreaker.UnityMCP.Editor",
   "rootNamespace": "UnityMCP.Editor",
-  "references": [],
+  "references": [
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
   "includePlatforms": [
     "Editor"
   ],
@@ -11,12 +14,6 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [
-    {
-      "name": "com.unity.test-framework",
-      "expression": "",
-      "define": "TEST_FRAMEWORK_INSTALLED"
-    }
-  ],
+  "versionDefines": [],
   "noEngineReferences": false
 }

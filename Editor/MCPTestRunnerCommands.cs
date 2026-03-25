@@ -489,7 +489,7 @@ namespace UnityMCP.Editor
             if (!test.HasChildren)
             {
                 // Leaf test
-                if (nameFilter != null && !test.FullName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase))
+                if (nameFilter != null && test.FullName.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) < 0)
                     return;
 
                 results.Add(new Dictionary<string, object>

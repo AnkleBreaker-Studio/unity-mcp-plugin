@@ -3,7 +3,9 @@
   "rootNamespace": "UnityMCP.Editor",
   "references": [
     "UnityEngine.TestRunner",
-    "UnityEditor.TestRunner"
+    "UnityEditor.TestRunner",
+    "UMA_Core",
+    "UMA_Core_Editor"
   ],
   "includePlatforms": [
     "Editor"

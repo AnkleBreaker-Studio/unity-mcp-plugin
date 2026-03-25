@@ -35,8 +35,11 @@ namespace UnityMCP.Editor
             public string ActionName  { get; set; }
             public RequestStatus Status { get; set; }
 
-            // The actual work to execute on the main thread
+            // The actual work to execute on the main thread (sync)
             internal Func<object> Action { get; set; }
+
+            // Deferred work whose result arrives via callback (async Unity APIs)
+            internal Action<Action<object>> DeferredAction { get; set; }
 
             // Result / error
             public object Result       { get; set; }
@@ -139,6 +142,43 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
+        /// Submit a deferred request whose result arrives via callback.
+        /// Use for Unity APIs with async callbacks (e.g. TestRunnerApi.RetrieveTestList).
+        /// </summary>
+        public static RequestTicket SubmitDeferredRequest(string agentId, string actionName,
+            Action<Action<object>> deferredAction)
+        {
+            if (string.IsNullOrEmpty(agentId)) agentId = "anonymous";
+
+            var ticket = new RequestTicket
+            {
+                TicketId       = Interlocked.Increment(ref _nextTicketId),
+                AgentId        = agentId,
+                ActionName     = actionName,
+                Status         = RequestStatus.Queued,
+                SubmittedAt    = DateTime.UtcNow,
+                DeferredAction = deferredAction,
+            };
+
+            lock (_queueLock)
+            {
+                if (!_agentQueues.ContainsKey(agentId))
+                {
+                    _agentQueues[agentId] = new Queue<RequestTicket>();
+                    _rrOrder.Add(agentId);
+                }
+
+                ticket.QueuePosition = _agentQueues[agentId].Count;
+                _agentQueues[agentId].Enqueue(ticket);
+
+                EnsureSession(agentId).LogAction(actionName);
+                _sessions[agentId].IncrementQueuedRequest();
+            }
+
+            return ticket;
+        }
+
+        /// <summary>
         /// Backward-compatible synchronous mode: submit → wait → return result.
         /// Used by the existing HandleRequest path (direct HTTP calls).
         /// </summary>
@@ -229,6 +269,49 @@ namespace UnityMCP.Editor
             {
                 // Capture undo group before execution for undo support
                 int undoGroupBefore = UnityEditor.Undo.GetCurrentGroup();
+
+                // Deferred actions complete via callback on a future editor frame.
+                if (ticket.DeferredAction != null)
+                {
+                    var deferredTicket = ticket; // capture for closure
+                    try
+                    {
+                        deferredTicket.DeferredAction(result =>
+                        {
+                            deferredTicket.Result      = result;
+                            deferredTicket.Status      = RequestStatus.Completed;
+                            deferredTicket.CompletedAt = DateTime.UtcNow;
+                            deferredTicket.DeferredAction = null;
+
+                            lock (_queueLock)
+                            {
+                                _executingTickets.Remove(deferredTicket.TicketId);
+                                _completedTickets[deferredTicket.TicketId] = deferredTicket;
+                                if (_waiters.TryGetValue(deferredTicket.TicketId, out var w))
+                                    w.Set();
+                                if (_sessions.TryGetValue(deferredTicket.AgentId, out var s))
+                                    s.IncrementCompletedRequest(deferredTicket.ExecutionTimeMs);
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        deferredTicket.Status       = RequestStatus.Failed;
+                        deferredTicket.ErrorMessage  = ex.Message;
+                        deferredTicket.CompletedAt   = DateTime.UtcNow;
+                        deferredTicket.DeferredAction = null;
+                        Debug.LogError($"[Unity MCP Queue] Deferred ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
+
+                        lock (_queueLock)
+                        {
+                            _executingTickets.Remove(deferredTicket.TicketId);
+                            _completedTickets[deferredTicket.TicketId] = deferredTicket;
+                            if (_waiters.TryGetValue(deferredTicket.TicketId, out var w))
+                                w.Set();
+                        }
+                    }
+                    continue; // Skip normal completion — callback handles it
+                }
 
                 try
                 {

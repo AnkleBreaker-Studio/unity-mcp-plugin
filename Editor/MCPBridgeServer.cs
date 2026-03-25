@@ -1177,6 +1177,41 @@ namespace UnityMCP.Editor
                 case "scenario/info":
                     return MCPScenarioCommands.GetMultiplayerInfo(ParseJson(body));
 
+#if UMA_INSTALLED
+                // === UMA (Unity Multipurpose Avatar)
+                case "uma/inspect-fbx":
+                    return MCPUMACommands.InspectFbx(ParseJson(body));
+                case "uma/create-slot":
+                    return MCPUMACommands.CreateSlot(ParseJson(body));
+                case "uma/create-overlay":
+                    return MCPUMACommands.CreateOverlay(ParseJson(body));
+                case "uma/create-wardrobe-recipe":
+                    return MCPUMACommands.CreateWardrobeRecipe(ParseJson(body));
+                case "uma/register-assets":
+                    return MCPUMACommands.RegisterAssets(ParseJson(body));
+                case "uma/list-global-library":
+                    return MCPUMACommands.ListGlobalLibrary(ParseJson(body));
+                case "uma/list-wardrobe-slots":
+                    return MCPUMACommands.ListWardrobeSlots(ParseJson(body));
+                case "uma/list-uma-materials":
+                    return MCPUMACommands.ListUMAMaterials(ParseJson(body));
+                case "uma/get-project-config":
+                    return MCPUMACommands.GetProjectConfig(ParseJson(body));
+                    case "uma/verify-recipe":
+                        return MCPUMACommands.VerifyRecipe(ParseJson(body));
+                    case "uma/rebuild-global-library":
+                        return MCPUMACommands.RebuildGlobalLibrary(ParseJson(body));
+                    case "uma/create-wardrobe-from-fbx":
+                        return MCPUMACommands.CreateWardrobeFromFbx(ParseJson(body));
+                    case "uma/wardrobe-equip":
+                        return MCPUMACommands.WardrobeEquip(ParseJson(body));
+                    case "uma/edit-race":
+                        return MCPUMACommands.EditRace(ParseJson(body));
+                    case "uma/create-race":
+                        return MCPUMACommands.CreateRace(ParseJson(body));
+                    case "uma/rename-asset":
+                        return MCPUMACommands.RenameAsset(ParseJson(body));
+#endif
                 // ─── Testing ───
                 case "testing/run-tests":
                     return MCPTestRunnerCommands.RunTests(ParseJson(body));

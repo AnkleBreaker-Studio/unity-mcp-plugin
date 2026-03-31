@@ -1099,6 +1099,22 @@ namespace UnityMCP.Editor
                 case "texture/set-normalmap":
                     return MCPTextureCommands.SetAsNormalMap(ParseJson(body));
 
+                // ─── Sprite Atlas ───
+                case "spriteatlas/create":
+                    return MCPSpriteAtlasCommands.CreateSpriteAtlas(ParseJson(body));
+                case "spriteatlas/info":
+                    return MCPSpriteAtlasCommands.GetSpriteAtlasInfo(ParseJson(body));
+                case "spriteatlas/add":
+                    return MCPSpriteAtlasCommands.AddToSpriteAtlas(ParseJson(body));
+                case "spriteatlas/remove":
+                    return MCPSpriteAtlasCommands.RemoveFromSpriteAtlas(ParseJson(body));
+                case "spriteatlas/settings":
+                    return MCPSpriteAtlasCommands.SetSpriteAtlasSettings(ParseJson(body));
+                case "spriteatlas/delete":
+                    return MCPSpriteAtlasCommands.DeleteSpriteAtlas(ParseJson(body));
+                case "spriteatlas/list":
+                    return MCPSpriteAtlasCommands.ListSpriteAtlases(ParseJson(body));
+
                 // ─── Navigation ───
                 case "navigation/bake":
                     return MCPNavigationCommands.BakeNavMesh(ParseJson(body));

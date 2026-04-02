@@ -27,7 +27,9 @@ namespace UnityMCP.Editor
             if (args.ContainsKey("agentClimb"))
                 settings.agentClimb = Convert.ToSingle(args["agentClimb"]);
 
+#pragma warning disable CS0618 // NavMeshBuilder: migration to NavMeshSurface API deferred
             UnityEditor.AI.NavMeshBuilder.BuildNavMesh();
+#pragma warning restore CS0618
 
             var triangulation = NavMesh.CalculateTriangulation();
             return new Dictionary<string, object>
@@ -42,7 +44,9 @@ namespace UnityMCP.Editor
 
         public static object ClearNavMesh(Dictionary<string, object> args)
         {
+#pragma warning disable CS0618 // NavMeshBuilder: migration to NavMeshSurface API deferred
             UnityEditor.AI.NavMeshBuilder.ClearAllNavMeshes();
+#pragma warning restore CS0618
             return new Dictionary<string, object>
             {
                 { "success", true },

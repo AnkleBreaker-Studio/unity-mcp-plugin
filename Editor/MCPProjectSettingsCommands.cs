@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -228,8 +229,8 @@ namespace UnityMCP.Editor
                 { "runInBackground", PlayerSettings.runInBackground },
                 { "colorSpace", PlayerSettings.colorSpace.ToString() },
                 { "gpuSkinning", PlayerSettings.gpuSkinning },
-                { "apiCompatibilityLevel", PlayerSettings.GetApiCompatibilityLevel(EditorUserBuildSettings.selectedBuildTargetGroup).ToString() },
-                { "scriptingBackend", PlayerSettings.GetScriptingBackend(EditorUserBuildSettings.selectedBuildTargetGroup).ToString() },
+                { "apiCompatibilityLevel", PlayerSettings.GetApiCompatibilityLevel(NamedBuildTarget.FromBuildTargetGroup(EditorUserBuildSettings.selectedBuildTargetGroup)).ToString() },
+                { "scriptingBackend", PlayerSettings.GetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(EditorUserBuildSettings.selectedBuildTargetGroup)).ToString() },
                 { "targetArchitecture", EditorUserBuildSettings.activeBuildTarget.ToString() },
             };
         }

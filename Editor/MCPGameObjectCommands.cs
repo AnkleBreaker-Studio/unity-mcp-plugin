@@ -163,7 +163,7 @@ namespace UnityMCP.Editor
                 if (go != null) return go;
 
                 // Try searching by name if full path fails
-                var allObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+                var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
                 foreach (var obj in allObjects)
                 {
                     if (obj.name == path || GetHierarchyPath(obj) == path)

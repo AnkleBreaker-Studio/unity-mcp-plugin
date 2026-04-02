@@ -17,7 +17,6 @@ namespace UnityMCP.Editor
         private bool _categoriesFoldout = true;
         private bool _queueFoldout = true;
         private bool _contextFoldout = true;
-        private bool _testsFoldout = true;
         private bool _recentActionsFoldout = true;
         private string _expandedTestCategory = null;
 
@@ -743,7 +742,7 @@ namespace UnityMCP.Editor
         private void DrawVersionInfo()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Plugin Version: 2.23.1", GUILayout.Width(155));
+            EditorGUILayout.LabelField($"Plugin Version: {MCPUpdateChecker.CurrentVersion}", GUILayout.Width(155));
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))

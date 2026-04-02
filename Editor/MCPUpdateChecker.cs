@@ -14,7 +14,20 @@ namespace UnityMCP.Editor
         private const string GitHubApiUrl =
             "https://api.github.com/repos/AnkleBreaker-Studio/unity-mcp-plugin/releases/latest";
 
-        private const string CurrentVersion = "2.23.1";
+        private static string _currentVersion;
+        public static string CurrentVersion
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_currentVersion))
+                {
+                    var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(
+                        typeof(MCPUpdateChecker).Assembly);
+                    _currentVersion = packageInfo?.version ?? "0.0.0";
+                }
+                return _currentVersion;
+            }
+        }
         private const string CacheKey = "UnityMCP_LatestVersion";
         private const string CacheTimeKey = "UnityMCP_LatestVersionTime";
         private const double CacheHours = 1.0;

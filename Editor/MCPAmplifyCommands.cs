@@ -178,7 +178,7 @@ namespace UnityMCP.Editor
                 {
                     { "name", shader.name },
                     { "assetPath", path },
-                    { "propertyCount", ShaderUtil.GetPropertyCount(shader) },
+                    { "propertyCount", shader.GetPropertyCount() },
                     { "isSupported", shader.isSupported },
                     { "renderQueue", shader.renderQueue },
                     { "passCount", shader.passCount },
@@ -215,23 +215,24 @@ namespace UnityMCP.Editor
             if (shader == null)
                 return new Dictionary<string, object> { { "error", $"Shader not found at: {path}" } };
 
-            int propCount = ShaderUtil.GetPropertyCount(shader);
+            int propCount = shader.GetPropertyCount();
             var properties = new List<Dictionary<string, object>>();
 
             for (int i = 0; i < propCount; i++)
             {
-                var propType = ShaderUtil.GetPropertyType(shader, i);
+                var propType = shader.GetPropertyType(i);
                 var prop = new Dictionary<string, object>
                 {
-                    { "name", ShaderUtil.GetPropertyName(shader, i) },
-                    { "description", ShaderUtil.GetPropertyDescription(shader, i) },
+                    { "name", shader.GetPropertyName(i) },
+                    { "description", shader.GetPropertyDescription(i) },
                     { "type", propType.ToString() },
                 };
 
-                if (propType == ShaderUtil.ShaderPropertyType.Range)
+                if (propType == UnityEngine.Rendering.ShaderPropertyType.Range)
                 {
-                    prop["rangeMin"] = ShaderUtil.GetRangeLimits(shader, i, 1);
-                    prop["rangeMax"] = ShaderUtil.GetRangeLimits(shader, i, 2);
+                    var limits = shader.GetPropertyRangeLimits(i);
+                    prop["rangeMin"] = limits.x;
+                    prop["rangeMax"] = limits.y;
                 }
 
                 properties.Add(prop);

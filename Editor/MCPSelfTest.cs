@@ -224,9 +224,27 @@ namespace UnityMCP.Editor
             { "profiler",   TestProfiler },
             { "debugger",   TestDebugger },
             { "testing",    TestTesting },
-            { "shadergraph", TestShaderGraph },
-            { "terrain",    TestTerrain },
-            { "amplify",    TestAmplify },
+            { "shadergraph",    TestShaderGraph },
+            { "terrain",        TestTerrain },
+            { "amplify",        TestAmplify },
+            { "constraint",     TestConstraint },
+            { "graphics",       TestGraphics },
+            { "memoryprofiler", TestMemoryProfiler },
+            { "navigation",     TestNavigation },
+            { "packagemanager", TestPackageManager },
+            { "particle",       TestParticle },
+            { "prefabasset",    TestPrefabAsset },
+            { "prefs",          TestPrefs },
+            { "projectsettings",TestProjectSettings },
+            { "scenario",       TestScenario },
+            { "screenshot",     TestScreenshot },
+            { "scriptableobject", TestScriptableObject },
+            { "search",         TestSearch },
+            { "spriteatlas",    TestSpriteAtlas },
+            { "texture",        TestTexture },
+            { "ui",             TestUI },
+            { "uma",            TestUMA },
+            { "undo",           TestUndo },
         };
 
         // ─── Run tests ──────────────────────────────────────────────
@@ -912,6 +930,263 @@ namespace UnityMCP.Editor
             catch (Exception ex)
             {
                 return $"Amplify.GetStatus threw: {ex.Message}";
+            }
+        }
+
+        // --- Constraint ---
+        private static string TestConstraint()
+        {
+            try
+            {
+                var type = typeof(MCPConstraintCommands);
+                if (type == null) return "MCPConstraintCommands class not found";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Constraint threw: {ex.Message}";
+            }
+        }
+
+        // --- Graphics ---
+        private static string TestGraphics()
+        {
+            try
+            {
+                var result = MCPGraphicsCommands.GetLightingSummary(EmptyArgs());
+                return AssertNotNull(result, "Graphics.GetLightingSummary");
+            }
+            catch (Exception ex)
+            {
+                return $"Graphics.GetLightingSummary threw: {ex.Message}";
+            }
+        }
+
+        // --- MemoryProfiler ---
+        private static string TestMemoryProfiler()
+        {
+            try
+            {
+                var result = MCPMemoryProfilerCommands.GetStatus(EmptyArgs());
+                return AssertNotNull(result, "MemoryProfiler.GetStatus");
+            }
+            catch (Exception ex)
+            {
+                return $"MemoryProfiler.GetStatus threw: {ex.Message}";
+            }
+        }
+
+        // --- Navigation ---
+        private static string TestNavigation()
+        {
+            try
+            {
+                var result = MCPNavigationCommands.GetNavMeshInfo(EmptyArgs());
+                return AssertNotNull(result, "Navigation.GetNavMeshInfo");
+            }
+            catch (Exception ex)
+            {
+                return $"Navigation.GetNavMeshInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- PackageManager ---
+        private static string TestPackageManager()
+        {
+            try
+            {
+                var result = MCPPackageManagerCommands.ListPackages(EmptyArgs());
+                return AssertNotNull(result, "PackageManager.ListPackages");
+            }
+            catch (Exception ex)
+            {
+                return $"PackageManager.ListPackages threw: {ex.Message}";
+            }
+        }
+
+        // --- Particle ---
+        private static string TestParticle()
+        {
+            try
+            {
+                var type = typeof(MCPParticleCommands);
+                if (type == null) return "MCPParticleCommands class not found";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Particle threw: {ex.Message}";
+            }
+        }
+
+        // --- PrefabAsset ---
+        private static string TestPrefabAsset()
+        {
+            try
+            {
+                var type = typeof(MCPPrefabAssetCommands);
+                if (type == null) return "MCPPrefabAssetCommands class not found";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"PrefabAsset threw: {ex.Message}";
+            }
+        }
+
+        // --- Prefs ---
+        private static string TestPrefs()
+        {
+            try
+            {
+                var args = new Dictionary<string, object> { { "key", "__mcp_selftest_nonexistent" } };
+                var result = MCPPrefsCommands.GetEditorPref(args);
+                return AssertNotNull(result, "Prefs.GetEditorPref");
+            }
+            catch (Exception ex)
+            {
+                return $"Prefs.GetEditorPref threw: {ex.Message}";
+            }
+        }
+
+        // --- ProjectSettings ---
+        private static string TestProjectSettings()
+        {
+            try
+            {
+                var result = MCPProjectSettingsCommands.GetRenderPipelineInfo(EmptyArgs());
+                return AssertNotNull(result, "ProjectSettings.GetRenderPipelineInfo");
+            }
+            catch (Exception ex)
+            {
+                return $"ProjectSettings.GetRenderPipelineInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- Scenario ---
+        private static string TestScenario()
+        {
+            try
+            {
+                var result = MCPScenarioCommands.ListScenarios(EmptyArgs());
+                return AssertNotNull(result, "Scenario.ListScenarios");
+            }
+            catch (Exception ex)
+            {
+                return $"Scenario.ListScenarios threw: {ex.Message}";
+            }
+        }
+
+        // --- Screenshot ---
+        private static string TestScreenshot()
+        {
+            try
+            {
+                var result = MCPScreenshotCommands.GetSceneViewInfo(EmptyArgs());
+                return AssertNotNull(result, "Screenshot.GetSceneViewInfo");
+            }
+            catch (Exception ex)
+            {
+                return $"Screenshot.GetSceneViewInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- ScriptableObject ---
+        private static string TestScriptableObject()
+        {
+            try
+            {
+                var result = MCPScriptableObjectCommands.ListScriptableObjectTypes(EmptyArgs());
+                return AssertNotNull(result, "ScriptableObject.ListScriptableObjectTypes");
+            }
+            catch (Exception ex)
+            {
+                return $"ScriptableObject.ListScriptableObjectTypes threw: {ex.Message}";
+            }
+        }
+
+        // --- Search ---
+        private static string TestSearch()
+        {
+            try
+            {
+                var result = MCPSearchCommands.GetSceneStats(EmptyArgs());
+                return AssertNotNull(result, "Search.GetSceneStats");
+            }
+            catch (Exception ex)
+            {
+                return $"Search.GetSceneStats threw: {ex.Message}";
+            }
+        }
+
+        // --- SpriteAtlas ---
+        private static string TestSpriteAtlas()
+        {
+            try
+            {
+                var result = MCPSpriteAtlasCommands.ListSpriteAtlases(EmptyArgs());
+                return AssertNotNull(result, "SpriteAtlas.ListSpriteAtlases");
+            }
+            catch (Exception ex)
+            {
+                return $"SpriteAtlas.ListSpriteAtlases threw: {ex.Message}";
+            }
+        }
+
+        // --- Texture ---
+        private static string TestTexture()
+        {
+            try
+            {
+                var type = typeof(MCPTextureCommands);
+                if (type == null) return "MCPTextureCommands class not found";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Texture threw: {ex.Message}";
+            }
+        }
+
+        // --- UI ---
+        private static string TestUI()
+        {
+            try
+            {
+                var result = MCPUICommands.GetUIInfo(EmptyArgs());
+                return AssertNotNull(result, "UI.GetUIInfo");
+            }
+            catch (Exception ex)
+            {
+                return $"UI.GetUIInfo threw: {ex.Message}";
+            }
+        }
+
+        // --- UMA ---
+        private static string TestUMA()
+        {
+            try
+            {
+                var result = MCPUMACommands.GetProjectConfig(EmptyArgs());
+                return AssertNotNull(result, "UMA.GetProjectConfig");
+            }
+            catch (Exception ex)
+            {
+                return $"UMA.GetProjectConfig threw: {ex.Message}";
+            }
+        }
+
+        // --- Undo ---
+        private static string TestUndo()
+        {
+            try
+            {
+                var result = MCPUndoCommands.GetUndoHistory(EmptyArgs());
+                return AssertNotNull(result, "Undo.GetUndoHistory");
+            }
+            catch (Exception ex)
+            {
+                return $"Undo.GetUndoHistory threw: {ex.Message}";
             }
         }
     }

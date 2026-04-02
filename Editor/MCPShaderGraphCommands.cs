@@ -143,7 +143,7 @@ namespace UnityMCP.Editor
                     continue;
 
                 bool isShaderGraph = path.EndsWith(".shadergraph");
-                int propCount = ShaderUtil.GetPropertyCount(shader);
+                int propCount = shader.GetPropertyCount();
 
                 var info = new Dictionary<string, object>
                 {
@@ -203,7 +203,7 @@ namespace UnityMCP.Editor
                 {
                     { "name", shader.name },
                     { "assetPath", path },
-                    { "propertyCount", ShaderUtil.GetPropertyCount(shader) },
+                    { "propertyCount", shader.GetPropertyCount() },
                     { "isSupported", shader.isSupported },
                     { "renderQueue", shader.renderQueue },
                     { "passCount", shader.passCount },
@@ -248,25 +248,26 @@ namespace UnityMCP.Editor
             if (shader == null)
                 return new Dictionary<string, object> { { "error", $"Shader not found at: {path}" } };
 
-            int propCount = ShaderUtil.GetPropertyCount(shader);
+            int propCount = shader.GetPropertyCount();
             var properties = new List<Dictionary<string, object>>();
 
             for (int i = 0; i < propCount; i++)
             {
-                var propType = ShaderUtil.GetPropertyType(shader, i);
+                var propType = shader.GetPropertyType(i);
                 var prop = new Dictionary<string, object>
                 {
-                    { "name", ShaderUtil.GetPropertyName(shader, i) },
-                    { "description", ShaderUtil.GetPropertyDescription(shader, i) },
+                    { "name", shader.GetPropertyName(i) },
+                    { "description", shader.GetPropertyDescription(i) },
                     { "type", propType.ToString() },
                 };
 
                 // Get range info for Range type properties
-                if (propType == ShaderUtil.ShaderPropertyType.Range)
+                if (propType == UnityEngine.Rendering.ShaderPropertyType.Range)
                 {
-                    prop["rangeMin"] = ShaderUtil.GetRangeLimits(shader, i, 1);
-                    prop["rangeMax"] = ShaderUtil.GetRangeLimits(shader, i, 2);
-                    prop["rangeDefault"] = ShaderUtil.GetRangeLimits(shader, i, 0);
+                    var limits = shader.GetPropertyRangeLimits(i);
+                    prop["rangeMin"] = limits.x;
+                    prop["rangeMax"] = limits.y;
+                    prop["rangeDefault"] = shader.GetPropertyDefaultFloatValue(i);
                 }
 
                 properties.Add(prop);
@@ -332,31 +333,32 @@ namespace UnityMCP.Editor
             if (shader == null)
                 return new Dictionary<string, object> { { "error", "Shader not found." } };
 
-            int propCount = ShaderUtil.GetPropertyCount(shader);
+            int propCount = shader.GetPropertyCount();
             var properties = new List<Dictionary<string, object>>();
 
             for (int i = 0; i < propCount; i++)
             {
-                var propType = ShaderUtil.GetPropertyType(shader, i);
+                var propType = shader.GetPropertyType(i);
                 var prop = new Dictionary<string, object>
                 {
-                    { "name", ShaderUtil.GetPropertyName(shader, i) },
-                    { "description", ShaderUtil.GetPropertyDescription(shader, i) },
+                    { "name", shader.GetPropertyName(i) },
+                    { "description", shader.GetPropertyDescription(i) },
                     { "type", propType.ToString() },
-                    { "isHidden", ShaderUtil.IsShaderPropertyHidden(shader, i) },
+                    { "isHidden", shader.GetPropertyFlags(i).HasFlag(UnityEngine.Rendering.ShaderPropertyFlags.HideInInspector) },
                 };
 
-                if (propType == ShaderUtil.ShaderPropertyType.Range)
+                if (propType == UnityEngine.Rendering.ShaderPropertyType.Range)
                 {
-                    prop["rangeMin"] = ShaderUtil.GetRangeLimits(shader, i, 1);
-                    prop["rangeMax"] = ShaderUtil.GetRangeLimits(shader, i, 2);
-                    prop["rangeDefault"] = ShaderUtil.GetRangeLimits(shader, i, 0);
+                    var limits = shader.GetPropertyRangeLimits(i);
+                    prop["rangeMin"] = limits.x;
+                    prop["rangeMax"] = limits.y;
+                    prop["rangeDefault"] = shader.GetPropertyDefaultFloatValue(i);
                 }
 
                 // Get texture dimension for Texture properties
-                if (propType == ShaderUtil.ShaderPropertyType.TexEnv)
+                if (propType == UnityEngine.Rendering.ShaderPropertyType.Texture)
                 {
-                    prop["textureDimension"] = ShaderUtil.GetTexDim(shader, i).ToString();
+                    prop["textureDimension"] = shader.GetPropertyTextureDimension(i).ToString();
                 }
 
                 properties.Add(prop);

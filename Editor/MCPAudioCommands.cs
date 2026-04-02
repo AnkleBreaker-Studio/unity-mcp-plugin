@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
     {
         public static object GetAudioInfo(Dictionary<string, object> args)
         {
-            var sources = UnityEngine.Object.FindObjectsOfType<AudioSource>();
+            var sources = UnityEngine.Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None);
             var sourceList = new List<Dictionary<string, object>>();
             foreach (var src in sources)
             {
@@ -28,7 +28,7 @@ namespace UnityMCP.Editor
                 });
             }
 
-            var listeners = UnityEngine.Object.FindObjectsOfType<AudioListener>();
+            var listeners = UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None);
             return new Dictionary<string, object>
             {
                 { "sourceCount", sourceList.Count },

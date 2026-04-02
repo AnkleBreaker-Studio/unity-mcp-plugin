@@ -135,7 +135,7 @@ namespace UnityMCP.Editor
             if (type == null)
                 return new { error = $"Type '{typeName}' not found" };
 
-            var objects = UnityEngine.Object.FindObjectsOfType(type);
+            var objects = UnityEngine.Object.FindObjectsByType(type, FindObjectsSortMode.None);
             var results = new List<Dictionary<string, object>>();
             foreach (var obj in objects)
             {

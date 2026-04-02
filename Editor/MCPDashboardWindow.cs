@@ -17,7 +17,6 @@ namespace UnityMCP.Editor
         private bool _categoriesFoldout = true;
         private bool _queueFoldout = true;
         private bool _contextFoldout = true;
-        private bool _testsFoldout = true;
         private bool _recentActionsFoldout = true;
         private string _expandedTestCategory = null;
 

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -55,8 +56,8 @@ namespace UnityMCP.Editor
                 { "platform", EditorUserBuildSettings.activeBuildTarget.ToString() },
                 { "renderPipeline", renderPipeline },
                 { "colorSpace", PlayerSettings.colorSpace.ToString() },
-                { "scriptingBackend", PlayerSettings.GetScriptingBackend(EditorUserBuildSettings.selectedBuildTargetGroup).ToString() },
-                { "apiCompatibility", PlayerSettings.GetApiCompatibilityLevel(EditorUserBuildSettings.selectedBuildTargetGroup).ToString() },
+                { "scriptingBackend", PlayerSettings.GetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(EditorUserBuildSettings.selectedBuildTargetGroup)).ToString() },
+                { "apiCompatibility", PlayerSettings.GetApiCompatibilityLevel(NamedBuildTarget.FromBuildTargetGroup(EditorUserBuildSettings.selectedBuildTargetGroup)).ToString() },
                 { "buildScenes", buildScenes },
                 { "totalAssetCount", allAssets.Length },
                 { "packagesManifest", packages },

@@ -269,7 +269,7 @@ namespace UnityMCP.Editor
                 if (targetRef == null)
                 {
                     // Try finding by component
-                    var allObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+                    var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
                     foreach (var obj in allObjects)
                     {
                         if (obj.name == referenceGameObject)

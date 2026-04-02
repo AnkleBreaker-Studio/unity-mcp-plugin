@@ -2,6 +2,24 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.26.0] - 2026-04-02
+
+### Added
+- **SpriteAtlas management** — 7 new HTTP endpoints for Unity SpriteAtlas workflow (contributed by [@zaferdace](https://github.com/zaferdace)):
+  - `spriteatlas/create` — Create a new SpriteAtlas asset
+  - `spriteatlas/info` — Get SpriteAtlas details (packed sprites, packing/texture settings)
+  - `spriteatlas/add` — Add sprites or folders to a SpriteAtlas
+  - `spriteatlas/remove` — Remove entries from a SpriteAtlas
+  - `spriteatlas/settings` — Configure packing, texture, and platform-specific settings
+  - `spriteatlas/delete` — Delete a SpriteAtlas asset
+  - `spriteatlas/list` — List all SpriteAtlases in the project
+- New `MCPSpriteAtlasCommands.cs` — Dedicated SpriteAtlas command handler
+- **Self-test system overhaul** — Probes for all 43 command modules (18 new categories), robust test runner with domain reload resume and timeout handling
+
+### Fixed
+- **Unity 2023+ / Unity 6 compatibility** — Resolved 43 `CS0618` deprecation warnings across the codebase
+- **Self-test conditional compilation** — UMA probe wrapped in `#if UMA_INSTALLED`, Scenario probe handles missing MPPM package gracefully
+
 ## [2.25.0] - 2026-03-25
 
 ### Added

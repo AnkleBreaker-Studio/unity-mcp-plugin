@@ -4,11 +4,11 @@
 
 # Unity MCP Plugin — AI-Powered Unity Editor Bridge (UPM Package)
 
-> **The Unity Editor side of the most comprehensive [MCP (Model Context Protocol)](https://modelcontextprotocol.io) integration for Unity game development.** Install via Unity Package Manager to let Claude, Cursor, Windsurf, or any MCP-compatible AI assistant control your Unity Editor with **268 tools** across **30+ categories**. Built and maintained by [AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio).
+> **The Unity Editor side of the most comprehensive [MCP (Model Context Protocol)](https://modelcontextprotocol.io) integration for Unity game development.** Install via Unity Package Manager to let Claude, Cursor, Windsurf, or any MCP-compatible AI assistant control your Unity Editor with **288 tools** across **30+ categories**. Built and maintained by [AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio).
 
 ## What It Does
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **268 tools** to AI assistants across **30+ feature categories** — scenes, GameObjects, components, builds, profiling, Shader Graph, Amplify Shader Editor, terrain, physics, NavMesh, animation, multiplayer, and much more.
+This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **288 tools** to AI assistants across **30+ feature categories** — scenes, GameObjects, components, builds, profiling, Shader Graph, Amplify Shader Editor, terrain, physics, NavMesh, animation, multiplayer, and much more.
 
 ### Neon Brick Breaker — Built from scratch by AI in under 5 minutes
 > Claude creates the entire game: scene setup, neon materials with bloom post-processing, brick grid layout, game scripts, VFX, and UI — all through Unity MCP commands.
@@ -171,7 +171,7 @@ Settings are stored in `EditorPrefs` and persist across sessions.
 - All operations support Unity's Undo system
 - Multi-agent requests are queued to prevent conflicts
 
-### 268 Tools Across 30+ Categories
+### 288 Tools Across 30+ Categories
 > Scene management, GameObjects, components, physics, terrain, Shader Graph, Amplify Shader Editor, profiling, animation, NavMesh, builds, multiplayer, and more.
 
 <p align="center">
@@ -186,7 +186,7 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 
 | Feature | **AnkleBreaker MCP** | **Bezi** | **Coplay MCP** | **Unity AI** |
 |---------|:-------------------:|:--------:|:--------------:|:------------:|
-| **Total Tools** | **268** | ~30 | 34 | Limited (built-in) |
+| **Total Tools** | **288** | ~30 | 34 | Limited (built-in) |
 | **Feature Categories** | **30+** | ~5 | ~5 | N/A |
 | **Non-Blocking Editor** | ✅ Full background operation | ❌ Freezes Unity during tasks | ✅ | ✅ |
 | **Open Source** | ✅ AnkleBreaker Open License | ❌ Proprietary | ✅ MIT License | ❌ Proprietary |
@@ -214,7 +214,7 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 
 | Solution | Monthly Cost | What You Get |
 |----------|:----------:|--------------| 
-| **AnkleBreaker MCP (free) + Claude Pro** | **$20/mo** | 268 tools, full Unity control, open source — MCP is free, price is Claude only |
+| **AnkleBreaker MCP (free) + Claude Pro** | **$20/mo** | 288 tools, full Unity control, open source — MCP is free, price is Claude only |
 | **AnkleBreaker MCP (free) + Claude Max 5x** | **$100/mo** | Same + 5x usage for heavy workflows — MCP is free, price is Claude only |
 | **AnkleBreaker MCP (free) + Claude Max 20x** | **$200/mo** | Same + 20x usage for teams/studios — MCP is free, price is Claude only |
 | **Bezi Pro** | $20/mo | ~30 tools, 800 credits/mo, freezes Unity |
@@ -229,7 +229,7 @@ AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purp
 Bezi runs as a proprietary Unity plugin with its own credit-based billing — $20–$200/mo on top of your AI subscription. It has historically suffered from freezing the Unity Editor during AI tasks, blocking your workflow. AnkleBreaker MCP is completely free and open source, runs entirely in the background with zero editor impact, and offers 8x more tools — the only cost is your existing Claude subscription.
 
 **vs. Coplay MCP:**
-Coplay MCP provides 34 tools across ~5 categories. AnkleBreaker MCP delivers 268 tools across 30+ categories including advanced features like physics raycasts, terrain editing, shader graph management, profiling, NavMesh, particle systems, and MPPM multiplayer — none of which exist in Coplay. Our two-tier lazy loading system is specifically optimized for Claude Cowork's tool limits.
+Coplay MCP provides 34 tools across ~5 categories. AnkleBreaker MCP delivers 288 tools across 30+ categories including advanced features like physics raycasts, terrain editing, shader graph management, profiling, NavMesh, particle systems, and MPPM multiplayer — none of which exist in Coplay. Our two-tier lazy loading system is specifically optimized for Claude Cowork's tool limits.
 
 **vs. Unity AI:**
 Unity AI (successor to Muse) is built into Unity 6.2+ but limited to Unity's own AI models and a credit-based "Unity Points" system. It cannot be used with Claude or any external AI assistant, has no MCP support, and offers a fraction of the automation capabilities. AnkleBreaker MCP works with any MCP-compatible AI while giving you full control over which AI models you use.
@@ -246,6 +246,12 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 </a>
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
+
+## What's New in v2.26.0
+
+- **SpriteAtlas management** — 7 new HTTP endpoints for creating, inspecting, adding/removing sprites, configuring settings, deleting, and listing SpriteAtlases. Contributed by [@zaferdace](https://github.com/zaferdace).
+- **Self-test system overhaul** — Probes for all 43 command modules, robust test runner with domain reload resume and timeout handling.
+- **Unity 2023+ / Unity 6 compatibility** — Resolved 43 `CS0618` deprecation warnings across the codebase.
 
 ## What's New in v2.24.0
 

@@ -1069,6 +1069,11 @@ namespace UnityMCP.Editor
             try
             {
                 var result = MCPScenarioCommands.ListScenarios(EmptyArgs());
+                if (result is Dictionary<string, object> dict && dict.ContainsKey("error"))
+                {
+                    string err = dict["error"].ToString();
+                    if (err.Contains("not installed")) return null; // MPPM not installed — pass
+                }
                 return AssertNotNull(result, "Scenario.ListScenarios");
             }
             catch (Exception ex)

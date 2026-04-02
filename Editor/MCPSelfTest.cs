@@ -1165,6 +1165,7 @@ namespace UnityMCP.Editor
         // --- UMA ---
         private static string TestUMA()
         {
+#if UMA_INSTALLED
             try
             {
                 var result = MCPUMACommands.GetProjectConfig(EmptyArgs());
@@ -1174,6 +1175,9 @@ namespace UnityMCP.Editor
             {
                 return $"UMA.GetProjectConfig threw: {ex.Message}";
             }
+#else
+            return null; // UMA not installed — pass (handler not compiled)
+#endif
         }
 
         // --- Undo ---

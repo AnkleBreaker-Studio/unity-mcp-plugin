@@ -158,12 +158,15 @@ namespace UnityMCP.Editor
             if (args.ContainsKey("path") || args.ContainsKey("gameObjectPath"))
             {
                 string path = args.ContainsKey("path") ? args["path"].ToString() : args["gameObjectPath"].ToString();
-                // Try direct find first
+                // Try direct find first (active objects only)
                 var go = GameObject.Find(path);
                 if (go != null) return go;
 
-                // Try searching by name if full path fails
-                var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
+                // Fallback: include inactive objects. FindObjectsByType's default
+                // (without FindObjectsInactive) excludes inactive, so path-based
+                // lookup silently fails for inactive GameObjects. Opt in explicitly.
+                var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(
+                    FindObjectsInactive.Include, FindObjectsSortMode.None);
                 foreach (var obj in allObjects)
                 {
                     if (obj.name == path || GetHierarchyPath(obj) == path)

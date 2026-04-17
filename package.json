@@ -4,7 +4,7 @@
   "displayName": "AnkleBreaker Unity MCP",
   "description": "MCP (Model Context Protocol) bridge plugin for Unity Editor. Enables AI assistants like Claude to control Unity Editor via a local HTTP API — manage scenes, GameObjects, components, assets, builds, and more.",
   "unity": "2021.3",
-  "unityRelease": "0f1",
+  "unityRelease": "18f1",
   "keywords": [
     "mcp",
     "ai",

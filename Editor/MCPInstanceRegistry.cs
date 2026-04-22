@@ -77,10 +77,11 @@ namespace UnityMCP.Editor
         /// Uses port affinity: tries to reclaim the last-used port for this project first,
         /// which prevents port swapping when multiple projects restart simultaneously.
         /// Falls back to sequential scan if the preferred port is unavailable.
+        /// Returns -1 when no port is available so callers can avoid retry loops.
         /// </summary>
         public static int FindAvailablePort()
         {
-            int result = PortRangeStart;
+            int result = -1;
 
             WithRegistryLock(() =>
             {
@@ -151,7 +152,8 @@ namespace UnityMCP.Editor
                     }
                 }
 
-                Debug.LogWarning($"[AB-UMCP] No available port in range {PortRangeStart}-{PortRangeEnd}. Using default {PortRangeStart}.");
+                Debug.LogWarning($"[AB-UMCP] No available port in range {PortRangeStart}-{PortRangeEnd}.");
+                // result stays at -1 so callers know nothing is free.
             }, "find-port");
 
             return result;

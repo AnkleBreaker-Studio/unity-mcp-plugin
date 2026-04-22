@@ -51,6 +51,11 @@ namespace UnityMCP.Editor
 
         static MCPBridgeServer()
         {
+            // Skip batch-mode Unity subprocesses (AssetImportWorker, CLI builds, etc.).
+            // These are short-lived, don't need MCP access, and would otherwise claim
+            // ports in the 7890-7899 range and exhaust availability for real editors.
+            if (Application.isBatchMode) return;
+
             // Restart if: AutoStart is enabled OR server was running before a domain reload
             bool wasRunning = SessionState.GetBool(WasRunningKey, false);
             if (MCPSettingsManager.AutoStart || wasRunning)
@@ -107,6 +112,9 @@ namespace UnityMCP.Editor
         {
             if (_isRunning) return;
 
+            // Batch-mode subprocesses (AssetImportWorker, etc.) must never start the server.
+            if (Application.isBatchMode) return;
+
             // Ensure console log capture is active before anything else
             MCPConsoleCommands.EnsureListening();
 
@@ -122,6 +130,15 @@ namespace UnityMCP.Editor
             else
             {
                 port = MCPInstanceRegistry.FindAvailablePort();
+                if (port < 0)
+                {
+                    // No port available in the auto-select range -> give up cleanly.
+                    // Without this guard the old retry logic would spin forever.
+                    Debug.LogError(
+                        $"[AB-UMCP] No available port in range {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd}. " +
+                        "Close other Unity instances or set a manual port in MCP settings.");
+                    return;
+                }
             }
 
             try
@@ -151,10 +168,21 @@ namespace UnityMCP.Editor
             {
                 Debug.LogError($"[AB-UMCP] Failed to start on port {port}: {ex.Message}");
 
-                // If auto-port failed, try the next available one
-                if (!MCPSettingsManager.UseManualPort && port < MCPInstanceRegistry.PortRangeEnd)
+                // Retry only in auto-port mode, only if another port is actually free.
+                // The previous implementation retried whenever port < PortRangeEnd which
+                // caused an infinite loop when FindAvailablePort kept returning the same
+                // unavailable default port.
+                if (!MCPSettingsManager.UseManualPort)
                 {
-                    Debug.Log("[AB-UMCP] Trying next available port...");
+                    int nextPort = MCPInstanceRegistry.FindAvailablePort();
+                    if (nextPort < 0 || nextPort == port)
+                    {
+                        Debug.LogError(
+                            "[AB-UMCP] No alternative port available. Giving up to avoid a retry loop.");
+                        return;
+                    }
+
+                    Debug.Log($"[AB-UMCP] Trying next available port {nextPort}...");
                     EditorApplication.delayCall += Start;
                 }
             }

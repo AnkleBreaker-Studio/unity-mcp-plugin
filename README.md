@@ -247,6 +247,13 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
 
+## What's New in v2.27.0
+
+- **Path-based lookup works on inactive GameObjects** — Every tool that accepts a `path` (`prefab_info`, `set_active`, `info`, `delete`, `set_transform`, `reparent`, etc.) now correctly finds and operates on inactive targets, where previously it silently failed with "GameObject not found". Fix contributed by [@BadranRaza](https://github.com/BadranRaza).
+- **Prefab-instance detection fixed on scene instances** — `prefab_info` no longer falsely reports valid scene prefab instances as "not a prefab instance". Switched to `PrefabUtility.IsPartOfPrefabInstance`, the authoritative API. Fix contributed by [@BadranRaza](https://github.com/BadranRaza).
+- **Bridge no longer runs in batch-mode subprocesses** — The plugin previously started its HTTP bridge inside every `AssetImportWorker` Unity spawned for parallel asset import, claiming ports on top of the main Editor and exhausting the 7890-7899 range. It now detects batch mode and stays out of the way.
+- **Port-discovery infinite loop fixed** — When no port was available, the plugin would spam `Failed to start on port 7890` forever. It now gives up cleanly and logs a single actionable error.
+
 ## What's New in v2.26.0
 
 - **SpriteAtlas management** — 7 new HTTP endpoints for creating, inspecting, adding/removing sprites, configuring settings, deleting, and listing SpriteAtlases. Contributed by [@zaferdace](https://github.com/zaferdace).

@@ -33,8 +33,11 @@ namespace UnityMCP.Editor
             if (go == null)
                 return new { error = "GameObject not found. Provide assetPath or path/instanceId." };
 
-            var status = PrefabUtility.GetPrefabInstanceStatus(go);
-            if (status == PrefabInstanceStatus.NotAPrefab)
+            // IsPartOfPrefabInstance is the authoritative "is this tied to a prefab?" check.
+            // GetPrefabInstanceStatus has known false-negative cases (returns NotAPrefab for
+            // valid prefab instances with non-root children, missing nested assets, etc.),
+            // so we don't gate on it here.
+            if (!PrefabUtility.IsPartOfPrefabInstance(go))
                 return new { error = "GameObject is not a prefab instance" };
 
             string sourcePath = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(go);

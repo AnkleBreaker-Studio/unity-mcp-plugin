@@ -95,18 +95,39 @@ namespace UnityMCP.Editor
             // If not already loaded, try to find and load them from the Unity editor directory
             if (_roslynCSharpAsm == null || _roslynCoreAsm == null)
             {
-                string editorDir = Path.GetDirectoryName(EditorApplication.applicationPath);
-                string managedDir = Path.Combine(editorDir, "Data", "Managed");
-                string toolsDir = Path.Combine(editorDir, "Data", "Tools", "Roslyn");
-                // Mono-compatible Roslyn assemblies (preferred for Unity's Mono runtime)
-                string monoDir = Path.Combine(editorDir, "Data", "MonoBleedingEdge", "lib", "mono", "4.5");
-                string msbuildRoslynDir = Path.Combine(editorDir, "Data", "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn");
-                // ApiUpdater has full Roslyn assemblies
-                string apiUpdaterDir = Path.Combine(editorDir, "Data", "Tools", "BuildPipeline", "Compilation", "ApiUpdater");
-                // DotNetSdkRoslyn contains .NET Core assemblies — may fail on Mono, tried last
-                string sdkRoslynDir = Path.Combine(editorDir, "Data", "DotNetSdkRoslyn");
+                // Resolve the editor's "Data" directory across platforms.
+                // Windows: <EditorDir>/Data/...
+                // macOS:   EditorApplication.applicationPath ends in "Unity.app"; Data lives at Unity.app/Contents
+                // Linux:   <EditorDir>/Data/... (same as Windows)
+                string appPath = EditorApplication.applicationPath;
+                string editorDir = Path.GetDirectoryName(appPath);
+                var dataRoots = new List<string>();
+                // Windows / Linux layout
+                if (!string.IsNullOrEmpty(editorDir))
+                    dataRoots.Add(Path.Combine(editorDir, "Data"));
+                // macOS layout: Unity.app/Contents
+                if (!string.IsNullOrEmpty(appPath) && appPath.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
+                    dataRoots.Add(Path.Combine(appPath, "Contents"));
 
-                foreach (var searchDir in new[] { managedDir, toolsDir, monoDir, msbuildRoslynDir, apiUpdaterDir, sdkRoslynDir, editorDir })
+                var searchDirs = new List<string>();
+                foreach (var data in dataRoots)
+                {
+                    searchDirs.Add(Path.Combine(data, "Managed"));
+                    searchDirs.Add(Path.Combine(data, "Tools", "Roslyn"));
+                    // Mono-compatible Roslyn assemblies (preferred for Unity's Mono runtime)
+                    searchDirs.Add(Path.Combine(data, "MonoBleedingEdge", "lib", "mono", "4.5"));
+                    searchDirs.Add(Path.Combine(data, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn"));
+                    // ApiUpdater has full Roslyn assemblies
+                    searchDirs.Add(Path.Combine(data, "Tools", "BuildPipeline", "Compilation", "ApiUpdater"));
+                    // ScriptUpdater also ships Roslyn (Mono-compatible)
+                    searchDirs.Add(Path.Combine(data, "Tools", "ScriptUpdater"));
+                    // DotNetSdkRoslyn contains .NET Core assemblies — may fail on Mono, tried last
+                    searchDirs.Add(Path.Combine(data, "DotNetSdkRoslyn"));
+                }
+                if (!string.IsNullOrEmpty(editorDir))
+                    searchDirs.Add(editorDir);
+
+                foreach (var searchDir in searchDirs)
                 {
                     if (!Directory.Exists(searchDir)) continue;
                     if (_roslynCoreAsm == null)

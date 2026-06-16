@@ -344,16 +344,17 @@ namespace UnityMCP.Editor
                     return;
                 }
 
-                // ═══ Project Context endpoints (read-only, no queue needed) ═══
+                // ═══ Project Context endpoints (read-only file I/O, but EditorPrefs-backed
+                //     settings must be read on the main thread) ═══
                 if (apiPath == "context")
                 {
-                    SendJson(response, 200, MCPContextManager.GetContextResponse());
+                    SendJson(response, 200, ExecuteOnMainThread(() => MCPContextManager.GetContextResponse()));
                     return;
                 }
                 if (apiPath.StartsWith("context/"))
                 {
                     string category = apiPath.Substring("context/".Length);
-                    SendJson(response, 200, MCPContextManager.GetContextResponse(category));
+                    SendJson(response, 200, ExecuteOnMainThread(() => MCPContextManager.GetContextResponse(category)));
                     return;
                 }
 

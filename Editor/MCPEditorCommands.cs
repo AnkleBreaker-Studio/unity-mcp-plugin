@@ -117,12 +117,16 @@ namespace UnityMCP.Editor
                     // Mono-compatible Roslyn assemblies (preferred for Unity's Mono runtime)
                     searchDirs.Add(Path.Combine(data, "MonoBleedingEdge", "lib", "mono", "4.5"));
                     searchDirs.Add(Path.Combine(data, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn"));
+                    // Unity 6000.3+ on macOS keeps scripting assemblies under Contents/Resources/Scripting.
+                    searchDirs.Add(Path.Combine(data, "Resources", "Scripting", "MonoBleedingEdge", "lib", "mono", "4.5"));
+                    searchDirs.Add(Path.Combine(data, "Resources", "Scripting", "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn"));
                     // ApiUpdater has full Roslyn assemblies
                     searchDirs.Add(Path.Combine(data, "Tools", "BuildPipeline", "Compilation", "ApiUpdater"));
                     // ScriptUpdater also ships Roslyn (Mono-compatible)
                     searchDirs.Add(Path.Combine(data, "Tools", "ScriptUpdater"));
                     // DotNetSdkRoslyn contains .NET Core assemblies — may fail on Mono, tried last
                     searchDirs.Add(Path.Combine(data, "DotNetSdkRoslyn"));
+                    searchDirs.Add(Path.Combine(data, "Resources", "Scripting", "DotNetSdkRoslyn"));
                 }
                 if (!string.IsNullOrEmpty(editorDir))
                     searchDirs.Add(editorDir);

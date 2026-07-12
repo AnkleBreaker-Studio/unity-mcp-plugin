@@ -371,7 +371,11 @@ namespace UnityMCP.Editor
                 {
                     var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
                         () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));
-                    SendJson(response, 200, result);
+                    // Capability handshake: an unknown route returns 404 here so a miss can't
+                    // masquerade as HTTP-200 success. Queued path keeps its in-band 200 error.
+                    int statusCode = (result is Dictionary<string, object> routeDict
+                        && routeDict.ContainsKey("unknownRoute")) ? 404 : 200;
+                    SendJson(response, statusCode, result);
                 }
             }
             catch (Exception ex)
@@ -586,6 +590,11 @@ namespace UnityMCP.Editor
                     return new
                     {
                         status = "ok",
+                        // Capability handshake (server↔plugin drift): the server reads these
+                        // off the ping response to feature-detect this plugin. See
+                        // MCPCapabilities.cs and the server's src/capabilities.js.
+                        protocolVersion = MCPCapabilities.ProtocolVersion,
+                        pluginVersion = MCPCapabilities.PluginVersion,
                         unityVersion = Application.unityVersion,
                         projectName = Application.productName,
                         projectPath = GetProjectPath(),
@@ -1338,7 +1347,15 @@ namespace UnityMCP.Editor
                 // testing/list-tests is handled via the deferred path in HandleRequest
 
                 default:
-                    return new { error = $"Unknown API endpoint: {path}" };
+                    // Typed as a dictionary with an `unknownRoute` marker so the direct
+                    // HTTP path can map it to 404 (a route miss must not read as HTTP-200
+                    // success). The queued path keeps its in-band error; the MCP server
+                    // detects both via isRouteUnsupportedError (src/capabilities.js).
+                    return new Dictionary<string, object>
+                    {
+                        { "error", $"Unknown API endpoint: {path}" },
+                        { "unknownRoute", true },
+                    };
             }
         }
 

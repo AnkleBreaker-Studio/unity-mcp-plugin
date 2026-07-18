@@ -336,23 +336,39 @@ namespace UnityMCP.Editor
             {
                 string hostName = host;
                 int colon = host.LastIndexOf(':');
-                if (colon >= 0 && host.IndexOf(']') < colon) hostName = host.Substring(0, colon);
+                bool bracketed = host.IndexOf(']') >= 0;
+                // Bare unbracketed IPv6 ("::1") has multiple colons and no brackets —
+                // don't treat its last colon as a port separator.
+                bool bareIpv6 = !bracketed && host.IndexOf(':') != colon;
+                if (!bareIpv6 && colon >= 0 && host.IndexOf(']') < colon)
+                    hostName = host.Substring(0, colon);
                 hostName = hostName.Trim('[', ']');
-                if (hostName != "127.0.0.1" && hostName != "localhost" && hostName != "::1")
+                if (!IsLoopbackHostName(hostName))
                     return false;
             }
 
             string origin = request.Headers["Origin"];
             if (!string.IsNullOrEmpty(origin))
             {
-                bool loopbackOrigin =
-                    origin.StartsWith("http://127.0.0.1") || origin.StartsWith("http://localhost") ||
-                    origin.StartsWith("https://127.0.0.1") || origin.StartsWith("https://localhost");
-                if (!loopbackOrigin)
+                // Parse and match the origin host EXACTLY. A StartsWith("http://localhost")
+                // prefix check would let http://localhost.evil.com straight through — and
+                // with execute-code behind this guard that is a browser-reachable RCE.
+                // Uri.TryCreate also rejects the literal "null" Origin (file:// pages,
+                // sandboxed frames), which we deliberately do not trust.
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+                    return false;
+                if (!IsLoopbackHostName(originUri.Host.Trim('[', ']')))
                     return false;
             }
 
             return true;
+        }
+
+        private static bool IsLoopbackHostName(string hostName)
+        {
+            return hostName == "127.0.0.1"
+                || hostName == "::1"
+                || string.Equals(hostName, "localhost", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void HandleRequest(HttpListenerContext context)
@@ -1389,7 +1405,11 @@ namespace UnityMCP.Editor
                 return new { error = $"Timeout waiting for Unity main thread after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
 
             if (exception != null)
-                return new { error = exception.Message, stackTrace = exception.StackTrace };
+            {
+                // Trace goes to the editor log only — never to the wire.
+                Debug.LogError($"[AB-UMCP] Main-thread execution failed: {exception.Message}\n{exception.StackTrace}");
+                return new { error = exception.Message };
+            }
 
             return result;
         }
@@ -1430,7 +1450,11 @@ namespace UnityMCP.Editor
                 return new { error = $"Timeout waiting for Unity callback after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
 
             if (exception != null)
-                return new { error = exception.Message, stackTrace = exception.StackTrace };
+            {
+                // Trace goes to the editor log only — never to the wire.
+                Debug.LogError($"[AB-UMCP] Deferred execution failed: {exception.Message}\n{exception.StackTrace}");
+                return new { error = exception.Message };
+            }
 
             return result;
         }

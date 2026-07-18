@@ -23,7 +23,8 @@ namespace UnityMCP.Editor
 
         // Target object tracking. String because Unity 6.5 EntityIds are 64-bit
         // values carried as opaque decimal strings on the wire (see MCPObjectId) —
-        // an int here silently truncated them. null/empty = no target.
+        // an int here silently truncated them. null/empty = no target. Old int-typed
+        // persisted entries: JsonUtility parses the scalar-type mismatch to "".
         public string TargetInstanceId { get; set; }
         public string TargetPath       { get; set; }
         public string TargetType       { get; set; } // GameObject, Component, Asset, Script, Scene, etc.

@@ -37,12 +37,27 @@ for (const match of switchBody.matchAll(/^\s*case "([^"]+)":/gm)) {
 routes.add("_meta/routes");
 
 // ── Deferred routes (async-callback dictionary in the class header) ──
-const deferredBlockMatch = source.match(/_deferredRoutes = new Dictionary<[^>]+>>\s*\{([\s\S]*?)\};/);
-if (deferredBlockMatch) {
-  for (const match of deferredBlockMatch[1].matchAll(/\{\s*"([^"]+)"\s*,/g)) {
-    routes.add(match[1]);
-  }
+// Match from the field name to the first initializer brace: the nested generic type
+// contains no braces, so the first "{" after "_deferredRoutes" opens the initializer.
+// (A "<[^>]+>>" type matcher cannot span Dictionary<string, Action<...>>> — it dies
+// on the first ">" — and silently captured nothing.)
+const deferredBlockMatch = source.match(/_deferredRoutes[^{]*\{([\s\S]*?)\};/);
+if (!deferredBlockMatch) {
+  throw new Error("_deferredRoutes initializer not found — parser assumptions broke.");
 }
+let deferredCount = 0;
+for (const match of deferredBlockMatch[1].matchAll(/\{\s*"([^"]+)"\s*,/g)) {
+  routes.add(match[1]);
+  deferredCount++;
+}
+if (deferredCount === 0) {
+  throw new Error("No deferred routes extracted — parser assumptions broke.");
+}
+
+// Note: routes behind conditional compilation (e.g. uma/* under #if UMA_INSTALLED)
+// are always listed — source-text generation can't evaluate defines. On projects
+// without the optional package those routes pass the 404 gate and fall through to
+// the dispatch default's "Unknown API endpoint" error, same as before this registry.
 
 if (routes.size < 200) {
   throw new Error(`Only ${routes.size} routes extracted — parser likely broke; refusing to emit a shrunken registry.`);

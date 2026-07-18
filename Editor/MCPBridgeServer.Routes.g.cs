@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
 {
     public static partial class MCPBridgeServer
     {
-        /// <summary>Every route the bridge can dispatch (321 routes).</summary>
+        /// <summary>Every route the bridge can dispatch (322 routes).</summary>
         internal static readonly string[] GeneratedRoutes = new string[]
         {
             "_meta/routes",
@@ -302,6 +302,7 @@ namespace UnityMCP.Editor
             "terrain/set-settings",
             "terrain/smooth",
             "testing/get-job",
+            "testing/list-tests",
             "testing/run-tests",
             "texture/info",
             "texture/reimport",

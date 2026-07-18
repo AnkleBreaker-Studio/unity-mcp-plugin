@@ -251,10 +251,12 @@ namespace UnityMCP.Editor
             var removed = new List<string>();
             foreach (string refToRemove in refsToRemove)
             {
-                // Try to match by name or GUID
+                // Match by EXACT name or GUID only. A substring Contains match used to remove
+                // the wrong reference (removing "Unity.InputSystem" also matched
+                // "Unity.InputSystem.ForUI"), breaking compilation while reporting success.
                 string match = existingRefs.FirstOrDefault(r =>
                     r.Equals(refToRemove, StringComparison.OrdinalIgnoreCase) ||
-                    r.Contains(refToRemove));
+                    r.Equals("GUID:" + refToRemove, StringComparison.OrdinalIgnoreCase));
 
                 if (match != null)
                 {

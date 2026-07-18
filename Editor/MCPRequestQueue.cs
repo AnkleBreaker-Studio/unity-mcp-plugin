@@ -256,6 +256,21 @@ namespace UnityMCP.Editor
                 batch = DequeueNextBatch();
                 if (batch == null || batch.Count == 0) return;
 
+                // Drop tickets whose sync waiter already gave up (TimedOut). The client was
+                // told the call failed and may have retried; executing the abandoned ticket
+                // now would run a non-idempotent action a second time. ExecuteWithTracking
+                // sets TimedOut under this same lock, so this check is race-safe.
+                batch.RemoveAll(t =>
+                {
+                    if (t.Status == RequestStatus.TimedOut)
+                    {
+                        _executingTickets.Remove(t.TicketId);
+                        return true;
+                    }
+                    return false;
+                });
+                if (batch.Count == 0) return;
+
                 // Mark all as executing and track in-flight
                 foreach (var t in batch)
                 {

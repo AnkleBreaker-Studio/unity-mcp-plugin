@@ -55,6 +55,12 @@ namespace UnityMCP.Editor
                 }
             }
 
+            // Never silently replace an existing asset (CreateAsset reuses the GUID and
+            // destroys the old asset plus every reference to it).
+            var overwriteError = MCPAssetSafety.OverwriteGuard(path, args);
+            if (overwriteError != null)
+                return overwriteError;
+
             var so = ScriptableObject.CreateInstance(soType);
             AssetDatabase.CreateAsset(so, path);
             AssetDatabase.SaveAssets();

@@ -30,6 +30,11 @@ namespace UnityMCP.Editor
 
             string dataPath = args.ContainsKey("dataPath") ? args["dataPath"].ToString()
                 : $"Assets/{name}_Data.asset";
+            // Re-running with the same name/dataPath must not blow away an existing terrain's
+            // sculpted heightmap/splats (CreateAsset reuses the GUID).
+            var overwriteError = MCPAssetSafety.OverwriteGuard(dataPath, args);
+            if (overwriteError != null)
+                return overwriteError;
             EnsureDirectoryExists(dataPath);
             AssetDatabase.CreateAsset(terrainData, dataPath);
 

@@ -2,6 +2,18 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.35.0] - 2026-07-18
+
+### Added (ProBuilder integration — `com.unity.probuilder`)
+- **Full ProBuilder command surface** (`MCPProBuilderCommands`, 14 handlers under the `probuilder/*` routes) — create parametric shapes and edit real, still-editable ProBuilder meshes through ProBuilder's public API:
+  - `create-shape` — cube, plane, cylinder, prism, stair, cone, door, pipe, arch, sphere (icosphere), torus, with per-shape parameters (sides, steps, thickness, angle, subdivisions, …).
+  - Geometry edits — `extrude-faces` (face/individual/vertex-normal), `bevel-edges`, `subdivide`, `delete-faces`, `translate-faces`, `flip-normals`.
+  - Materials — `set-face-material` (per-face submesh assignment).
+  - Boolean CSG — `boolean` (union / subtract / intersect); the result is a new editable ProBuilder object.
+  - `combine` (merge ProBuilder meshes), `probuilderize` (convert a plain mesh to ProBuilder), `center-pivot`, `export-mesh` (bake to a `.asset`, guarded by the shared overwrite check).
+- **Tolerated-when-missing integration** — the whole surface is gated on `PROBUILDER_INSTALLED` (asmdef `versionDefines` on `com.unity.probuilder >= 4.0.0`); when ProBuilder is absent every handler returns a clear "not installed" message instead of failing to compile, matching the existing UMA pattern. New `probuilder` capability category in `MCPSettingsManager`.
+- Every mutation registers Undo (`Undo.RegisterCompleteObjectUndo` / `RegisterCreatedObjectUndo`), so ProBuilder edits compose with the multi-agent queue's per-action undo tracking. `export-mesh` uses `outputPath` (distinct from the `path`/`instanceId` used to resolve the source object) and confines writes under `Assets/` via `MCPAssetSafety`.
+
 ## [2.34.0] - 2026-07-18
 
 ### Fixed (data safety — several handlers could silently destroy user assets)

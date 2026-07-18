@@ -1082,6 +1082,36 @@ namespace UnityMCP.Editor
                 case "undo/clear":
                     return MCPUndoCommands.ClearUndo(ParseJson(body));
 
+                // ─── ProBuilder ───
+                case "probuilder/create-shape":
+                    return MCPProBuilderCommands.CreateShape(ParseJson(body));
+                case "probuilder/info":
+                    return MCPProBuilderCommands.GetInfo(ParseJson(body));
+                case "probuilder/extrude-faces":
+                    return MCPProBuilderCommands.ExtrudeFaces(ParseJson(body));
+                case "probuilder/bevel-edges":
+                    return MCPProBuilderCommands.BevelEdges(ParseJson(body));
+                case "probuilder/subdivide":
+                    return MCPProBuilderCommands.Subdivide(ParseJson(body));
+                case "probuilder/delete-faces":
+                    return MCPProBuilderCommands.DeleteFaces(ParseJson(body));
+                case "probuilder/translate-faces":
+                    return MCPProBuilderCommands.TranslateFaces(ParseJson(body));
+                case "probuilder/flip-normals":
+                    return MCPProBuilderCommands.FlipNormals(ParseJson(body));
+                case "probuilder/set-face-material":
+                    return MCPProBuilderCommands.SetFaceMaterial(ParseJson(body));
+                case "probuilder/boolean":
+                    return MCPProBuilderCommands.BooleanOp(ParseJson(body));
+                case "probuilder/combine":
+                    return MCPProBuilderCommands.Combine(ParseJson(body));
+                case "probuilder/probuilderize":
+                    return MCPProBuilderCommands.ProBuilderize(ParseJson(body));
+                case "probuilder/center-pivot":
+                    return MCPProBuilderCommands.CenterPivot(ParseJson(body));
+                case "probuilder/export-mesh":
+                    return MCPProBuilderCommands.ExportMesh(ParseJson(body));
+
                 // ─── Screenshot / Scene View ───
                 case "screenshot/game":
                     return MCPScreenshotCommands.CaptureGameView(ParseJson(body));

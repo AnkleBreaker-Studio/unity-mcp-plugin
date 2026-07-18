@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
 {
     public static partial class MCPBridgeServer
     {
-        /// <summary>Every route the bridge can dispatch (322 routes).</summary>
+        /// <summary>Every route the bridge can dispatch (336 routes).</summary>
         internal static readonly string[] GeneratedRoutes = new string[]
         {
             "_meta/routes",
@@ -183,6 +183,20 @@ namespace UnityMCP.Editor
             "prefab/set-active",
             "prefab/set-object-reference",
             "prefab/unpack",
+            "probuilder/bevel-edges",
+            "probuilder/boolean",
+            "probuilder/center-pivot",
+            "probuilder/combine",
+            "probuilder/create-shape",
+            "probuilder/delete-faces",
+            "probuilder/export-mesh",
+            "probuilder/extrude-faces",
+            "probuilder/flip-normals",
+            "probuilder/info",
+            "probuilder/probuilderize",
+            "probuilder/set-face-material",
+            "probuilder/subdivide",
+            "probuilder/translate-faces",
             "profiler/analyze",
             "profiler/enable",
             "profiler/frame-data",

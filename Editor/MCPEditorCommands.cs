@@ -23,7 +23,7 @@ namespace UnityMCP.Editor
                 { "sceneDirty", scene.isDirty },
                 { "unityVersion", Application.unityVersion },
                 { "platform", EditorUserBuildSettings.activeBuildTarget.ToString() },
-                { "projectPath", Application.dataPath.Replace("/Assets", "") },
+                { "projectPath", MCPAssetSafety.ProjectRoot.Replace('\\', '/') },
             };
         }
 

@@ -12,7 +12,7 @@ namespace UnityMCP.Editor
     {
         public static object GetInfo()
         {
-            string projectPath = Application.dataPath.Replace("/Assets", "");
+            string projectPath = MCPAssetSafety.ProjectRoot.Replace('\\', '/');
 
             // Get scenes in build settings
             var buildScenes = EditorBuildSettings.scenes

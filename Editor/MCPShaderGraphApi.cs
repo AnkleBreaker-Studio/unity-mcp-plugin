@@ -30,7 +30,7 @@ namespace UnityMCP.Editor
         private static Type _graphDataT, _targetT, _blockFieldT, _absNodeT, _slotRefT, _materialSlotT, _messageManagerT, _multiJsonT, _fileUtilT, _propertyNodeT;
         private static Type _urpTargetT, _litSubT, _unlitSubT, _spriteLitSubT, _spriteUnlitSubT;
         private static PropertyInfo _messageManagerProp, _objectIdProp, _drawStateProp, _edgesProp, _drawPositionProp;
-        private static MethodInfo _addContexts, _initOutputs, _getActiveBlocks, _addRemoveBlocks, _onEnable, _addNode, _getNodeFromId, _connect, _removeEdge, _getNodesGeneric, _getSlotsGeneric, _trySetSubTarget;
+        private static MethodInfo _addContexts, _initOutputs, _getActiveBlocks, _addRemoveBlocks, _onEnable, _addNode, _getNodeFromId, _connect, _removeEdge, _removeNode, _getNodesGeneric, _getSlotsGeneric, _trySetSubTarget;
         private static MethodInfo _serialize, _deserializeGeneric, _writeToDisk, _writeGraphToDisk;
         private static ConstructorInfo _slotRefCtor;
 
@@ -92,19 +92,25 @@ namespace UnityMCP.Editor
                 m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string));
             _connect = _graphDataT.GetMethod("Connect", PIF, null, new[] { _slotRefT, _slotRefT }, null);
             _removeEdge = _graphDataT.GetMethods(PIF).FirstOrDefault(m => m.Name == "RemoveEdge" && m.GetParameters().Length == 1);
+            _removeNode = _graphDataT.GetMethods(PIF).FirstOrDefault(m =>
+                m.Name == "RemoveNode" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == _absNodeT);
             _getNodesGeneric = _graphDataT.GetMethods(PIF).FirstOrDefault(m => m.Name == "GetNodes" && m.IsGenericMethod);
             _getSlotsGeneric = _absNodeT.GetMethods(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(m => m.Name == "GetSlots" && m.IsGenericMethod && m.GetParameters().Length == 1);
             _trySetSubTarget = _urpTargetTryResolve(urp);
             _slotRefCtor = _slotRefT.GetConstructor(new[] { _absNodeT, typeof(int) }) ?? throw new InvalidOperationException("SlotReference ctor");
 
             _serialize = _multiJsonT.GetMethod("Serialize", SF);
-            _deserializeGeneric = _multiJsonT.GetMethods(SF).FirstOrDefault(m => m.Name == "Deserialize" && m.IsGenericMethod);
+            // Pin the 4-arg Deserialize<T>(T, string, JsonObject, bool) shape LoadGraph invokes;
+            // a different arity in some version would otherwise TargetParameterCountException at
+            // call time despite Available==true. Fail closed at init instead.
+            _deserializeGeneric = _multiJsonT.GetMethods(SF).FirstOrDefault(m => m.Name == "Deserialize" && m.IsGenericMethod && m.GetParameters().Length == 4);
             _writeToDisk = _fileUtilT.GetMethod("WriteToDisk", SF);
             _writeGraphToDisk = _fileUtilT.GetMethod("WriteShaderGraphToDisk", SF);
 
             if (_addContexts == null || _initOutputs == null || _getActiveBlocks == null || _addRemoveBlocks == null ||
                 _onEnable == null || _addNode == null || _getNodeFromId == null || _connect == null || _removeEdge == null ||
-                _getNodesGeneric == null || _serialize == null || _deserializeGeneric == null || _writeToDisk == null || _writeGraphToDisk == null)
+                _removeNode == null || _getNodesGeneric == null || _serialize == null || _deserializeGeneric == null ||
+                _writeToDisk == null || _writeGraphToDisk == null)
                 throw new InvalidOperationException("One or more ShaderGraph API methods not found (version mismatch)");
         }
 
@@ -208,6 +214,20 @@ namespace UnityMCP.Editor
         }
 
         internal static object GetNodeFromId(object graph, string nodeId) => _getNodeFromId.Invoke(graph, new object[] { nodeId });
+
+        /// <summary>Remove a node and its connected edges (byte-faithful to survivors).</summary>
+        internal static void RemoveNode(object graph, object node) => _removeNode.Invoke(graph, new object[] { node });
+
+        /// <summary>
+        /// True if the template names a specific pipeline target we can't build because that
+        /// pipeline's editor assembly isn't present (so create would silently fall back to blank).
+        /// </summary>
+        internal static bool IsUnavailablePipelineTemplate(string template)
+        {
+            string t = (template ?? "").ToLowerInvariant();
+            bool wantsUrp = t.StartsWith("urp_") || t == "lit" || t == "unlit" || t.StartsWith("sprite_");
+            return wantsUrp && !IsUrpAvailable;
+        }
 
         /// <summary>Find a slot id on a node by input/output and (optional) explicit id. Returns int.MinValue if none.</summary>
         internal static int FindSlotId(object node, bool wantInput, int explicitId)

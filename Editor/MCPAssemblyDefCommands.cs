@@ -265,6 +265,19 @@ namespace UnityMCP.Editor
                 }
             }
 
+            // Nothing matched — don't churn a rewrite + recompile for a no-op, and don't
+            // report a misleading success (exact-match now, so a stale name simply isn't there).
+            if (removed.Count == 0)
+            {
+                return new
+                {
+                    success = false,
+                    path = path,
+                    removed = removed,
+                    warning = "No matching references found (exact name/GUID match). Nothing was changed.",
+                };
+            }
+
             asmdef["references"] = existingRefs.Cast<object>().ToList();
 
             json = FormatAsmdefJson(asmdef);

@@ -34,24 +34,23 @@ namespace UnityMCP.Editor
             fullPath = null;
             error = null;
 
-            if (string.IsNullOrEmpty(assetPath))
+            if (string.IsNullOrWhiteSpace(assetPath))
             {
                 error = "path is required";
                 return false;
             }
 
-            // Reject rooted/absolute inputs outright: Path.Combine returns the second
-            // argument verbatim when it is rooted, which would escape the project.
-            if (Path.IsPathRooted(assetPath))
-            {
-                error = $"path must be project-relative (under Assets/ or Packages/), got absolute: {assetPath}";
-                return false;
-            }
-
-            string root = ProjectRoot;
-            string combined;
+            string root, rootFull, combined;
             try
             {
+                // IsPathRooted throws on invalid path chars on Mono — keep it inside the try.
+                if (Path.IsPathRooted(assetPath))
+                {
+                    error = $"path must be project-relative (under Assets/ or Packages/), got absolute: {assetPath}";
+                    return false;
+                }
+                root = ProjectRoot;
+                rootFull = Path.GetFullPath(root);
                 combined = Path.GetFullPath(Path.Combine(root, assetPath));
             }
             catch (Exception ex)
@@ -60,15 +59,28 @@ namespace UnityMCP.Editor
                 return false;
             }
 
-            string rootFull = Path.GetFullPath(root);
-            string rootPrefix = rootFull.EndsWith(Path.DirectorySeparatorChar.ToString())
-                ? rootFull
-                : rootFull + Path.DirectorySeparatorChar;
+            string sep = Path.DirectorySeparatorChar.ToString();
+            string rootPrefix = rootFull.EndsWith(sep) ? rootFull : rootFull + sep;
 
-            // Case-insensitive on Windows/macOS default filesystems; ordinal is the safe superset.
-            if (!combined.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            // Path comparison is case-insensitive only where the filesystem is (Windows/macOS);
+            // on Linux it must be ordinal so a case-variant sibling can't slip through.
+            var cmp = Application.platform == RuntimePlatform.LinuxEditor
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+
+            if (!combined.StartsWith(rootPrefix, cmp))
             {
                 error = $"path escapes the project root: {assetPath}";
+                return false;
+            }
+
+            // Enforce the stated contract: writes/reads live under Assets/ or Packages/,
+            // never project metadata (ProjectSettings/, Library/, .git/, ...).
+            string relative = combined.Substring(rootPrefix.Length).Replace('\\', '/');
+            string firstSegment = relative.Split('/')[0];
+            if (!firstSegment.Equals("Assets", cmp) && !firstSegment.Equals("Packages", cmp))
+            {
+                error = $"path must be under Assets/ or Packages/, got: {assetPath}";
                 return false;
             }
 
@@ -82,11 +94,17 @@ namespace UnityMCP.Editor
             return assetPath.Replace('\\', '/');
         }
 
-        /// <summary>True if an asset already exists at this project path (AssetDatabase view).</summary>
+        /// <summary>
+        /// True if something already lives at this project path — checked against BOTH the
+        /// canonical on-disk path AND the AssetDatabase. A raw-string DB lookup alone was
+        /// bypassable by a non-canonical spelling ("Assets//X", "Assets/./X") and blind to a
+        /// file written moments earlier but not yet imported.
+        /// </summary>
         internal static bool AssetWouldOverwrite(string assetPath)
         {
-            string dbPath = ToAssetDatabasePath(assetPath);
-            return AssetDatabase.LoadMainAssetAtPath(dbPath) != null;
+            if (TryResolveProjectPath(assetPath, out string fullPath, out _) && File.Exists(fullPath))
+                return true;
+            return AssetDatabase.LoadMainAssetAtPath(ToAssetDatabasePath(assetPath)) != null;
         }
 
         /// <summary>

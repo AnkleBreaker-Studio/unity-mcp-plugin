@@ -2,6 +2,27 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.34.0] - 2026-07-18
+
+### Fixed (data safety — several handlers could silently destroy user assets)
+- **`script/create` and `script/update` no longer write outside the project or destroy source files** — the project root was computed with `dataPath.Replace("/Assets","")`, which strips **every** `/Assets` occurrence, so a project under a path containing `/Assets` resolved to the wrong root and writes landed outside the project (the import then silently no-oped). Root is now `Path.GetDirectoryName(Application.dataPath)`. `update` with missing **or empty** content used to truncate the target script to zero bytes — empty content is now rejected. `create` no longer silently overwrites an existing script. All paths are canonicalized and confined under `Assets/`/`Packages/` (traversal and absolute-path escapes rejected).
+- **Asset creators no longer silently overwrite existing assets** — `AssetDatabase.CreateAsset` on an existing path destroys the asset and every reference to it (the GUID is reused). ScriptableObject, Terrain (`create`), Animator Controller, Animation Clip, Material, and `asset/import` now refuse to replace an existing asset unless `overwrite: true` is passed. The overwrite check tests the canonical on-disk path **and** the AssetDatabase, so a non-canonical spelling (`Assets//X`, `Assets/./X`) or a not-yet-imported file can't slip past it. New shared `MCPAssetSafety` helper centralizes root resolution, path confinement, and the overwrite guard.
+- **Queue double-execution** — a request whose 30s sync waiter already gave up (`TimedOut`) stayed in the queue and still executed later, so a client retry ran a non-idempotent action (create, package add, import) twice. Timed-out tickets are now dropped before execution (race-safe under the queue lock).
+- **`component/set-property` reported success without applying the value** — Color/Vector2/3/4/Rect branches silently did nothing when the value wasn't an object (e.g. an agent passing `"1,0,0,1"` or an array); they now return a clear error.
+- **`asmdef` remove-references removed the wrong reference** — a substring `Contains` match removed `Unity.InputSystem.ForUI` when asked to remove `Unity.InputSystem` (breaking compilation while reporting success); now an exact name/GUID match, and a no-match is reported rather than churning a recompile.
+
+### Fixed (ShaderGraph — all four asset-corruption bugs in [#18](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/18))
+- ShaderGraph create/add-node/connect/disconnect/remove-node now go through ShaderGraph's real `GraphData` model (new `MCPShaderGraphApi` reflection wrapper over `GraphData` / `MultiJson` / `FileUtilities`) instead of regex/JSON string surgery, so the serialized `.shadergraph` is **always** a valid, importable asset:
+  - `create` built an identical invalid 809-byte graph for every template (no target, dangling `m_OutputNode`, failed import); it now builds a real URP Lit/Unlit graph with its default surface/vertex blocks (or a valid target-less graph for `blank`), and refuses to silently downgrade an explicit URP template to blank when URP isn't installed.
+  - `add-node` produced empty-slot nodes that broke import and dropped the requested position; nodes now get their real slots and the position is honored (`positionX`/`positionY` or `x`/`y`).
+  - `disconnect` matched by output slot only (dropping sibling edges) and blanked surviving multi-line edges to `m_Id:""`; it now removes exactly the tuple-matched edges, survivors untouched.
+  - `remove-node` had the same edge-blanking corruption; it now uses `GraphData.RemoveNode`.
+  - `connect` validates slot compatibility and refuses cycles instead of blindly inserting edge JSON.
+  - Fail-closed: if the ShaderGraph API can't be resolved (version drift), these handlers return a clear error instead of corrupting anything.
+
+### Changed
+- **`overwrite: true` opt-in** on the asset-creator handlers is the escape hatch for the new overwrite guards (see the companion `unity-mcp-server` 2.32.0 schema additions). `editor/state` and `project/info` now report the project path via the corrected root helper.
+
 ## [2.33.0] - 2026-07-18
 
 ### Fixed

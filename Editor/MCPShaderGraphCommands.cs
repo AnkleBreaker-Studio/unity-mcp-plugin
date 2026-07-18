@@ -389,20 +389,22 @@ namespace UnityMCP.Editor
             if (!path.EndsWith(".shadergraph"))
                 path += ".shadergraph";
 
-            if (File.Exists(Path.Combine(Application.dataPath, "..", path)))
-                return new Dictionary<string, object> { { "error", $"File already exists at: {path}" } };
-
             string template = args.ContainsKey("template") ? args["template"].ToString().ToLower() : "urp_lit";
 
             if (!MCPShaderGraphApi.Available)
                 return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
 
-            // Resolve under the project root; guard against overwriting an existing graph.
+            // Don't silently downgrade an explicit URP template to blank when URP isn't installed.
+            if (MCPShaderGraphApi.IsUnavailablePipelineTemplate(template))
+                return new Dictionary<string, object> { { "error", $"Template '{template}' needs the URP Shader Graph package, which isn't installed. Use template 'blank' for a target-less graph." } };
+
+            // Resolve under the project root; guard against overwriting an existing graph
+            // (OverwriteGuard checks the canonical path + disk, so overwrite:true works).
             if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
                 return new Dictionary<string, object> { { "error", pathError } };
             var overwriteError = MCPAssetSafety.OverwriteGuard(path, args);
             if (overwriteError != null)
-                return overwriteError is Dictionary<string, object> d ? d : new Dictionary<string, object> { { "error", overwriteError.ToString() } };
+                return overwriteError;
 
             try
             {
@@ -779,54 +781,30 @@ namespace UnityMCP.Editor
 
             string path = args["path"].ToString();
             string nodeId = args["nodeId"].ToString();
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
 
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
             try
             {
-                string content = File.ReadAllText(fullPath);
-
-                // Remove node reference from m_Nodes array
-                string refPattern = $"{{\"m_Id\":\"{nodeId}\"}}";
-                content = content.Replace("," + refPattern, "");
-                content = content.Replace(refPattern + ",", "");
-                content = content.Replace(refPattern, "");
-
-                // Remove the node's JSON block (MultiJson format)
-                var blocks = ParseMultiJson(content);
-                var newBlocks = new List<string>();
-                int removedEdges = 0;
-
-                foreach (var block in blocks)
-                {
-                    string blockId = ExtractJsonString(block, "m_ObjectId") ?? ExtractJsonString(block, "m_Id");
-
-                    // Skip the node itself
-                    if (blockId == nodeId) continue;
-
-                    // For the main graph block, also remove edges referencing this node
-                    if (block.Contains("\"m_Edges\""))
-                    {
-                        string cleaned = RemoveEdgesForNode(block, nodeId, out removedEdges);
-                        newBlocks.Add(cleaned);
-                    }
-                    else
-                    {
-                        newBlocks.Add(block);
-                    }
-                }
-
-                string newContent = string.Join("\n\n", newBlocks);
-                File.WriteAllText(fullPath, newContent);
-                AssetDatabase.ImportAsset(path);
+                // Real GraphData.RemoveNode also removes the node's connected edges and
+                // leaves every survivor byte-faithful — the old regex path blanked
+                // surviving multi-line edges to m_Id:"" and left a dangling node ref.
+                var graph = MCPShaderGraphApi.LoadGraph(fullPath);
+                var node = MCPShaderGraphApi.GetNodeFromId(graph, nodeId);
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node not found: {nodeId}" } };
+                MCPShaderGraphApi.RemoveNode(graph, node);
+                MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
                 {
                     { "success", true },
                     { "removedNodeId", nodeId },
-                    { "removedEdges", removedEdges },
                     { "assetPath", path },
                 };
             }
@@ -959,7 +937,9 @@ namespace UnityMCP.Editor
             string propertyName = args["propertyName"].ToString();
             string value = args.ContainsKey("value") ? args["value"].ToString() : "";
 
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
+            // Confine the write under the project root (traversal/absolute-escape guard).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
@@ -992,7 +972,7 @@ namespace UnityMCP.Editor
 
                 string newContent = string.Join("\n\n", newBlocks);
                 File.WriteAllText(fullPath, newContent);
-                AssetDatabase.ImportAsset(path);
+                AssetDatabase.ImportAsset(MCPAssetSafety.ToAssetDatabasePath(path));
 
                 return new Dictionary<string, object>
                 {

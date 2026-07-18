@@ -58,11 +58,13 @@ namespace UnityMCP.Editor
         {
             string path = args.ContainsKey("path") ? args["path"].ToString() : "";
 
-            // Update REQUIRES content: an unvalidated empty content used to truncate the
-            // target source file to zero bytes and import the wreckage.
-            if (!args.ContainsKey("content") || args["content"] == null)
-                return new { error = "content is required" };
-            string content = args["content"].ToString();
+            // Update REQUIRES non-empty content: an unvalidated empty/missing content used to
+            // truncate the target source file to zero bytes and import the wreckage. Empty
+            // string is the most likely accidental shape (a templating var that resolved to ""),
+            // so reject it like Create does — clearing a file must be deliberate, not a default.
+            string content = (args.ContainsKey("content") ? args["content"]?.ToString() : null);
+            if (string.IsNullOrEmpty(content))
+                return new { error = "content is required (non-empty). To intentionally clear a file, write a single newline." };
 
             if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
                 return new { error = pathError };

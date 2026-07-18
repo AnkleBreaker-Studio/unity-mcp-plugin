@@ -21,8 +21,10 @@ namespace UnityMCP.Editor
         public long     ExecutionTimeMs { get; set; }
         public string   ErrorMessage    { get; set; }
 
-        // Target object tracking
-        public int    TargetInstanceId { get; set; } // 0 = no target
+        // Target object tracking. String because Unity 6.5 EntityIds are 64-bit
+        // values carried as opaque decimal strings on the wire (see MCPObjectId) —
+        // an int here silently truncated them. null/empty = no target.
+        public string TargetInstanceId { get; set; }
         public string TargetPath       { get; set; }
         public string TargetType       { get; set; } // GameObject, Component, Asset, Script, Scene, etc.
 
@@ -62,15 +64,12 @@ namespace UnityMCP.Editor
         {
             if (!(result is Dictionary<string, object> dict)) return;
 
-            // Instance ID
-            if (dict.TryGetValue("instanceId", out var idObj))
+            // Instance ID — stored verbatim as a string (lossless for 64-bit EntityIds)
+            if (dict.TryGetValue("instanceId", out var idObj) && idObj != null)
             {
-                if (idObj is int intId)
-                    TargetInstanceId = intId;
-                else if (idObj is long longId)
-                    TargetInstanceId = (int)longId;
-                else if (int.TryParse(idObj?.ToString(), out int parsed))
-                    TargetInstanceId = parsed;
+                string id = idObj.ToString();
+                if (!string.IsNullOrEmpty(id))
+                    TargetInstanceId = id;
             }
 
             // Path
@@ -124,7 +123,7 @@ namespace UnityMCP.Editor
 
             if (!string.IsNullOrEmpty(TargetPath))
                 sb.AppendLine($"Target: {TargetPath}");
-            if (TargetInstanceId != 0)
+            if (!string.IsNullOrEmpty(TargetInstanceId))
                 sb.AppendLine($"InstanceId: {TargetInstanceId}");
             if (!string.IsNullOrEmpty(ErrorMessage))
                 sb.AppendLine($"Error: {ErrorMessage}");
@@ -154,7 +153,7 @@ namespace UnityMCP.Editor
                 { "status",           Status ?? "" },
                 { "executionTimeMs",  ExecutionTimeMs },
                 { "errorMessage",     ErrorMessage ?? "" },
-                { "targetInstanceId", TargetInstanceId },
+                { "targetInstanceId", TargetInstanceId ?? "" },
                 { "targetPath",       TargetPath ?? "" },
                 { "targetType",       TargetType ?? "" },
                 { "undoGroup",        UndoGroup },

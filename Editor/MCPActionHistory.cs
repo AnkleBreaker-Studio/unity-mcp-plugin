@@ -208,7 +208,7 @@ namespace UnityMCP.Editor
                         status = r.Status ?? "",
                         executionTimeMs = r.ExecutionTimeMs,
                         errorMessage = r.ErrorMessage ?? "",
-                        targetInstanceId = r.TargetInstanceId,
+                        targetInstanceId = r.TargetInstanceId ?? "",
                         targetPath = r.TargetPath ?? "",
                         targetType = r.TargetType ?? "",
                         undoGroup = r.UndoGroup,
@@ -289,7 +289,7 @@ namespace UnityMCP.Editor
             public string status;
             public long   executionTimeMs;
             public string errorMessage;
-            public int    targetInstanceId;
+            public string targetInstanceId; // string since 64-bit EntityId support; old int-typed persisted entries lose only this field on first load
             public string targetPath;
             public string targetType;
             public int    undoGroup;

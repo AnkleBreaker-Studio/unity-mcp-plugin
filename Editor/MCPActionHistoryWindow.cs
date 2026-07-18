@@ -431,7 +431,7 @@ namespace UnityMCP.Editor
                 }
 
                 // Select button
-                if (r.TargetInstanceId != 0)
+                if (!string.IsNullOrEmpty(r.TargetInstanceId))
                 {
                     if (GUILayout.Button("Select", EditorStyles.miniButton, GUILayout.Width(45)))
                         SelectTargetObject(r);
@@ -453,8 +453,8 @@ namespace UnityMCP.Editor
                     DrawDetailRow("Target", r.TargetPath);
                 if (!string.IsNullOrEmpty(r.TargetType))
                     DrawDetailRow("Target Type", r.TargetType);
-                if (r.TargetInstanceId != 0)
-                    DrawDetailRow("Instance ID", r.TargetInstanceId.ToString());
+                if (!string.IsNullOrEmpty(r.TargetInstanceId))
+                    DrawDetailRow("Instance ID", r.TargetInstanceId);
                 if (r.UndoGroup >= 0)
                     DrawDetailRow("Undo Group", r.UndoGroup.ToString());
 
@@ -508,7 +508,7 @@ namespace UnityMCP.Editor
 
         private void SelectTargetObject(MCPActionRecord record)
         {
-            if (record.TargetInstanceId != 0)
+            if (!string.IsNullOrEmpty(record.TargetInstanceId))
             {
                 var obj = MCPObjectId.ToObject(record.TargetInstanceId);
                 if (obj != null)

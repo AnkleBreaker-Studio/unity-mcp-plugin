@@ -121,6 +121,9 @@ namespace UnityMCP.Editor
                     searchDirs.Add(Path.Combine(data, "Tools", "BuildPipeline", "Compilation", "ApiUpdater"));
                     // ScriptUpdater also ships Roslyn (Mono-compatible)
                     searchDirs.Add(Path.Combine(data, "Tools", "ScriptUpdater"));
+                    // macOS: recent editors ship Roslyn under Contents/Resources/Scripting
+                    // (community PR #19 by JetNik — ExecuteCode was broken on macOS without it)
+                    searchDirs.Add(Path.Combine(data, "Resources", "Scripting"));
                     // DotNetSdkRoslyn contains .NET Core assemblies — may fail on Mono, tried last
                     searchDirs.Add(Path.Combine(data, "DotNetSdkRoslyn"));
                 }
@@ -456,60 +459,102 @@ public static class MCPDynamicCode
             if (result == null)
                 return new { success = true, result = (object)null };
 
-            // Primitives and strings
-            if (result is string || result is int || result is float || result is double
-                || result is bool || result is long || result is decimal)
-                return new Dictionary<string, object> { { "success", true }, { "result", result } };
+            object serialized = SerializeValue(result, 0);
 
-            // Unity Vector types
-            if (result is Vector2 v2)
-                return new Dictionary<string, object> { { "success", true }, { "result", new { x = v2.x, y = v2.y } } };
-            if (result is Vector3 v3)
-                return new Dictionary<string, object> { { "success", true }, { "result", new { x = v3.x, y = v3.y, z = v3.z } } };
-            if (result is Color col)
-                return new Dictionary<string, object> { { "success", true }, { "result", new { r = col.r, g = col.g, b = col.b, a = col.a } } };
-
-            // Dictionaries
-            if (result is System.Collections.IDictionary dict)
-                return new Dictionary<string, object> { { "success", true }, { "result", result } };
-
-            // Lists and arrays - serialize elements
-            if (result is System.Collections.IList list)
-            {
-                var items = new List<object>();
-                foreach (var item in list)
-                    items.Add(item?.ToString());
+            // Preserve the historical { result, count } shape for top-level lists.
+            if (result is System.Collections.IList && serialized is List<object> items)
                 return new Dictionary<string, object> { { "success", true }, { "result", items }, { "count", items.Count } };
+
+            if (serialized is string str && !(result is string))
+            {
+                // Opaque object fell back to ToString — keep the type name like before.
+                return new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "result", str },
+                    { "type", result.GetType().Name },
+                };
             }
 
-            // Anonymous types and complex objects - serialize via reflection
-            var type = result.GetType();
-            if (type.Name.Contains("AnonymousType") || type.IsClass)
+            return new Dictionary<string, object> { { "success", true }, { "result", serialized } };
+        }
+
+        private const int MaxSerializeDepth = 4;
+        private const int MaxSerializeItems = 1000;
+
+        /// <summary>
+        /// Recursively serialize a value, PRESERVING primitive types. The previous
+        /// implementation ToString'd every list element and reflected property, so
+        /// numbers came back as strings ("307" instead of 307) and nested objects
+        /// flattened to type names. Depth/item caps keep pathological returns bounded.
+        /// </summary>
+        private static object SerializeValue(object value, int depth)
+        {
+            if (value == null) return null;
+
+            if (value is string || value is bool
+                || value is int || value is long || value is short || value is byte
+                || value is float || value is double || value is decimal
+                || value is uint || value is ulong || value is ushort || value is sbyte)
+                return value;
+
+            if (value is Vector2 v2)
+                return new Dictionary<string, object> { { "x", v2.x }, { "y", v2.y } };
+            if (value is Vector3 v3)
+                return new Dictionary<string, object> { { "x", v3.x }, { "y", v3.y }, { "z", v3.z } };
+            if (value is Color col)
+                return new Dictionary<string, object> { { "r", col.r }, { "g", col.g }, { "b", col.b }, { "a", col.a } };
+
+            if (depth >= MaxSerializeDepth)
+                return value.ToString();
+
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                var obj = new Dictionary<string, object>();
+                foreach (System.Collections.DictionaryEntry entry in dictionary)
+                    obj[entry.Key != null ? entry.Key.ToString() : "null"] = SerializeValue(entry.Value, depth + 1);
+                return obj;
+            }
+
+            if (value is System.Collections.IEnumerable enumerable)
+            {
+                var items = new List<object>();
+                foreach (var item in enumerable)
+                {
+                    if (items.Count >= MaxSerializeItems)
+                    {
+                        items.Add($"... (truncated at {MaxSerializeItems} items)");
+                        break;
+                    }
+                    items.Add(SerializeValue(item, depth + 1));
+                }
+                return items;
+            }
+
+            var type = value.GetType();
+            // UnityEngine.Object graphs (GameObject, Component, ...) are cyclic and
+            // property access can throw — represent them compactly as ToString.
+            if (!typeof(UnityEngine.Object).IsAssignableFrom(type)
+                && (type.Name.Contains("AnonymousType") || type.IsClass))
             {
                 try
                 {
                     var props = type.GetProperties();
-                    if (props.Length > 0)
+                    if (props.Length > 0 && props.Length <= 64)
                     {
                         var obj = new Dictionary<string, object>();
                         foreach (var prop in props)
                         {
-                            try { obj[prop.Name] = prop.GetValue(result)?.ToString(); }
+                            try { obj[prop.Name] = SerializeValue(prop.GetValue(value), depth + 1); }
                             catch { obj[prop.Name] = "<error>"; }
                         }
-                        return new Dictionary<string, object> { { "success", true }, { "result", obj } };
+                        return obj;
                     }
                 }
                 catch { }
             }
 
-            // Fallback: ToString
-            return new Dictionary<string, object>
-            {
-                { "success", true },
-                { "result", result.ToString() },
-                { "type", type.Name },
-            };
+            return value.ToString();
         }
     }
 }

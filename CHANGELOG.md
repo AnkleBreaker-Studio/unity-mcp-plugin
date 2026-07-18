@@ -2,6 +2,20 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.33.0] - 2026-07-18
+
+### Fixed
+- **`/api/context` always returned HTTP 500** — `GetContextResponse` reads `EditorPrefs` (main-thread-only) but ran on the HTTP ThreadPool thread, so every Project Context call threw; both context routes now run through `ExecuteOnMainThread` like every other synchronous route. Root cause + fix per PR [#17](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/17) by @rcasaleiro.
+- **`GetRegisteredRoutes` drift** — the hand-maintained route list had drifted to ~150 of 321 routes with several wrong names (e.g. `editor/undo` vs the real `undo/perform`), silently breaking the server's dynamic tool discovery. The list is now **generated from the dispatch switch** into `MCPBridgeServer.Routes.g.cs` by `tools~/generate-routes.mjs`; a CI workflow fails on drift.
+- **`editor/execute-code` returned numbers as strings** — result serialization ToString'd every reflected property and list element (`42` became `"42"`, nested objects flattened to type names). New depth-capped recursive serializer preserves primitive types, recurses dicts/lists/anonymous objects (depth 4, 1000-item cap), and renders `UnityEngine.Object` graphs compactly instead of exploding their property trees.
+- **Action history truncated 64-bit ids** — `MCPActionRecord.TargetInstanceId` was `int` but Unity 6.5 EntityIds are 64-bit opaque strings; the field is now a string end to end (record, persistence DTO, history window, select-target). Old persisted entries lose only this field on first load.
+- **Error responses leaked exception stack traces to the wire** — traces now go to the editor log only.
+- **macOS: ExecuteCode could not find Roslyn** — added `Contents/Resources/Scripting` to the assembly search paths, per PR [#19](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/19) by @JetNik.
+
+### Added
+- **Browser CSRF / DNS-rebinding guard** — the bridge can execute arbitrary editor code but accepted any local HTTP request; requests with a non-loopback `Host` or any non-loopback `Origin` (browser pages always attach one on cross-origin fetches) are now rejected with 403 before touching editor state. Local tools (no Origin header) are unaffected.
+- **Capability handshake (plugin half)** — `/api/ping` advertises a monotonic `protocolVersion` (1) and `pluginVersion` (from PackageInfo); unknown routes return HTTP 404 on the legacy path so servers can distinguish "feature missing" from "call failed" and degrade gracefully across version drift. Pairs with `unity-mcp-server` 2.31.0. Re-implementation of PR [#20](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/20) by @D3vCrow.
+
 ## [2.32.0] - 2026-06-02
 
 ### Added

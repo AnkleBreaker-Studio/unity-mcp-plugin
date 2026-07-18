@@ -1075,6 +1075,8 @@ namespace UnityMCP.Editor
                 // ─── Undo ───
                 case "undo/perform":
                     return MCPUndoCommands.PerformUndo(ParseJson(body));
+                case "undo/last":
+                    return MCPUndoCommands.UndoLast(ParseJson(body));
                 case "undo/redo":
                     return MCPUndoCommands.PerformRedo(ParseJson(body));
                 case "undo/history":

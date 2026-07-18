@@ -282,8 +282,25 @@ namespace UnityMCP.Editor
             // --- Execute OUTSIDE lock (main thread) ---
             foreach (var ticket in batch)
             {
-                // Capture undo group before execution for undo support
-                int undoGroupBefore = UnityEditor.Undo.GetCurrentGroup();
+                // Give each WRITE action its own named, collapsed Undo group so it can be
+                // reverted independently (per-action / per-agent undo via undo/last) and shows
+                // up named in Unity's Undo history. Reads and undo/redo ops don't open a group,
+                // so they never clutter the history or shift group indices out from under a
+                // pending undo. GetCurrentGroup() alone is unreliable — many write ops (e.g.
+                // RegisterCreatedObjectUndo) don't advance it — so we open the group explicitly.
+                bool opensUndoGroup =
+                    !IsReadOperation(ticket.ActionName)
+                    && !(ticket.ActionName != null && ticket.ActionName.StartsWith("undo/"));
+                int undoGroup = -1;
+                int undoRecordsBefore = -1;
+                if (opensUndoGroup)
+                {
+                    undoRecordsBefore = CountUndoRecords();
+                    UnityEditor.Undo.IncrementCurrentGroup();
+                    undoGroup = UnityEditor.Undo.GetCurrentGroup();
+                    UnityEditor.Undo.SetCurrentGroupName(ticket.ActionName ?? "MCP Action");
+                }
+                int deferredUndoGroup = undoGroup; // stable capture for the deferred closure
 
                 // Deferred actions complete via callback on a future editor frame.
                 if (ticket.DeferredAction != null)
@@ -297,6 +314,8 @@ namespace UnityMCP.Editor
                             deferredTicket.Status      = RequestStatus.Completed;
                             deferredTicket.CompletedAt = DateTime.UtcNow;
                             deferredTicket.DeferredAction = null;
+                            if (deferredUndoGroup >= 0)
+                                UnityEditor.Undo.CollapseUndoOperations(deferredUndoGroup);
 
                             lock (_queueLock)
                             {
@@ -342,7 +361,23 @@ namespace UnityMCP.Editor
                 ticket.CompletedAt = DateTime.UtcNow;
                 ticket.Action      = null; // Free the closure
 
-                int undoGroupAfter = UnityEditor.Undo.GetCurrentGroup();
+                // Fold everything this action registered into its single named group so one
+                // undo/last (or a native Ctrl+Z) reverts the whole action as one step.
+                if (undoGroup >= 0)
+                    UnityEditor.Undo.CollapseUndoOperations(undoGroup);
+
+                // An action is undoable only if it ACTUALLY registered an undo op. Reads that
+                // slip past IsReadOperation, and execute-code that only inspects, open an empty
+                // group we must not offer as an undo target (reverting it would be a confusing
+                // no-op). Fail open: if the internal record-count API is unavailable, keep the
+                // group (old behavior). We can only prove "empty" when both counts are valid.
+                bool didRegisterUndo = undoGroup >= 0;
+                if (didRegisterUndo && undoRecordsBefore >= 0)
+                {
+                    int undoRecordsAfter = CountUndoRecords();
+                    if (undoRecordsAfter >= 0 && undoRecordsAfter <= undoRecordsBefore)
+                        didRegisterUndo = false;
+                }
 
                 // Record action in history
                 try
@@ -356,7 +391,14 @@ namespace UnityMCP.Editor
                         Status          = ticket.Status.ToString(),
                         ExecutionTimeMs = ticket.ExecutionTimeMs,
                         ErrorMessage    = ticket.ErrorMessage,
-                        UndoGroup       = undoGroupAfter != undoGroupBefore ? undoGroupBefore : -1,
+                        // Only a completed write action that registered an undo op is undoable;
+                        // its dedicated group is the revert target for undo/last. Reads, empty
+                        // groups, undo-ops and failures stay -1. execute-code is excluded too:
+                        // it's an introspection escape hatch whose temp-host churn registers undo
+                        // but shouldn't shadow the agent's real edits as an undo/last target
+                        // (its group still isolates that churn; native Ctrl+Z still reaches it).
+                        UndoGroup       = (ticket.Status == RequestStatus.Completed && didRegisterUndo
+                                            && ticket.ActionName != "editor/execute-code") ? undoGroup : -1,
                     };
 
                     // Try to extract target object info from result
@@ -594,6 +636,38 @@ namespace UnityMCP.Editor
                 || lower.Contains("/list")
                 || lower.Contains("/get-")
                 || lower.Contains("/status");
+        }
+
+        // Cached reflection for UnityEditor.Undo.GetRecords(List<string>, List<string>) — the
+        // internal API the Undo History window uses. Lets us tell whether an action actually
+        // put something on the undo stack (see the undo-group logic in ProcessNextRequests).
+        private static System.Reflection.MethodInfo _getUndoRecords;
+        private static bool _getUndoRecordsResolved;
+        private static readonly List<string> _undoScratchU = new List<string>();
+        private static readonly List<string> _undoScratchR = new List<string>();
+
+        /// <summary>Current undo-stack depth, or -1 if the internal API is unavailable.</summary>
+        private static int CountUndoRecords()
+        {
+            try
+            {
+                if (!_getUndoRecordsResolved)
+                {
+                    _getUndoRecords = typeof(UnityEditor.Undo).GetMethod(
+                        "GetRecords",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static,
+                        null,
+                        new[] { typeof(List<string>), typeof(List<string>) },
+                        null);
+                    _getUndoRecordsResolved = true;
+                }
+                if (_getUndoRecords == null) return -1;
+                _undoScratchU.Clear();
+                _undoScratchR.Clear();
+                _getUndoRecords.Invoke(null, new object[] { _undoScratchU, _undoScratchR });
+                return _undoScratchU.Count;
+            }
+            catch { return -1; }
         }
 
         private static void PurgeEmptyQueues()

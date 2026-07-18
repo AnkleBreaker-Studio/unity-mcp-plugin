@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
 {
     public static partial class MCPBridgeServer
     {
-        /// <summary>Every route the bridge can dispatch (336 routes).</summary>
+        /// <summary>Every route the bridge can dispatch (337 routes).</summary>
         internal static readonly string[] GeneratedRoutes = new string[]
         {
             "_meta/routes",
@@ -346,6 +346,7 @@ namespace UnityMCP.Editor
             "uma/wardrobe-equip",
             "undo/clear",
             "undo/history",
+            "undo/last",
             "undo/perform",
             "undo/redo",
         };

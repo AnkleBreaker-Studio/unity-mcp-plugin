@@ -2,6 +2,16 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.36.0] - 2026-07-18
+
+### Added (per-action / per-agent Undo)
+- **`undo/last` — revert the most recent undoable MCP action as a whole.** Each write action now reverts cleanly as one step (a whole create/edit/boolean, not one internal operation). With `agentId`, targets that agent's most recent action. Honest about Unity's LINEAR undo: if newer actions are stacked on top of the target, `undo/last` refuses to cascade and lists exactly which actions would also be reverted unless `force:true` is passed.
+- **`undo/history` is now a real per-agent action log** — returns recent MCP actions (newest first, optional `agentId`/`count` filters) with per-agent attribution, target object, an `undoable` flag, and the current Unity undo group — instead of only the current group name.
+
+### Changed (multi-agent queue — each action is now independently revertable)
+- **The queue wraps every WRITE action in its own named, collapsed Undo group** (`MCPRequestQueue`). Previously the recorded undo group used a `GetCurrentGroup()` before/after diff that missed most real edits (e.g. `RegisterCreatedObjectUndo` doesn't advance the group), so per-action undo was effectively unavailable. Now each agent's action is a clean, named entry in Unity's Undo history and a precise revert target for `undo/last`.
+- **Undoability is detected from the actual undo stack**, not guessed: an action is only marked undoable if it genuinely registered an undo op (measured via the internal `Undo.GetRecords`), so reads that slip past the read classifier — and `execute-code`, whose temp-host churn registers incidental undo — never become misleading `undo/last` targets. Reads, undo/redo ops, empty groups and failures stay non-undoable. Fails open if the internal API is ever unavailable.
+
 ## [2.35.0] - 2026-07-18
 
 ### Added (ProBuilder integration — `com.unity.probuilder`)

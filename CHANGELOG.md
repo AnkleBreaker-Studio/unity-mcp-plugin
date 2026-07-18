@@ -2,6 +2,11 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.37.0] - 2026-07-19
+
+### Changed (context efficiency)
+- **`scene/hierarchy` is dense by default** — per-node fields carrying their default value are omitted, and an absent field means the default: `active` (true), `tag` (Untagged), `layer` (Default), `position` (origin; Unity's approximate `Vector3 ==` treats float noise as origin), the universal `Transform` component entry, and `childCount` when a complete `children` array already implies it. Non-default information is always emitted. Measured **43% smaller** on a representative 221-node hierarchy (42.3KB → 24.4KB); scenes with many empty organizer objects cut more. **Behavior change:** consumers that require the old always-present per-node shape pass `verbose:true` (the server companion 2.35.0 declares the parameter).
+
 ## [2.36.0] - 2026-07-18
 
 ### Added (per-action / per-agent Undo)

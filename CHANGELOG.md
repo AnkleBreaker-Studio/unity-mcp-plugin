@@ -2,6 +2,13 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.37.1] - 2026-07-19
+
+### Fixed (found by the live ProBuilder level-build test scenario)
+- **ProBuilder shapes were created with a NULL material** — they rendered with the magenta missing-material look and crashed boolean CSG ("Value cannot be null. Parameter name: key", CSG keys a dictionary by material). `create-shape` now always ends with a real material (the explicit `material` arg, else ProBuilder's default), and `boolean` pre-flights both operands, assigning the default to any null slot (Undo-tracked, disclosed as `materialsDefaulted: true` in the result).
+- **`boolean` results were double-offset** — CSG output vertices are in world space, but the result object was also placed at the target's position, pushing the mesh a full offset away (a carved wall landed outside the level). The result now sits at the identity transform, then gets its pivot centered on the geometry so it behaves like a normal object for later transforms.
+- **`graphics/scene-capture` captured a stale camera** — a backgrounded editor never repaints the SceneView, so its camera lagged behind code-driven `LookAt`/focus changes and captures showed the old view. The render camera is now synced to the view's pivot/rotation/size before rendering, so captures always reflect the requested view.
+
 ## [2.37.0] - 2026-07-19
 
 ### Changed (context efficiency)

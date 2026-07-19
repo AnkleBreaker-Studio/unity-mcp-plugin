@@ -83,11 +83,13 @@ namespace UnityMCP.Editor
             if (args.ContainsKey("position") && args["position"] is Dictionary<string, object> p)
                 go.transform.position = new Vector3(GetFloat(p, "x", 0), GetFloat(p, "y", 0), GetFloat(p, "z", 0));
 
-            if (args.ContainsKey("material"))
-            {
-                var mat = AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString());
-                if (mat != null) pb.SetMaterial(pb.faces, mat);
-            }
+            // ShapeGenerator leaves the renderer's material NULL — the shape renders magenta
+            // and a null material key crashes ProBuilder's CSG. Always end with a real
+            // material: the explicit arg when given, ProBuilder's default otherwise.
+            var mat = args.ContainsKey("material")
+                ? AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString())
+                : null;
+            pb.SetMaterial(pb.faces, mat != null ? mat : BuiltinMaterials.defaultMaterial);
 
             Rebuild(pb);
             Undo.RegisterCreatedObjectUndo(go, "Create ProBuilder " + shape);
@@ -241,13 +243,18 @@ namespace UnityMCP.Editor
                 case "intersect": case "intersection": method = "Intersect"; break;
                 default: return Error($"Unknown boolean operation '{op}'. Use union, subtract, or intersect.");
             }
+            // CSG builds a material lookup table and throws on a null key — meshes with
+            // missing material slots (e.g. hand-built or older shapes) get ProBuilder's
+            // default assigned first (Undo-tracked, disclosed in the result).
+            bool materialsDefaulted = EnsureRendererMaterials(a) | EnsureRendererMaterials(b);
             // ProBuilder's CSG class is internal, so invoke it via reflection.
             var mesh = InvokeCsg(method, a, b, out var csgErr);
             if (mesh == null) return Error(csgErr ?? "Boolean operation produced no mesh (are both objects solid meshes?).");
             var result = mesh;
 
+            // CSG output vertices are in WORLD space — the result object must sit at the
+            // identity transform (setting it to an operand's position double-offsets the mesh).
             var go = new GameObject($"PB_Boolean_{op}");
-            go.transform.position = a.transform.position;
             var mf = go.AddComponent<MeshFilter>();
             mf.sharedMesh = result;
             var mr = go.AddComponent<MeshRenderer>();
@@ -258,10 +265,17 @@ namespace UnityMCP.Editor
             // AddComponent<ProBuilderMesh> nulls the MeshFilter's sharedMesh.
             var pb = Undo.AddComponent<ProBuilderMesh>(go);
             var imported = MeshImporter_TryImport(pb, result, srcMat != null ? new[] { srcMat } : new Material[0]);
-            if (imported) Rebuild(pb);
+            if (imported)
+            {
+                Rebuild(pb);
+                // Move the pivot from the world origin to the geometry center so the result
+                // behaves like a normal object for later transforms/edits.
+                pb.CenterPivot(null);
+                Rebuild(pb);
+            }
             Undo.RegisterCreatedObjectUndo(go, "ProBuilder Boolean");
 
-            return new Dictionary<string, object>
+            var boolResult = new Dictionary<string, object>
             {
                 { "success", true },
                 { "operation", op },
@@ -270,6 +284,8 @@ namespace UnityMCP.Editor
                 { "vertexCount", result.vertexCount },
                 { "editableProBuilder", imported },
             };
+            if (materialsDefaulted) boolResult["materialsDefaulted"] = true;
+            return boolResult;
         }
 
         public static object Combine(Dictionary<string, object> args)
@@ -359,6 +375,35 @@ namespace UnityMCP.Editor
             // Public Undo API — records the ProBuilderMesh so an undo restores geometry and
             // composes with the queue's per-action undo-group tracking.
             Undo.RegisterCompleteObjectUndo(pb, msg);
+        }
+
+        /// <summary>
+        /// Replace null material slots with ProBuilder's default material. CSG keys a
+        /// dictionary by material and throws ("Value cannot be null. Parameter name: key")
+        /// when any slot is null. Undo-tracked; returns whether anything changed.
+        /// </summary>
+        private static bool EnsureRendererMaterials(GameObject go)
+        {
+            var mr = go.GetComponent<MeshRenderer>();
+            if (mr == null) return false;
+            var mats = mr.sharedMaterials;
+            bool changed = false;
+            if (mats == null || mats.Length == 0)
+            {
+                mats = new[] { BuiltinMaterials.defaultMaterial };
+                changed = true;
+            }
+            else
+            {
+                for (int i = 0; i < mats.Length; i++)
+                    if (mats[i] == null) { mats[i] = BuiltinMaterials.defaultMaterial; changed = true; }
+            }
+            if (changed)
+            {
+                Undo.RegisterCompleteObjectUndo(mr, "Assign Default Material");
+                mr.sharedMaterials = mats;
+            }
+            return changed;
         }
 
         /// <summary>Invoke ProBuilder's internal CSG.Union/Subtract/Intersect via reflection.</summary>

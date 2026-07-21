@@ -1,0 +1,178 @@
+/* AnkleBreaker MCP Dashboard styles — layered on top of the shared brand sheet
+ * (UnityMcpWelcomeTheme.uss: warm-brown bg, molten-orange accent #d97a2a/#f4a047).
+ * BEM: block .ab-dash, elements __x, modifiers --y. */
+
+.hidden {
+    display: none;
+}
+
+.ab-dash__scroll {
+    flex-grow: 1;
+    padding: 10px 12px;
+}
+
+/* ---- Status dots ---------------------------------------------------------- */
+
+.ab-dash__dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 5px;
+    margin-right: 7px;
+    flex-shrink: 0;
+    background-color: rgb(128, 128, 128);
+}
+
+.ab-dash__dot--green  { background-color: rgb(74, 201, 93); }
+.ab-dash__dot--red    { background-color: rgb(226, 74, 62); }
+.ab-dash__dot--yellow { background-color: rgb(230, 204, 43); }
+.ab-dash__dot--grey   { background-color: rgb(128, 128, 128); }
+.ab-dash__dot--blue   { background-color: rgb(102, 179, 255); }
+.ab-dash__dot--accent { background-color: rgb(244, 160, 71); }
+
+/* ---- Rows / text ---------------------------------------------------------- */
+
+.ab-dash__row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 3px;
+}
+
+.ab-dash__grow {
+    flex-grow: 1;
+}
+
+.ab-dash__label {
+    color: rgb(232, 224, 214);
+}
+
+.ab-dash__bold {
+    -unity-font-style: bold;
+    color: rgb(238, 230, 222);
+}
+
+.ab-dash__mini {
+    font-size: 10px;
+    color: rgba(232, 224, 214, 0.62);
+}
+
+.ab-dash__accent-text {
+    color: rgb(244, 160, 71);
+}
+
+.ab-dash__blue-text {
+    color: rgb(102, 179, 255);
+}
+
+.ab-dash__green-text  { color: rgb(74, 201, 93); }
+.ab-dash__red-text    { color: rgb(226, 74, 62); }
+.ab-dash__yellow-text { color: rgb(230, 204, 43); }
+
+/* ---- Foldout sections ----------------------------------------------------- */
+
+.ab-window .unity-foldout__text {
+    -unity-font-style: bold;
+    font-size: 12px;
+    color: rgb(238, 230, 222);
+}
+
+.ab-window .unity-foldout__toggle {
+    margin-bottom: 2px;
+}
+
+.ab-dash__section {
+    margin-bottom: 10px;
+}
+
+/* ---- Badges / pills ------------------------------------------------------- */
+
+.ab-badge {
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    font-size: 9px;
+    color: rgb(31, 23, 15);
+    background-color: rgb(244, 160, 71);
+    border-radius: 7px;
+    padding: 1px 5px;
+    margin-left: 6px;
+}
+
+.ab-chip {
+    font-size: 9px;
+    color: rgba(244, 160, 71, 0.9);
+    background-color: rgba(217, 122, 42, 0.14);
+    border-width: 1px;
+    border-color: rgba(217, 122, 42, 0.35);
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+}
+
+/* ---- News ----------------------------------------------------------------- */
+
+.ab-news__item {
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 6px;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    border-left-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+}
+
+.ab-news__item:hover {
+    background-color: rgba(217, 122, 42, 0.14);
+}
+
+.ab-news__item--unseen {
+    border-left-color: rgb(244, 160, 71);
+    background-color: rgba(217, 122, 42, 0.08);
+}
+
+.ab-news__title {
+    color: rgb(235, 227, 217);
+    flex-shrink: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Truncate-with-ellipsis for any row label that must never push its neighbors. */
+.ab-dash__ellipsis {
+    flex-shrink: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.ab-news__item--unseen .ab-news__title {
+    -unity-font-style: bold;
+    color: rgb(244, 160, 71);
+}
+
+/* ---- Progress ------------------------------------------------------------- */
+
+.ab-dash__progress-track {
+    height: 6px;
+    border-radius: 3px;
+    background-color: rgba(217, 122, 42, 0.15);
+    flex-grow: 1;
+    margin-left: 8px;
+    overflow: hidden;
+}
+
+.ab-dash__progress-fill {
+    height: 6px;
+    background-color: rgb(217, 122, 42);
+}
+
+/* ---- Details boxes -------------------------------------------------------- */
+
+.ab-dash__details {
+    background-color: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin: 2px 0 6px 22px;
+    white-space: normal;
+    font-size: 10px;
+    color: rgba(232, 224, 214, 0.8);
+}

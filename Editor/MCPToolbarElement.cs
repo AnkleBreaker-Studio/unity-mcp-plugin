@@ -100,6 +100,11 @@ namespace UnityMCP.Editor
                 string label = "MCP";
                 if (ActiveAgents > 0)
                     label += $" [{ActiveAgents}]";
+                // Mobile-style unseen-news badge (the native toolbar API is text-only;
+                // the pre-6000.3 fallback shows a real colored badge element instead).
+                int unseen = MCPNewsService.UnseenCount;
+                if (unseen > 0)
+                    label += $" ●{(unseen > 9 ? "9+" : unseen.ToString())}";
                 return label;
             }
         }
@@ -126,6 +131,9 @@ namespace UnityMCP.Editor
                     tip += "\nSelf-test failures detected";
                 else if (HasWarnings)
                     tip += "\nSelf-test warnings detected";
+                int unseen = MCPNewsService.UnseenCount;
+                if (unseen > 0)
+                    tip += $"\n{unseen} new AnkleBreaker post{(unseen > 1 ? "s" : "")}";
                 tip += "\nClick for options";
                 return tip;
             }
@@ -142,6 +150,8 @@ namespace UnityMCP.Editor
         }
 
         private static double _nextRefreshTime;
+
+        private static int _lastUnseenNews;
 
         private static void PeriodicRefresh()
         {
@@ -161,6 +171,9 @@ namespace UnityMCP.Editor
 
             bool warnings = MCPSelfTest.HasWarnings;
             if (warnings != HasWarnings) { HasWarnings = warnings; changed = true; }
+
+            int unseenNews = MCPNewsService.UnseenCount;
+            if (unseenNews != _lastUnseenNews) { _lastUnseenNews = unseenNews; changed = true; }
 
             if (changed)
             {
@@ -289,7 +302,39 @@ namespace UnityMCP.Editor
                 MCPSettingsManager.UseManualPort,
                 () => MCPSettingsManager.UseManualPort = !MCPSettingsManager.UseManualPort);
 
+            menu.AddItem(
+                new GUIContent("Settings/News Notifications"),
+                MCPNewsService.Enabled,
+                () => MCPNewsService.Enabled = !MCPNewsService.Enabled);
+
             menu.AddSeparator("");
+
+            // AnkleBreaker news — unseen posts carry a dot, clicking opens + marks read.
+            if (MCPNewsService.Enabled)
+            {
+                int unseen = MCPNewsService.UnseenCount;
+                var posts = MCPNewsService.Posts;
+                menu.AddDisabledItem(new GUIContent(unseen > 0
+                    ? $"AnkleBreaker News — {unseen} new"
+                    : "AnkleBreaker News"));
+
+                int shown = 0;
+                foreach (var post in posts)
+                {
+                    if (shown++ >= 5) break;
+                    string marker = MCPNewsService.IsUnseen(post) ? "● " : "    ";
+                    var captured = post;
+                    menu.AddItem(new GUIContent($"{marker}{captured.Title}"), false,
+                        () => MCPNewsService.OpenPost(captured));
+                }
+
+                if (unseen > 0)
+                    menu.AddItem(new GUIContent("Mark All Read"), false, MCPNewsService.MarkAllSeen);
+                menu.AddItem(new GUIContent("Open Devlog Page"), false,
+                    () => Application.OpenURL(MCPNewsService.DevlogUrl));
+
+                menu.AddSeparator("");
+            }
 
             // Dashboard & Updates
             menu.AddItem(new GUIContent("Open Dashboard..."), false, () => MCPDashboardWindow.ShowWindow());
@@ -349,6 +394,7 @@ namespace UnityMCP.Editor
         private static VisualElement _statusDot;
         private static Label _statusLabel;
         private static Label _agentBadge;
+        private static Label _newsBadge;
         private static int _retryCount;
         private const int MaxRetries = 50;
 
@@ -356,6 +402,8 @@ namespace UnityMCP.Editor
         private static readonly Color kStopped = new Color(0.90f, 0.25f, 0.25f);
         private static readonly Color kWarning = new Color(0.90f, 0.80f, 0.10f);
         private static readonly Color kBadgeBg = new Color(0.40f, 0.75f, 1.00f);
+        // AnkleBreaker brand accent (#f4a047) — the mobile-style unseen-news badge.
+        private static readonly Color kNewsBadgeBg = new Color(0.957f, 0.627f, 0.278f);
 
         static MCPToolbarFallback()
         {
@@ -505,6 +553,25 @@ namespace UnityMCP.Editor
             _agentBadge.style.display = DisplayStyle.None;
             container.Add(_agentBadge);
 
+            // Unseen-news badge (accent orange, like a mobile app icon badge)
+            _newsBadge = new Label();
+            _newsBadge.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _newsBadge.style.fontSize = 9;
+            _newsBadge.style.color = new Color(0.12f, 0.09f, 0.06f);
+            _newsBadge.style.unityFontStyleAndWeight = FontStyle.Bold;
+            _newsBadge.style.backgroundColor = kNewsBadgeBg;
+            _newsBadge.style.borderTopLeftRadius = 6;
+            _newsBadge.style.borderTopRightRadius = 6;
+            _newsBadge.style.borderBottomLeftRadius = 6;
+            _newsBadge.style.borderBottomRightRadius = 6;
+            _newsBadge.style.paddingLeft = 4;
+            _newsBadge.style.paddingRight = 4;
+            _newsBadge.style.paddingTop = 1;
+            _newsBadge.style.paddingBottom = 1;
+            _newsBadge.style.marginLeft = 4;
+            _newsBadge.style.display = DisplayStyle.None;
+            container.Add(_newsBadge);
+
             // Dropdown arrow
             var arrow = new Label("\u25BE");
             arrow.style.fontSize = 10;
@@ -538,6 +605,17 @@ namespace UnityMCP.Editor
             else
             {
                 _agentBadge.style.display = DisplayStyle.None;
+            }
+
+            int unseen = MCPNewsService.UnseenCount;
+            if (unseen > 0)
+            {
+                _newsBadge.text = unseen > 9 ? "9+" : unseen.ToString();
+                _newsBadge.style.display = DisplayStyle.Flex;
+            }
+            else
+            {
+                _newsBadge.style.display = DisplayStyle.None;
             }
         }
     }

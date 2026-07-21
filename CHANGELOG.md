@@ -2,6 +2,16 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.38.0] - 2026-07-19
+
+### Added (studio news notifications)
+- **Mobile-style devlog notifications** — the plugin now surfaces new posts from the AnkleBreaker devlog (`anklebreaker-studio.com/devlog`): the MCP toolbar element shows an unseen badge (`MCP ●1`; a real accent-orange badge pill on the pre-6000.3 fallback toolbar), the toolbar dropdown gains an **AnkleBreaker News** section (latest 5 posts, unseen marked, click opens + marks read, Mark All Read, Open Devlog Page), and the dashboard gains a full **News panel** (all posts with category chips + dates, unseen highlighted in the brand accent).
+- `MCPNewsService`: polls the devlog RSS feed at most every 6 hours (plain GET, nothing sent), caches posts across domain reloads, and tracks read state **per user** (global EditorPrefs — reading a post once clears it in every project). First run seeds the backlog as read except the newest post, so a fresh install shows a single gentle "1", not six. Fully opt-out via Settings → News Notifications (toolbar menu or dashboard).
+
+### Changed (dashboard reworked in UI Toolkit, studio branding)
+- **The dashboard (Window → AB Unity MCP) is rebuilt in UI Toolkit** on the AnkleBreaker theme — the deep warm-brown + molten-orange palette of the studio website, shared with the welcome window's brand stylesheet (new `MCPTheme` loads it cross-assembly + `MCPDashboardStyles.uss`). Every capability of the old IMGUI window is preserved: connection status, server controls, request queue with per-agent depth, project context management, active agent sessions, recent actions, feature categories with self-test status/details/toggles, settings (auto-start, manual port, MPPM, reset), version + update check.
+- Dynamic sections refresh on a 750 ms schedule but only rebuild when a content signature changes; each section refreshes in isolation (one failing data source can't blank the others) and self-heals if the layout-restore path stomps its content (first population is deferred one frame past Unity's view-data restore).
+
 ## [2.37.1] - 2026-07-19
 
 ### Fixed (found by the live ProBuilder level-build test scenario)

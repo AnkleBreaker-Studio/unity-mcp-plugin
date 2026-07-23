@@ -31,6 +31,11 @@ namespace UnityMCP.Editor
 
         private const double CheckIntervalHours = 6.0;
         private const int MaxSeenSlugs = 100;
+        // Bounds on remote feed content: a compromised/oversized response must not be able
+        // to OOM the editor or write a huge blob to EditorPrefs (registry-backed) on the main thread.
+        private const int MaxPosts = 50;
+        private const int MaxTitleLength = 200;
+        private const int MaxFeedBytes = 1_048_576; // 1 MB — the devlog feed is a few KB
 
         public sealed class Post
         {
@@ -108,6 +113,14 @@ namespace UnityMCP.Editor
         public static void OpenPost(Post post)
         {
             if (post == null || string.IsNullOrEmpty(post.Url)) return;
+            // Defense-in-depth: even though ParseFeed already rejects non-web links, never
+            // hand anything but a validated http/https URL to the OS shell via OpenURL.
+            if (!IsSafeWebUrl(post.Url))
+            {
+                Debug.LogWarning($"[AB-UMCP] Refusing to open non-web news URL: {post.Url}");
+                MarkSeen(post);
+                return;
+            }
             Application.OpenURL(post.Url);
             MarkSeen(post);
         }
@@ -155,6 +168,14 @@ namespace UnityMCP.Editor
                 return;
             }
 
+            // Bound the body before parsing — an oversized response must not drive
+            // unbounded allocation or a giant EditorPrefs write. The real feed is a few KB.
+            if (xml.Length > MaxFeedBytes)
+            {
+                LastError = "Feed response too large";
+                return;
+            }
+
             List<Post> parsed = ParseFeed(xml);
             if (parsed.Count == 0)
             {
@@ -192,7 +213,7 @@ namespace UnityMCP.Editor
         {
             var posts = new List<Post>();
             int cursor = 0;
-            while (true)
+            while (posts.Count < MaxPosts)
             {
                 int start = xml.IndexOf("<item>", cursor, StringComparison.Ordinal);
                 if (start < 0) break;
@@ -202,16 +223,22 @@ namespace UnityMCP.Editor
                 cursor = end + 7;
 
                 string link = StripCData(Between(item, "<link>", "</link>"));
-                string title = Decode(StripCData(Between(item, "<title>", "</title>")));
+                string title = SanitizeText(Decode(StripCData(Between(item, "<title>", "</title>"))));
                 if (string.IsNullOrEmpty(link) || string.IsNullOrEmpty(title)) continue;
                 link = link.Trim();
+
+                // SECURITY: only accept http/https links. The link is later handed to
+                // Application.OpenURL (the OS shell) — a compromised or spoofed feed must
+                // not be able to smuggle file://, a UNC path, or an OS URI-scheme handler.
+                // Rejecting here means such an item never becomes a clickable Post at all.
+                if (!IsSafeWebUrl(link)) continue;
 
                 var post = new Post
                 {
                     Title = title,
                     Url = link,
                     Slug = SlugOf(link),
-                    Category = Decode(StripCData(Between(item, "<category>", "</category>"))) ?? "",
+                    Category = SanitizeText(Decode(StripCData(Between(item, "<category>", "</category>")))) ?? "",
                 };
 
                 string pub = StripCData(Between(item, "<pubDate>", "</pubDate>"));
@@ -227,11 +254,42 @@ namespace UnityMCP.Editor
             return posts;
         }
 
+        /// <summary>True only for well-formed absolute http/https URLs.</summary>
+        internal static bool IsSafeWebUrl(string url)
+        {
+            return !string.IsNullOrEmpty(url)
+                && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        }
+
+        /// <summary>
+        /// Neutralize remote feed text before it reaches UI Toolkit / GenericMenu:
+        /// strip rich-text markup (labels interpret &lt;color&gt;/&lt;b&gt; by default) and
+        /// the '/' GenericMenu submenu separator; collapse to a bounded single line.
+        /// </summary>
+        private static string SanitizeText(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value;
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (c == '<' || c == '>') continue;          // rich-text tags
+                if (c == '/') { sb.Append('⁄'); continue; } // GenericMenu separator → fraction slash
+                if (c == '\r' || c == '\n' || c == '\t') { sb.Append(' '); continue; }
+                sb.Append(c);
+            }
+            string cleaned = sb.ToString().Trim();
+            return cleaned.Length > MaxTitleLength ? cleaned.Substring(0, MaxTitleLength - 1) + "…" : cleaned;
+        }
+
         private static string SlugOf(string url)
         {
             string trimmed = url.TrimEnd('/');
             int slash = trimmed.LastIndexOf('/');
-            return slash >= 0 ? trimmed.Substring(slash + 1) : trimmed;
+            string slug = slash >= 0 ? trimmed.Substring(slash + 1) : trimmed;
+            // The seen-set is ';'-delimited in EditorPrefs — a ';' in a slug would split
+            // one entry into two on reload and never round-trip. Drop the delimiter.
+            return slug.Replace(";", "");
         }
 
         private static string Between(string source, string startTag, string endTag)

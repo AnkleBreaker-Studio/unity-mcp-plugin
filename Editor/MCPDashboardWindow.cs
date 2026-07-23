@@ -309,7 +309,9 @@ namespace UnityMCP.Editor
                 if (MCPNewsService.IsUnseen(post))
                     item.AddToClassList("ab-news__item--unseen");
 
-                var title = new Label(post.Title);
+                // Feed-derived text: disable rich text so markup in a title can never render
+                // (defense-in-depth — MCPNewsService already strips angle brackets at parse).
+                var title = new Label(post.Title) { enableRichText = false };
                 title.AddToClassList("ab-news__title");
                 item.Add(title);
 
@@ -317,7 +319,7 @@ namespace UnityMCP.Editor
 
                 if (!string.IsNullOrEmpty(post.Category))
                 {
-                    var chip = new Label(post.Category);
+                    var chip = new Label(post.Category) { enableRichText = false };
                     chip.AddToClassList("ab-chip");
                     item.Add(chip);
                 }

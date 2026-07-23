@@ -2,6 +2,17 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.1] - 2026-07-23
+
+### Security (merge-readiness audit of the news feature)
+- **News feed links are now confined to http/https before reaching the OS shell.** `MCPNewsService` parsed the devlog RSS `<link>` and handed it verbatim to `Application.OpenURL` (which routes through the OS shell, i.e. any registered URI-scheme handler, `file://`, UNC paths). A spoofed/compromised feed could have turned one click in the News panel into a file/handler open. Links are now validated (`Uri` absolute + `http`/`https` only) at parse time — a bad-scheme item never becomes a clickable post — with a defense-in-depth re-check in `OpenPost`. Verified live: `file://`, `javascript:`, `steam://`, `ms-msdt:`, UNC and `vscode://` links are all dropped; a crafted `file://` item with a disguised `<color>` title is discarded while legit posts survive.
+- **Feed text can no longer inject UI markup.** Titles/categories are stripped of `<`/`>` (UI Toolkit labels render rich text by default) and `/` (a `GenericMenu` submenu separator) at parse; the dashboard news labels also set `enableRichText = false`. Prevents a compromised feed from styling an entry to impersonate official plugin UI.
+- **Bounded feed ingestion** — responses over 1 MB are rejected and at most 50 posts are parsed, so an oversized/malicious response can't drive unbounded allocation or a giant EditorPrefs write on the main thread.
+- **Seen-set integrity** — `;` (the EditorPrefs delimiter) is stripped from slugs so a crafted slug can't corrupt the read-state store.
+
+### Fixed
+- **Self-test resume after domain reload** — a mid-battery domain reload resumed via `EditorApplication.delayCall`, which can be dropped during `InitializeOnLoad`; it now resumes on the first `EditorApplication.update` (always fires). New **ProBuilder self-test probe** (creates/verifies/destroys a cube when ProBuilder is installed, passes through when absent).
+
 ## [2.39.0] - 2026-07-22
 
 ### Fixed (Discord battle-test report — "floats silently dropped + 4 more bugs")

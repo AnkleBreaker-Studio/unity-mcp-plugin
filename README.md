@@ -247,6 +247,16 @@ If Unity MCP helps your workflow, consider supporting its development! Your supp
 
 **Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
 
+## What's New in v2.33.0 → v2.39.1
+
+- **ProBuilder integration** — 14 `probuilder/*` commands over ProBuilder's real API (parametric shapes, face edits, boolean CSG with source cleanup + naming, combine, probuilderize, mesh export), gated on `PROBUILDER_INSTALLED` so projects without ProBuilder get a clear message instead of a compile error. Every mutation is Undo-tracked.
+- **Per-action / per-agent undo** — the queue wraps every write in its own named Undo group; `undo/last` reverts a whole action (per-agent aware, linear-undo honest), `undo/history` is a per-agent action log.
+- **Studio news notifications** — a mobile-style unseen badge on the MCP toolbar element for new AnkleBreaker devlog posts (6h RSS poll, per-user read state, opt-out in Settings), news in the toolbar dropdown and the dashboard.
+- **Dashboard reworked in UI Toolkit** — Window → AB Unity MCP rebuilt on the studio theme (shared brand stylesheet), preserving every feature and adding the news panel; sections self-heal and refresh on content change only.
+- **Correctness** — locale-proof numeric args (non-integer params were silently dropped on decimal-comma locales; present-but-invalid now errors loudly, `create-shape` echoes applied size/position), `probuilder/info` world bounds, dense `scene/hierarchy` (absent field = default; `verbose:true` restores), scene-capture camera sync for backgrounded editors.
+- **Data safety** — shared path confinement (`Assets/`/`Packages/` only), overwrite guards on every asset creator (`overwrite:true` to replace), script create/update source-loss vectors closed, queue drops timed-out tickets before execution (no double-runs), ShaderGraph create/edit through the real `GraphData` model (all four corruption bugs from #18 fixed).
+- **Generated route registry** — `MCPBridgeServer.Routes.g.cs` generated from the dispatch switch with a CI drift check (337 routes).
+
 ## What's New in v2.32.0
 
 - **Editor-window screenshots (`screenshot/editor-window`)** — capture any EditorWindow (Inspector, Project, Console, custom windows) to a PNG via the Win32 `PrintWindow` API. Occlusion-proof (the window renders itself offscreen — no raising or focus-stealing), with automatic docked-vs-floating handling. Defaults to `Assets/Screenshots/`, accepts any `.png` path. **Windows editor only** (`#if UNITY_EDITOR_WIN`) — on macOS/Linux it returns a clear "unsupported platform" error (PrintWindow has no equivalent there); use scene/game capture, which are camera-based and cross-platform. Companion to `unity-mcp-server` v2.30.0.

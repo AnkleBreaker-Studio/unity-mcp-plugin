@@ -93,7 +93,15 @@ namespace UnityMCP.Editor
 
             Rebuild(pb);
             Undo.RegisterCreatedObjectUndo(go, "Create ProBuilder " + shape);
-            return Ok(pb, new Dictionary<string, object> { { "shape", shape }, { "name", go.name } });
+            // Echo the ACTUALLY-applied dimensions/position so a dropped or misparsed
+            // param is visible in the response instead of silently defaulting (battle-test rule).
+            return Ok(pb, new Dictionary<string, object>
+            {
+                { "shape", shape },
+                { "name", go.name },
+                { "appliedSize", V(size) },
+                { "appliedPosition", V(go.transform.position) },
+            });
         }
 
         // ─────────────────────────────────────────────
@@ -103,7 +111,20 @@ namespace UnityMCP.Editor
         public static object GetInfo(Dictionary<string, object> args)
         {
             if (!TryResolve(args, out var pb, out var err)) return err;
-            var b = pb.GetComponent<MeshFilter>()?.sharedMesh != null ? pb.GetComponent<MeshFilter>().sharedMesh.bounds : new Bounds();
+
+            // Local bounds can be stale after vertex edits — recalculate before reporting
+            // (battle-test BUG 3), and report the world AABB too: local bounds never reflect
+            // the transform (scale/rotation), which is what agents actually place against.
+            var mf = pb.GetComponent<MeshFilter>();
+            var b = new Bounds();
+            if (mf != null && mf.sharedMesh != null)
+            {
+                mf.sharedMesh.RecalculateBounds();
+                b = mf.sharedMesh.bounds;
+            }
+            var mr = pb.GetComponent<MeshRenderer>();
+            var world = mr != null ? mr.bounds : new Bounds(pb.transform.position, Vector3.zero);
+
             var materials = pb.faces.Select(f => f.submeshIndex).Distinct().OrderBy(i => i).ToArray();
             return new Dictionary<string, object>
             {
@@ -118,6 +139,8 @@ namespace UnityMCP.Editor
                 { "submeshCount", materials.Length },
                 { "bounds", new Dictionary<string, object> {
                     { "center", V(b.center) }, { "size", V(b.size) } } },
+                { "worldBounds", new Dictionary<string, object> {
+                    { "center", V(world.center) }, { "size", V(world.size) } } },
             };
         }
 
@@ -252,9 +275,14 @@ namespace UnityMCP.Editor
             if (mesh == null) return Error(csgErr ?? "Boolean operation produced no mesh (are both objects solid meshes?).");
             var result = mesh;
 
+            string sourceAId = MCPObjectId.Get(a);
+            string sourceBId = MCPObjectId.Get(b);
+
             // CSG output vertices are in WORLD space — the result object must sit at the
             // identity transform (setting it to an operand's position double-offsets the mesh).
-            var go = new GameObject($"PB_Boolean_{op}");
+            var go = new GameObject(args.ContainsKey("name") && args["name"] != null
+                ? args["name"].ToString()
+                : $"PB_Boolean_{op}");
             var mf = go.AddComponent<MeshFilter>();
             mf.sharedMesh = result;
             var mr = go.AddComponent<MeshRenderer>();
@@ -275,6 +303,16 @@ namespace UnityMCP.Editor
             }
             Undo.RegisterCreatedObjectUndo(go, "ProBuilder Boolean");
 
+            // The result fully replaces the operands' volume — leaving both sources alive
+            // and overlapping it surprised every agent in the battle test (BUG 4). Default
+            // is now to remove them (Undo-tracked); pass deleteSources:false to keep them.
+            bool deleteSources = GetBool(args, "deleteSources", true);
+            if (deleteSources)
+            {
+                Undo.DestroyObjectImmediate(a);
+                Undo.DestroyObjectImmediate(b);
+            }
+
             var boolResult = new Dictionary<string, object>
             {
                 { "success", true },
@@ -283,6 +321,8 @@ namespace UnityMCP.Editor
                 { "instanceId", MCPObjectId.Get(go) },
                 { "vertexCount", result.vertexCount },
                 { "editableProBuilder", imported },
+                { "sourceInstanceIds", new List<object> { sourceAId, sourceBId } },
+                { "sourcesDeleted", deleteSources },
             };
             if (materialsDefaulted) boolResult["materialsDefaulted"] = true;
             return boolResult;
@@ -519,15 +559,15 @@ namespace UnityMCP.Editor
 #endif
 
         // ─── Shared arg helpers (available in both branches) ───
+        // Typed-first via MCPArgs: the old value.ToString() + invariant-parse round-trip
+        // silently dropped every non-integer number on decimal-comma locales (battle-test
+        // BUG 1); present-but-invalid params now throw instead of defaulting silently.
         private static object Error(string msg) => new Dictionary<string, object> { { "error", msg } };
 
-        private static float GetFloat(Dictionary<string, object> a, string k, float def) =>
-            a != null && a.ContainsKey(k) && a[k] != null && float.TryParse(a[k].ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : def;
+        private static float GetFloat(Dictionary<string, object> a, string k, float def) => MCPArgs.GetFloat(a, k, def);
 
-        private static int GetInt(Dictionary<string, object> a, string k, int def) =>
-            a != null && a.ContainsKey(k) && a[k] != null && int.TryParse(a[k].ToString(), out var i) ? i : def;
+        private static int GetInt(Dictionary<string, object> a, string k, int def) => MCPArgs.GetInt(a, k, def);
 
-        private static bool GetBool(Dictionary<string, object> a, string k, bool def) =>
-            a != null && a.ContainsKey(k) && a[k] != null && (a[k].ToString().ToLowerInvariant() == "true" || a[k].ToString() == "1") ? true : (a != null && a.ContainsKey(k) && a[k] != null ? false : def);
+        private static bool GetBool(Dictionary<string, object> a, string k, bool def) => MCPArgs.GetBool(a, k, def);
     }
 }

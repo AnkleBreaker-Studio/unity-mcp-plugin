@@ -3200,13 +3200,9 @@ namespace UnityMCP.Editor
 
         private static float GetOptionalFloat(Dictionary<string, object> args, string key, float defaultValue)
         {
-            if (args.ContainsKey(key) && args[key] != null)
-            {
-                if (float.TryParse(args[key].ToString(), System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out float val))
-                    return val;
-            }
-            return defaultValue;
+            // Typed-first read — the old ToString() round-trip dropped non-integer numbers
+            // on decimal-comma locales (same class as battle-test BUG 1).
+            return MCPArgs.GetFloat(args, key, defaultValue);
         }
 
                 private static void EnsureFolderExists(string folderPath)

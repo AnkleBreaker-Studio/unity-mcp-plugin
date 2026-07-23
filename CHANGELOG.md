@@ -2,6 +2,15 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.0] - 2026-07-22
+
+### Fixed (Discord battle-test report — "floats silently dropped + 4 more bugs")
+- **BUG 1 (MAJOR): non-integer numeric parameters were silently dropped on decimal-comma locales.** Root cause: handlers read numbers via `value.ToString()` (current culture: `18.8` → `"18,8"` on e.g. fr-FR) then parsed with InvariantCulture — fail → silent fallback to the default. Integers and strings were unaffected, which is why it looked like "floats rejected". New shared `MCPArgs` reads the boxed `double`/`long` MiniJson actually delivers **typed-first** (no string round-trip); ProBuilder's `GetFloat`/`GetInt`/`GetBool` and UMA's `GetOptionalFloat` now delegate to it. Reproduced and verified under a forced `fr-FR` culture; the reporter's exact case (a 1.4 × 0.72 × 0.7 cube) now applies verbatim, and float `translate_faces` genuinely moves vertices.
+- **Design rule from the report — no silent fallback, no silent success:** a parameter that is present but not interpretable now **throws a clear error** (`Parameter 'width' is not a valid number: 'abc'`) instead of defaulting, and `create-shape` echoes the **actually applied** `appliedSize`/`appliedPosition` so a dropped value is visible in the response.
+- **BUG 2 (create-shape "race"): same root cause as BUG 1** — the "lost" positions (12.8 / 15.2) were non-integer and got dropped; the queue serializes writes one per frame and `CreateShape` reads only its own arguments. Verified: 3 concurrent creates with float positions all land exactly where requested.
+- **BUG 3: `probuilder/info` bounds unreliable** — local mesh bounds are now recalculated before reporting (stale after vertex edits), and the response adds **`worldBounds`** (renderer AABB — reflects transform scale/rotation/position, which is what placement logic actually needs). Verified: a 2×-scaled cube reports local 1.4×0.97×0.7 and world 2.8×1.94×1.4.
+- **BUG 4: `probuilder/boolean` left both operands overlapping the result** — sources are now **deleted by default** (Undo-tracked, one undo restores everything); pass `deleteSources:false` to keep them. New `name` parameter for the result; the response reports `sourceInstanceIds` + `sourcesDeleted`.
+
 ## [2.38.0] - 2026-07-19
 
 ### Added (studio news notifications)

@@ -84,24 +84,63 @@ namespace UnityMCP.Editor
                 go.transform.position = new Vector3(GetFloat(p, "x", 0), GetFloat(p, "y", 0), GetFloat(p, "z", 0));
 
             // ShapeGenerator leaves the renderer's material NULL — the shape renders magenta
-            // and a null material key crashes ProBuilder's CSG. Always end with a real
-            // material: the explicit arg when given, ProBuilder's default otherwise.
-            var mat = args.ContainsKey("material") && args["material"] != null
-                ? AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString())
-                : null;
+            // and a null material key crashes ProBuilder's CSG. Always end with a real material:
+            // the requested one when given, ProBuilder's default otherwise. A requested-but-
+            // unresolved material used to fall back to default SILENTLY (the response still said
+            // success) — now it's surfaced as materialWarning so the caller never has to
+            // re-inspect the renderer to discover the fallback (report B2).
+            string matWarning = null;
+            string matPath = null;
+            Material mat = null;
+            if (args.ContainsKey("material") && args["material"] != null)
+            {
+                var spec = args["material"].ToString();
+                mat = ResolveMaterial(spec, out matPath, out var matAmbiguity);
+                if (mat == null)
+                    matWarning = $"Material '{spec}' not found (searched by asset path and by name) — applied ProBuilder's default instead.";
+                else
+                    matWarning = matAmbiguity; // null unless a bare name matched >1 asset
+            }
             pb.SetMaterial(pb.faces, mat != null ? mat : BuiltinMaterials.defaultMaterial);
 
             Rebuild(pb);
+
+            // Project-convention params applied at creation so an object doesn't need a follow-up
+            // call for each (a common source of serial omissions, report B8): layer (name or
+            // index), a MeshCollider, and a hierarchy parent. Set before RegisterCreatedObjectUndo
+            // so the whole configured object is captured as one undoable creation.
+            string layerWarning = ApplyLayer(go, args);
+            bool addedCollider = false;
+            if (GetBool(args, "addCollider", false))
+            {
+                // Unity fake-null: '??' would keep a dead wrapper instead of adding the collider,
+                // so check with the overridden '== null' (csharp-unity skill §4).
+                var col = go.GetComponent<MeshCollider>();
+                if (col == null) col = go.AddComponent<MeshCollider>();
+                col.sharedMesh = go.GetComponent<MeshFilter>().sharedMesh;
+                addedCollider = true;
+            }
+            string parentWarning = ApplyParent(go, args);
+
             Undo.RegisterCreatedObjectUndo(go, "Create ProBuilder " + shape);
-            // Echo the ACTUALLY-applied dimensions/position so a dropped or misparsed
-            // param is visible in the response instead of silently defaulting (battle-test rule).
-            return Ok(pb, new Dictionary<string, object>
+            // Echo the ACTUALLY-applied dimensions/position/material/layer so a dropped or
+            // misparsed param is visible in the response instead of silently defaulting
+            // (battle-test rule).
+            var data = new Dictionary<string, object>
             {
                 { "shape", shape },
                 { "name", go.name },
                 { "appliedSize", V(size) },
                 { "appliedPosition", V(go.transform.position) },
-            });
+                { "layer", LayerMask.LayerToName(go.layer) },
+                { "hasCollider", addedCollider },
+            };
+            if (mat != null) data["appliedMaterial"] = mat.name;
+            if (matPath != null) data["appliedMaterialPath"] = matPath;
+            if (matWarning != null) data["materialWarning"] = matWarning;
+            if (layerWarning != null) data["layerWarning"] = layerWarning;
+            if (parentWarning != null) data["parentWarning"] = parentWarning;
+            return Ok(pb, data);
         }
 
         // ─────────────────────────────────────────────
@@ -172,9 +211,17 @@ namespace UnityMCP.Editor
             var edges = faces.SelectMany(f => f.edges).Distinct().ToList();
 
             UndoRecord(pb, "Bevel Edges");
+            int vBefore = pb.vertexCount, fBefore = pb.faceCount;
             Bevel.BevelEdges(pb, edges, amount);
             Rebuild(pb);
-            return Ok(pb, new Dictionary<string, object> { { "beveledEdges", edges.Count }, { "amount", amount } });
+            // Bevel silently no-ops on some configurations (e.g. coplanar interior faces left by a
+            // CSG cut): the call succeeds but geometry is unchanged. Surface that explicitly so the
+            // caller isn't left believing a bevel landed when nothing moved (report B3).
+            bool changed = pb.vertexCount != vBefore || pb.faceCount != fBefore;
+            var bevelData = new Dictionary<string, object> { { "beveledEdges", edges.Count }, { "amount", amount }, { "changed", changed } };
+            if (!changed)
+                bevelData["note"] = "Bevel produced no geometry change (edges may be coplanar/interior, or amount too small). Face indices are unchanged.";
+            return Ok(pb, bevelData);
         }
 
         public static object Subdivide(Dictionary<string, object> args)
@@ -234,16 +281,22 @@ namespace UnityMCP.Editor
         public static object SetFaceMaterial(Dictionary<string, object> args)
         {
             if (!TryResolve(args, out var pb, out var err)) return err;
-            if (!args.ContainsKey("material") || args["material"] == null) return Error("material (asset path) is required.");
-            var mat = AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString());
-            if (mat == null) return Error($"Material not found: {args["material"]}");
+            if (!args.ContainsKey("material") || args["material"] == null) return Error("material (asset path or name) is required.");
+            // Same resolution as create_shape: full asset path OR a bare material name. These two
+            // tools used to diverge (create_shape took a name, set_face_material demanded a path) —
+            // report B2. They now accept identical forms.
+            var mat = ResolveMaterial(args["material"].ToString(), out var matPath, out var matAmbiguity);
+            if (mat == null) return Error($"Material not found (searched by asset path and by name): {args["material"]}");
             var faces = args.ContainsKey("faceIndices") ? ResolveFaces(pb, args, out var fe) : pb.faces.ToList();
             if (faces == null) return Error("Invalid faceIndices.");
 
             UndoRecord(pb, "Set Face Material");
             pb.SetMaterial(faces, mat);
             Rebuild(pb);
-            return Ok(pb, new Dictionary<string, object> { { "material", mat.name }, { "faces", faces.Count } });
+            var smData = new Dictionary<string, object> { { "material", mat.name }, { "faces", faces.Count } };
+            if (matPath != null) smData["materialPath"] = matPath;
+            if (matAmbiguity != null) smData["materialWarning"] = matAmbiguity;
+            return Ok(pb, smData);
         }
 
         // ─────────────────────────────────────────────
@@ -410,6 +463,17 @@ namespace UnityMCP.Editor
             pb.ToMesh();
             pb.Refresh();
             UnityEditor.ProBuilder.EditorUtility.SynchronizeWithMeshFilter(pb);
+            // A rebuild repopulates the MeshFilter's mesh; a MeshCollider on the same object keeps
+            // its stale cooked collision (or points at the old mesh) after combine/boolean/any
+            // edit. Re-point it (null then set forces a re-cook) so physics matches the visible
+            // geometry (report B5). Cheap null-check when there's no collider.
+            var col = pb.GetComponent<MeshCollider>();
+            if (col != null)
+            {
+                var mf = pb.GetComponent<MeshFilter>();
+                col.sharedMesh = null;
+                col.sharedMesh = mf != null ? mf.sharedMesh : null;
+            }
         }
 
         private static void UndoRecord(ProBuilderMesh pb, string msg)
@@ -417,6 +481,99 @@ namespace UnityMCP.Editor
             // Public Undo API — records the ProBuilderMesh so an undo restores geometry and
             // composes with the queue's per-action undo-group tracking.
             Undo.RegisterCompleteObjectUndo(pb, msg);
+        }
+
+        /// <summary>
+        /// Resolve a material spec that may be a full asset path OR a bare name (e.g.
+        /// "MAT_Chair_Red"). The path is tried first; a bare name is looked up through the
+        /// AssetDatabase with an exact-leaf-name match. This makes create_shape and
+        /// set_face_material accept the SAME forms (report B2: they used to diverge —
+        /// create_shape silently defaulted on a bare name, set_face_material hard-required a
+        /// path). Returns null when nothing matches; 'resolvedPath' is the asset path loaded;
+        /// 'ambiguityWarning' is non-null when a bare name matched more than one asset (a
+        /// deterministic, disclosed choice is made rather than a silent arbitrary one).
+        /// </summary>
+        private static Material ResolveMaterial(string spec, out string resolvedPath, out string ambiguityWarning)
+        {
+            resolvedPath = null;
+            ambiguityWarning = null;
+            if (string.IsNullOrEmpty(spec)) return null;
+            // 1) Direct asset path (the historically-required, unambiguous form).
+            var direct = AssetDatabase.LoadAssetAtPath<Material>(spec);
+            if (direct != null) { resolvedPath = spec; return direct; }
+            // 2) Bare name (or path without extension): collect ALL exact leaf-name matches.
+            string leaf = System.IO.Path.GetFileNameWithoutExtension(spec);
+            if (string.IsNullOrEmpty(leaf)) return null;
+            var matches = new List<string>();
+            foreach (var guid in AssetDatabase.FindAssets("t:Material " + leaf))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.Equals(System.IO.Path.GetFileNameWithoutExtension(path), leaf, StringComparison.Ordinal))
+                    matches.Add(path);
+            }
+            if (matches.Count == 0) return null;
+            // Same-named materials in different folders are common (asset packs, generic names).
+            // FindAssets gives no stable order, so pick deterministically (sorted) AND disclose the
+            // ambiguity instead of silently applying whichever came first — the caller can pass a
+            // full path to disambiguate. resolvedPath is always echoed so the choice is visible.
+            matches.Sort(StringComparer.Ordinal);
+            resolvedPath = matches[0];
+            if (matches.Count > 1)
+                ambiguityWarning = $"Material name '{leaf}' is ambiguous ({matches.Count} matches) — used '{matches[0]}'. Pass a full asset path to select a specific one.";
+            return AssetDatabase.LoadAssetAtPath<Material>(resolvedPath);
+        }
+
+        /// <summary>
+        /// Apply the optional 'layer' arg (a layer NAME or an int index). Returns a warning
+        /// string when the requested layer doesn't exist (rather than silently leaving the
+        /// object on its current layer), else null (report B8).
+        /// </summary>
+        private static string ApplyLayer(GameObject go, Dictionary<string, object> args)
+        {
+            if (!args.ContainsKey("layer") || args["layer"] == null) return null;
+            var raw = args["layer"];
+            int idx;
+            if (raw is long l) idx = (int)l;
+            else if (raw is int i) idx = i;
+            else if (raw is double db) idx = (int)db;
+            else
+            {
+                var name = raw.ToString();
+                idx = int.TryParse(name, out var parsed) ? parsed : LayerMask.NameToLayer(name);
+            }
+            if (idx < 0 || idx > 31)
+                return $"Layer '{raw}' not found — left the object on '{LayerMask.LayerToName(go.layer)}'.";
+            go.layer = idx;
+            return null;
+        }
+
+        /// <summary>
+        /// Reparent to the optional 'parent' arg (a hierarchy path), keeping world position.
+        /// Returns a warning when the parent path can't be found, else null (report B8).
+        /// </summary>
+        private static string ApplyParent(GameObject go, Dictionary<string, object> args)
+        {
+            if (!args.ContainsKey("parent") || args["parent"] == null) return null;
+            var path = args["parent"].ToString();
+            if (string.IsNullOrEmpty(path)) return null;
+            // GameObject.Find matches an ACTIVE object by hierarchy path — try that first.
+            var parent = GameObject.Find(path);
+            // Fallback for a bare NAME (no '/'): GameObject.Find can't see inactive objects (same
+            // Unity gotcha as the delete guard), so a toggled-off container ("Furniture") would be
+            // missed. Match it across inactive objects too, but only accept a UNIQUE match so we
+            // never silently grab the wrong container.
+            if (parent == null && !path.Contains("/"))
+            {
+                foreach (var g in UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                {
+                    if (g.name != path) continue;
+                    if (parent != null) return $"Parent '{path}' matches multiple inactive objects — left the object at the scene root; pass a full hierarchy path.";
+                    parent = g;
+                }
+            }
+            if (parent == null) return $"Parent '{path}' not found — left the object at the scene root.";
+            go.transform.SetParent(parent.transform, true);
+            return null;
         }
 
         /// <summary>

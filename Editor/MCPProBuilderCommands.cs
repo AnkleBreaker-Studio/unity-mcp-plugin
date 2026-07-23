@@ -79,14 +79,14 @@ namespace UnityMCP.Editor
             }
 
             var go = pb.gameObject;
-            go.name = args.ContainsKey("name") ? args["name"].ToString() : ("PB_" + shape);
+            go.name = args.ContainsKey("name") && args["name"] != null ? args["name"].ToString() : ("PB_" + shape);
             if (args.ContainsKey("position") && args["position"] is Dictionary<string, object> p)
                 go.transform.position = new Vector3(GetFloat(p, "x", 0), GetFloat(p, "y", 0), GetFloat(p, "z", 0));
 
             // ShapeGenerator leaves the renderer's material NULL — the shape renders magenta
             // and a null material key crashes ProBuilder's CSG. Always end with a real
             // material: the explicit arg when given, ProBuilder's default otherwise.
-            var mat = args.ContainsKey("material")
+            var mat = args.ContainsKey("material") && args["material"] != null
                 ? AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString())
                 : null;
             pb.SetMaterial(pb.faces, mat != null ? mat : BuiltinMaterials.defaultMaterial);
@@ -213,8 +213,7 @@ namespace UnityMCP.Editor
                 : Vector3.zero;
 
             UndoRecord(pb, "Move Faces");
-            var indexes = faces.SelectMany(f => f.distinctIndexes).Distinct();
-            pb.TranslateVertices(faces.SelectMany(f => f.indexes).Distinct().Select(i => i).ToArray(), d);
+            pb.TranslateVertices(faces.SelectMany(f => f.indexes).Distinct().ToArray(), d);
             Rebuild(pb);
             return Ok(pb, new Dictionary<string, object> { { "movedFaces", faces.Count }, { "translation", V(d) } });
         }
@@ -235,7 +234,7 @@ namespace UnityMCP.Editor
         public static object SetFaceMaterial(Dictionary<string, object> args)
         {
             if (!TryResolve(args, out var pb, out var err)) return err;
-            if (!args.ContainsKey("material")) return Error("material (asset path) is required.");
+            if (!args.ContainsKey("material") || args["material"] == null) return Error("material (asset path) is required.");
             var mat = AssetDatabase.LoadAssetAtPath<Material>(args["material"].ToString());
             if (mat == null) return Error($"Material not found: {args["material"]}");
             var faces = args.ContainsKey("faceIndices") ? ResolveFaces(pb, args, out var fe) : pb.faces.ToList();
@@ -340,6 +339,9 @@ namespace UnityMCP.Editor
                 if (pb == null) return Error($"'{o}' is not a ProBuilder object (ProBuilderize it first).");
                 meshes.Add(pb);
             }
+            // Record the surviving target BEFORE merging so undo/last (or Ctrl+Z) restores its
+            // pre-merge geometry — otherwise only the destroyed sources come back (partial undo).
+            UndoRecord(meshes[0], "Combine ProBuilder Meshes");
             var result = CombineMeshes.Combine(meshes, meshes[0]);
             foreach (var pb in result) Rebuild(pb);
             // ProBuilder merges into the first mesh and destroys the rest.
@@ -504,7 +506,7 @@ namespace UnityMCP.Editor
             var faces = new List<Face>();
             foreach (var o in raw)
             {
-                if (!int.TryParse(o.ToString(), out int idx) || idx < 0 || idx >= pb.faceCount)
+                if (o == null || !int.TryParse(o.ToString(), out int idx) || idx < 0 || idx >= pb.faceCount)
                 { error = Error($"Face index out of range: {o} (mesh has {pb.faceCount} faces)."); return null; }
                 faces.Add(pb.faces[idx]);
             }

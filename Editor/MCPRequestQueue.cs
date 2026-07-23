@@ -288,8 +288,14 @@ namespace UnityMCP.Editor
                 // so they never clutter the history or shift group indices out from under a
                 // pending undo. GetCurrentGroup() alone is unreliable — many write ops (e.g.
                 // RegisterCreatedObjectUndo) don't advance it — so we open the group explicitly.
+                //
+                // Deferred actions are EXCLUDED: their completion fires an arbitrary number of
+                // frames later, so a CollapseUndoOperations then would fold ANY other agent's
+                // interleaved group into this one (corrupting per-action undo bookkeeping). They
+                // are already excluded from history recording below, so they need no group.
                 bool opensUndoGroup =
-                    !IsReadOperation(ticket.ActionName)
+                    ticket.DeferredAction == null
+                    && !IsReadOperation(ticket.ActionName)
                     && !(ticket.ActionName != null && ticket.ActionName.StartsWith("undo/"));
                 int undoGroup = -1;
                 int undoRecordsBefore = -1;
@@ -300,7 +306,6 @@ namespace UnityMCP.Editor
                     undoGroup = UnityEditor.Undo.GetCurrentGroup();
                     UnityEditor.Undo.SetCurrentGroupName(ticket.ActionName ?? "MCP Action");
                 }
-                int deferredUndoGroup = undoGroup; // stable capture for the deferred closure
 
                 // Deferred actions complete via callback on a future editor frame.
                 if (ticket.DeferredAction != null)
@@ -314,8 +319,6 @@ namespace UnityMCP.Editor
                             deferredTicket.Status      = RequestStatus.Completed;
                             deferredTicket.CompletedAt = DateTime.UtcNow;
                             deferredTicket.DeferredAction = null;
-                            if (deferredUndoGroup >= 0)
-                                UnityEditor.Undo.CollapseUndoOperations(deferredUndoGroup);
 
                             lock (_queueLock)
                             {

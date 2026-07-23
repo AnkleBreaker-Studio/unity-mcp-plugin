@@ -512,7 +512,14 @@ public static class MCPDynamicCode
             {
                 var obj = new Dictionary<string, object>();
                 foreach (System.Collections.DictionaryEntry entry in dictionary)
+                {
+                    if (obj.Count >= MaxSerializeItems)
+                    {
+                        obj["_truncated"] = $"... (truncated at {MaxSerializeItems} entries)";
+                        break;
+                    }
                     obj[entry.Key != null ? entry.Key.ToString() : "null"] = SerializeValue(entry.Value, depth + 1);
+                }
                 return obj;
             }
 

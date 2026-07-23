@@ -147,6 +147,16 @@ namespace UnityMCP.Editor
         private static void Initialize()
         {
             EditorApplication.update += PeriodicRefresh;
+            // The cached dot textures are HideAndDontSave native objects; free them before a
+            // domain reload nulls the statics, otherwise each recompile leaks 4 small textures.
+            AssemblyReloadEvents.beforeAssemblyReload += DisposeDotTextures;
+        }
+
+        private static void DisposeDotTextures()
+        {
+            foreach (var tex in new[] { _greenDot, _redDot, _yellowDot, _greyDot })
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+            _greenDot = _redDot = _yellowDot = _greyDot = null;
         }
 
         private static double _nextRefreshTime;

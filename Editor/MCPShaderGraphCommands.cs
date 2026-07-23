@@ -956,8 +956,11 @@ namespace UnityMCP.Editor
 
                     if (blockId == nodeId)
                     {
-                        // Replace the property value in this block
+                        // Replace the property value in this block. A null result means the
+                        // property wasn't present — surface that instead of a silent success.
                         string modified = SetJsonProperty(block, propertyName, value);
+                        if (modified == null)
+                            return new Dictionary<string, object> { { "error", $"Property '{propertyName}' not found on node '{nodeId}' (no string/number/boolean field matched). The file was not changed." } };
                         newBlocks.Add(modified);
                         found = true;
                     }
@@ -1256,24 +1259,31 @@ namespace UnityMCP.Editor
             return graphBlock.Substring(0, arrayStart) + newArray + graphBlock.Substring(arrayEnd + 1);
         }
 
+        /// <summary>
+        /// Replace <paramref name="propertyName"/>'s value in a MultiJson block. Returns the
+        /// modified block, or <c>null</c> when the property isn't present (so the caller reports
+        /// a real error instead of a silent success). The replacement goes through a
+        /// MatchEvaluator so a '$' in the value is treated literally, not as a regex
+        /// replacement token ("$1"/"$&amp;" would otherwise splice in the captured old value).
+        /// </summary>
         private static string SetJsonProperty(string block, string propertyName, string value)
         {
-            // Try to find and replace a string property
+            // String property
             string strPattern = $"\"{propertyName}\"\\s*:\\s*\"[^\"]*\"";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, strPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, strPattern, $"\"{propertyName}\": \"{value}\"");
+                return System.Text.RegularExpressions.Regex.Replace(block, strPattern, _ => $"\"{propertyName}\": \"{value}\"");
 
-            // Try numeric property
+            // Numeric property
             string numPattern = $"\"{propertyName}\"\\s*:\\s*[\\-0-9.eE]+";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, numPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, numPattern, $"\"{propertyName}\": {value}");
+                return System.Text.RegularExpressions.Regex.Replace(block, numPattern, _ => $"\"{propertyName}\": {value}");
 
-            // Try boolean property
+            // Boolean property
             string boolPattern = $"\"{propertyName}\"\\s*:\\s*(true|false)";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, boolPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, boolPattern, $"\"{propertyName}\": {value.ToLower()}");
+                return System.Text.RegularExpressions.Regex.Replace(block, boolPattern, _ => $"\"{propertyName}\": {value.ToLower()}");
 
-            return block; // Property not found
+            return null; // property not found — caller must surface this, not report success
         }
 
         internal static Type ResolveShaderGraphNodeType(string typeName)

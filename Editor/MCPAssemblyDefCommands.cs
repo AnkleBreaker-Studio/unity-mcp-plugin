@@ -27,14 +27,18 @@ namespace UnityMCP.Editor
             if (!path.EndsWith(".asmdef"))
                 path += ".asmdef";
 
+            // Confine to Assets/|Packages/ — reject traversal/absolute writes (data-safety).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
             string asmName = args.ContainsKey("name") ? args["name"].ToString()
                 : Path.GetFileNameWithoutExtension(path);
 
-            // Ensure directory exists
+            // Ensure directory exists (asset-relative path — the confined path is validated above)
             EnsureDirectoryExists(path);
 
             // Check if file already exists
-            if (File.Exists(path))
+            if (File.Exists(fullPath))
                 return new { error = $"Assembly definition already exists at '{path}'. Use asmdef/info to inspect or asmdef/update to modify it." };
 
             // Build the asmdef JSON
@@ -55,7 +59,7 @@ namespace UnityMCP.Editor
             };
 
             string json = FormatAsmdefJson(asmdef);
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new
@@ -78,10 +82,15 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            if (!File.Exists(path))
+            // Confine to Assets/|Packages/ — reject traversal/absolute paths so a raw asmdef
+            // 'path' can't read/write files outside the project (data-safety, matches siblings).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
+            if (!File.Exists(fullPath))
                 return new { error = $"File not found: '{path}'" };
 
-            string json = File.ReadAllText(path);
+            string json = File.ReadAllText(fullPath);
             var asmdef = MiniJson.Deserialize(json) as Dictionary<string, object>;
             if (asmdef == null)
                 return new { error = "Failed to parse assembly definition JSON" };
@@ -170,14 +179,19 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            if (!File.Exists(path))
+            // Confine to Assets/|Packages/ — reject traversal/absolute paths so a raw asmdef
+            // 'path' can't read/write files outside the project (data-safety, matches siblings).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
+            if (!File.Exists(fullPath))
                 return new { error = $"File not found: '{path}'" };
 
             var newRefs = BuildStringList(args, "references");
             if (newRefs.Count == 0)
                 return new { error = "references array is required and must not be empty" };
 
-            string json = File.ReadAllText(path);
+            string json = File.ReadAllText(fullPath);
             var asmdef = MiniJson.Deserialize(json) as Dictionary<string, object>;
             if (asmdef == null)
                 return new { error = "Failed to parse assembly definition JSON" };
@@ -208,7 +222,7 @@ namespace UnityMCP.Editor
             asmdef["references"] = existingRefs.Cast<object>().ToList();
 
             json = FormatAsmdefJson(asmdef);
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new
@@ -232,14 +246,19 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            if (!File.Exists(path))
+            // Confine to Assets/|Packages/ — reject traversal/absolute paths so a raw asmdef
+            // 'path' can't read/write files outside the project (data-safety, matches siblings).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
+            if (!File.Exists(fullPath))
                 return new { error = $"File not found: '{path}'" };
 
             var refsToRemove = BuildStringList(args, "references");
             if (refsToRemove.Count == 0)
                 return new { error = "references array is required and must not be empty" };
 
-            string json = File.ReadAllText(path);
+            string json = File.ReadAllText(fullPath);
             var asmdef = MiniJson.Deserialize(json) as Dictionary<string, object>;
             if (asmdef == null)
                 return new { error = "Failed to parse assembly definition JSON" };
@@ -281,7 +300,7 @@ namespace UnityMCP.Editor
             asmdef["references"] = existingRefs.Cast<object>().ToList();
 
             json = FormatAsmdefJson(asmdef);
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new
@@ -304,10 +323,15 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            if (!File.Exists(path))
+            // Confine to Assets/|Packages/ — reject traversal/absolute paths so a raw asmdef
+            // 'path' can't read/write files outside the project (data-safety, matches siblings).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
+            if (!File.Exists(fullPath))
                 return new { error = $"File not found: '{path}'" };
 
-            string json = File.ReadAllText(path);
+            string json = File.ReadAllText(fullPath);
             var asmdef = MiniJson.Deserialize(json) as Dictionary<string, object>;
             if (asmdef == null)
                 return new { error = "Failed to parse assembly definition JSON" };
@@ -319,7 +343,7 @@ namespace UnityMCP.Editor
                 asmdef["excludePlatforms"] = BuildStringList(args, "excludePlatforms").Cast<object>().ToList();
 
             json = FormatAsmdefJson(asmdef);
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new
@@ -342,10 +366,15 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            if (!File.Exists(path))
+            // Confine to Assets/|Packages/ — reject traversal/absolute paths so a raw asmdef
+            // 'path' can't read/write files outside the project (data-safety, matches siblings).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
+            if (!File.Exists(fullPath))
                 return new { error = $"File not found: '{path}'" };
 
-            string json = File.ReadAllText(path);
+            string json = File.ReadAllText(fullPath);
             var asmdef = MiniJson.Deserialize(json) as Dictionary<string, object>;
             if (asmdef == null)
                 return new { error = "Failed to parse assembly definition JSON" };
@@ -396,7 +425,7 @@ namespace UnityMCP.Editor
                 return new { error = "No settings to update. Provide at least one of: name, rootNamespace, allowUnsafeCode, overrideReferences, autoReferenced, noEngineReferences, defineConstraints, precompiledReferences, versionDefines" };
 
             json = FormatAsmdefJson(asmdef);
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new
@@ -423,13 +452,17 @@ namespace UnityMCP.Editor
             if (!path.EndsWith(".asmref"))
                 path += ".asmref";
 
+            // Confine to Assets/|Packages/ — reject traversal/absolute writes (data-safety).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+
             string targetAssembly = args.ContainsKey("reference") ? args["reference"].ToString() : "";
             if (string.IsNullOrEmpty(targetAssembly))
                 return new { error = "reference is required (name of the assembly definition to reference, e.g. 'MyGame.Runtime')" };
 
             EnsureDirectoryExists(path);
 
-            if (File.Exists(path))
+            if (File.Exists(fullPath))
                 return new { error = $"Assembly reference already exists at '{path}'" };
 
             // Resolve to GUID format
@@ -444,7 +477,7 @@ namespace UnityMCP.Editor
             // Pretty-print manually
             json = json.Replace("{", "{\n    ").Replace("}", "\n}");
 
-            File.WriteAllText(path, json);
+            File.WriteAllText(fullPath, json);
             AssetDatabase.ImportAsset(path);
 
             return new

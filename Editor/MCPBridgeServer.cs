@@ -441,12 +441,16 @@ namespace UnityMCP.Editor
                 }
 
                 // ═══ Deferred paths (Unity APIs with async callbacks) ═══
-                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                // These complete via an async main-thread callback and MUST go through the async
+                // queue (queue/submit → SubmitDeferredRequest, which is non-blocking). Running one
+                // on this synchronous endpoint self-deadlocks the editor for the full sync timeout:
+                // the ticket executes on the main thread and blocks on the main-thread pump, which
+                // can't drain until the current update tick returns — but it's blocked inside it.
+                // The Node server always uses queue/submit; this guard only trips a raw/legacy
+                // direct POST, turning a 30s hang into an actionable error.
+                if (_deferredRoutes.ContainsKey(apiPath))
                 {
-                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                        () => ExecuteOnMainThreadDeferred(resolve =>
-                            deferredHandler(ParseJson(body), resolve)));
-                    SendJson(response, 200, result);
+                    SendJson(response, 409, new { error = $"Route '{apiPath}' must be called via the async queue (POST /api/queue/submit), not the synchronous endpoint." });
                     return;
                 }
 
@@ -1440,51 +1444,6 @@ namespace UnityMCP.Editor
             {
                 // Trace goes to the editor log only — never to the wire.
                 Debug.LogError($"[AB-UMCP] Main-thread execution failed: {exception.Message}\n{exception.StackTrace}");
-                return new { error = exception.Message };
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// Execute an action on the main thread that completes asynchronously via callback.
-        /// Unlike ExecuteOnMainThread, the calling thread blocks until the resolve callback
-        /// is invoked — not when the action returns. Use for Unity APIs whose callbacks
-        /// fire on a subsequent editor frame (e.g. TestRunnerApi.RetrieveTestList).
-        /// </summary>
-        private static object ExecuteOnMainThreadDeferred(Action<Action<object>> asyncAction)
-        {
-            object result = null;
-            Exception exception = null;
-            var resetEvent = new ManualResetEventSlim(false);
-
-            lock (_mainThreadQueue)
-            {
-                _mainThreadQueue.Enqueue(() =>
-                {
-                    try
-                    {
-                        asyncAction(r =>
-                        {
-                            result = r;
-                            resetEvent.Set();
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        exception = ex;
-                        resetEvent.Set();
-                    }
-                });
-            }
-
-            if (!resetEvent.Wait(MCPRequestQueue.SyncTimeoutMs))
-                return new { error = $"Timeout waiting for Unity callback after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
-
-            if (exception != null)
-            {
-                // Trace goes to the editor log only — never to the wire.
-                Debug.LogError($"[AB-UMCP] Deferred execution failed: {exception.Message}\n{exception.StackTrace}");
                 return new { error = exception.Message };
             }
 

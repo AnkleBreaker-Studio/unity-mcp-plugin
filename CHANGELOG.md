@@ -2,6 +2,16 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.2] - 2026-07-23
+
+### Security / Fixed (pre-merge multi-expert audit)
+- **CRITICAL — asmdef commands now confined to the project.** Every `asmdef/*` handler (`create`, `info`, `add-references`, `remove-references`, `set-platforms`, `update-settings`, `create-ref`) took the caller's raw `path` straight into `File.ReadAllText`/`WriteAllText` — the one asset-writing surface the data-safety wave hadn't retrofitted. A `../../` or absolute `path` could read/write outside the project. All seven now resolve through `MCPAssetSafety.TryResolveProjectPath` (traversal + absolute rejected); live-verified that `../../…/hosts` and `C:/Users/Public/evil.asmdef` are refused while a normal `Assets/…​.asmdef` create/info/reference still works.
+- **CRITICAL — legacy synchronous endpoint no longer self-deadlocks on deferred routes.** A direct (non-`queue/submit`) POST to a deferred route (`testing/list-tests`) blocked the editor for the full sync timeout (the main-thread pump can't drain while the same update tick is blocked). Such routes now return a clear 409 directing to `queue/submit`; the orphaned `ExecuteOnMainThreadDeferred` deadlock primitive is removed. The async queue path (what the server uses) is unaffected.
+- **`probuilder/combine` is now fully undoable** — it didn't record the surviving target before merging, so `undo/last`/Ctrl+Z restored the consumed sources but left the target merged (partial undo). Verified: after undo the target returns to its pre-merge face count AND the sources come back.
+- **Deferred tickets no longer open an undo group** — their collapse fires an arbitrary number of frames later and could fold a concurrent agent's undo group into theirs, corrupting per-action undo. Deferred actions (already excluded from history) now never open a group.
+- **`shadergraph/set-node-property` no longer reports success when it changed nothing** — a missing property now returns a clear error instead of `success:true` on an unchanged file; the value is written through a literal `MatchEvaluator` so a `$`/`$1` in the value can't splice in captured regex text.
+- **ProBuilder null-arg hardening** — explicit-JSON `null` for `name`/`material`/a `faceIndices` element now yields a clear validation error instead of a `NullReferenceException`; `execute-code` dictionary results are item-capped like lists; toolbar dot textures are freed before domain reload (no per-recompile native-texture leak); dead local removed from `translate-faces`.
+
 ## [2.39.1] - 2026-07-23
 
 ### Security (merge-readiness audit of the news feature)

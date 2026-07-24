@@ -14,7 +14,10 @@ Findings from a 33-dimension + 10-blind-spot audit (127 + 40 agents, every CRITI
 ### Fixed — data safety
 - **`asset/delete` is no longer a silent, permanent, unconfined delete.** It now resolves through `MCPAssetSafety`, refuses a FOLDER unless `recursive:true` (reporting how many assets it would take), and defaults to the OS trash (`permanent:true` restores the hard delete). Asset deletion registers nothing on the undo stack, so `unity_undo_last` could never bring it back.
 - **`scene/new` no longer discards unsaved work silently.** It replaced the current scene with no check while `scene/open` twenty lines above had one. Both now refuse when ANY loaded scene is dirty (multi-scene setups included) unless `saveFirst` or `discardUnsavedChanges` is passed.
-- **No more modal dialog inside the request pump.** `scene/open` called `SaveCurrentModifiedScenesIfUserWantsTo()` — a dialog that blocks the editor on a human click, and blocks forever on an unattended/CI editor. The decision now comes from the arguments.
+- **No more modal dialogs inside the request pump.** Three separate paths could raise a dialog that blocks the editor on a human click — and blocks *forever* on an unattended/CI editor:
+  - `scene/open` called `SaveCurrentModifiedScenesIfUserWantsTo()`; the decision now comes from the arguments.
+  - The new guard's own `saveFirst:true` escape hatch called `SaveOpenScenes()`, which raises the native **Save Scene** panel for a scene that has never been saved — reintroducing the exact modal the guard was written to remove. It now refuses when any dirty scene has no asset path, naming those scenes. (Caught by the follow-up audit reviewing the guard added minutes earlier in this same wave.)
+  - `scene/save` raised the same panel on a never-saved scene with no way to avoid it. It now accepts an optional `path` (which doubles as Save-As, confined via `MCPAssetSafety`) and returns `requiresPath` instead of blocking when neither the scene nor the caller supplies one.
 - **`asset/create-prefab` got the missing overwrite guard** that `create-material` in the same file already had. Overwriting a prefab kept its `.meta` GUID, so every scene reference silently re-bound to the new asset.
 
 ### Fixed — reliability

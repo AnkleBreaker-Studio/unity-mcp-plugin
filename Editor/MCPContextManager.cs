@@ -109,12 +109,46 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
+        /// A context category must be a plain file name, optionally prefixed with the single
+        /// allowed subfolder "Custom/". Anything that could escape the context folder — path
+        /// traversal, absolute or rooted paths, drive letters, UNC, alternate separators, or
+        /// embedded NULs — is refused. Deliberately an allowlist: the input is attacker-reachable
+        /// over an unauthenticated GET.
+        /// </summary>
+        private static bool IsSafeCategoryName(string category)
+        {
+            if (string.IsNullOrEmpty(category)) return false;
+            if (category.Length > 128) return false;
+
+            string name = category.StartsWith("Custom/", StringComparison.Ordinal)
+                ? category.Substring("Custom/".Length)
+                : category;
+
+            if (string.IsNullOrEmpty(name)) return false;
+            if (name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0) return false;
+            if (name.IndexOf("..", StringComparison.Ordinal) >= 0) return false;
+            if (name.IndexOf(':') >= 0) return false;          // drive-qualified ("C:foo")
+            if (name.IndexOf('\0') >= 0) return false;
+            if (Path.IsPathRooted(name)) return false;
+            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Read a specific context file by category name.
         /// Returns null if file doesn't exist.
         /// </summary>
         public static string GetContextByCategory(string category)
         {
             string folder = GetContextFolderPath();
+
+            // `category` arrives RAW from the request URL (/api/context/<category>). Without this
+            // guard, Path.Combine happily accepts "../.." (traversal) or an absolute path — which
+            // replaces the folder outright — turning a read-only context lookup into "read any
+            // .md file on this machine". Allow only a simple name, optionally under Custom/.
+            if (!IsSafeCategoryName(category))
+                return null;
 
             // Try direct match first
             string filePath = Path.Combine(folder, category + ".md");

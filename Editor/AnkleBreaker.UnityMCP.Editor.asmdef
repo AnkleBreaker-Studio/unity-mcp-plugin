@@ -22,7 +22,7 @@
   "versionDefines": [
     {
       "name": "com.unity.probuilder",
-      "expression": "4.0.0",
+      "expression": "5.1.0",
       "define": "PROBUILDER_INSTALLED"
     }
   ],

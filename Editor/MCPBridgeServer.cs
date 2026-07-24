@@ -27,6 +27,32 @@ namespace UnityMCP.Editor
         private static bool _isRunning;
 
         /// <summary>
+        /// Upper bound on an inbound request body. Outbound responses were already capped, but
+        /// the inbound read was an unbounded ReadToEnd — any local process could drive the
+        /// editor into an OOM with one request. 32 MB is far above any legitimate call
+        /// (the largest real payloads are execute-code snippets and batch component wiring).
+        /// </summary>
+        private const long MaxRequestBodyBytes = 32L * 1024 * 1024;
+
+        /// <summary>
+        /// Read at most <paramref name="limit"/> bytes' worth of characters from the reader.
+        /// Returns null when the stream exceeds the limit (chunked bodies report no
+        /// ContentLength64, so the size check alone is not sufficient).
+        /// </summary>
+        private static string ReadBounded(StreamReader reader, long limit)
+        {
+            var buffer = new char[8192];
+            var sb = new System.Text.StringBuilder();
+            int read;
+            while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                sb.Append(buffer, 0, read);
+                if (sb.Length > limit) return null;
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// The actual port this server is running on.
         /// Resolved at startup via auto-selection or manual override.
         /// </summary>
@@ -135,7 +161,10 @@ namespace UnityMCP.Editor
             {
                 // Persist that we were running, so we restart after reload
                 SessionState.SetBool(WasRunningKey, true);
-                Stop();
+                // Keep the registry entry across the reload — see Stop(bool). The bridge is
+                // coming straight back on the same port; removing the entry made a routine
+                // recompile look like the project had gone away.
+                Stop(false);
             }
         }
 
@@ -257,7 +286,15 @@ namespace UnityMCP.Editor
             }
         }
 
-        public static void Stop()
+        /// <param name="unregister">
+        /// Remove this instance from the shared registry. TRUE for a real shutdown (quit, user
+        /// stop). FALSE across a domain reload: the registry entry is exactly what lets the MCP
+        /// server ride out a recompile — it treats "unresponsive but present in the registry" as
+        /// "compiling, keep the selection", and "absent" as "project gone". Deleting the entry on
+        /// every reload made the transient case look permanent, which is what pushed the server
+        /// onto the default port and into another project.
+        /// </param>
+        public static void Stop(bool unregister = true)
         {
             _isRunning = false;
 
@@ -265,8 +302,8 @@ namespace UnityMCP.Editor
             _manualPortRetryPending = false;
             _manualPortRetryCount = 0;
 
-            // Unregister from shared instance registry
-            MCPInstanceRegistry.Unregister();
+            if (unregister)
+                MCPInstanceRegistry.Unregister();
 
             try
             {
@@ -361,7 +398,40 @@ namespace UnityMCP.Editor
                     return false;
             }
 
+            // The Origin check above only runs when an Origin is PRESENT — and a no-cors
+            // subresource load (<img src>, <iframe>, <script src>, <form> GET) deliberately
+            // sends none, so a page the developer merely visits could slip past it. Browsers
+            // still attach Sec-Fetch-* on every such request and page script cannot forge them
+            // (they are forbidden header names), so treat any non-same-origin fetch metadata as
+            // browser-originated and refuse. Non-browser clients send no Sec-Fetch-Site at all.
+            string fetchSite = request.Headers["Sec-Fetch-Site"];
+            if (!string.IsNullOrEmpty(fetchSite) &&
+                !string.Equals(fetchSite, "same-origin", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(fetchSite, "none", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // A browser navigation/subresource load is never a legitimate bridge call.
+            string fetchMode = request.Headers["Sec-Fetch-Mode"];
+            if (!string.IsNullOrEmpty(fetchMode) &&
+                string.Equals(fetchMode, "navigate", StringComparison.OrdinalIgnoreCase))
+                return false;
+
             return true;
+        }
+
+        /// <summary>
+        /// Routes that may be reached with a safe (GET) method. Everything else — i.e. every
+        /// route that can mutate the project or run code — requires POST. A no-cors GET from a
+        /// page cannot be a POST, so this is the second half of the browser-reachability guard.
+        /// </summary>
+        private static bool IsReadOnlyRoute(string apiPath)
+        {
+            return apiPath == "ping"
+                || apiPath == "queue/status"
+                || apiPath == "queue/info"
+                || apiPath == "context"
+                || apiPath.StartsWith("context/")
+                || apiPath == "_meta/routes";
         }
 
         private static bool IsLoopbackHostName(string hostName)
@@ -398,11 +468,36 @@ namespace UnityMCP.Editor
                 }
 
                 string apiPath = path.Substring(4); // Remove "api/"
+
+                // Any route that can mutate the project or run code requires POST. A page can
+                // issue a no-cors GET at a loopback URL with no Origin (<img>, <iframe>), but it
+                // cannot make that a POST — so this closes the browser-reachable dispatch path
+                // that the Origin check alone left open.
+                if (!IsReadOnlyRoute(apiPath) &&
+                    !string.Equals(request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
+                {
+                    SendJson(response, 405, new { error = $"Method {request.HttpMethod} not allowed for '{apiPath}' — use POST." });
+                    return;
+                }
+
                 string body = "";
                 if (request.HasEntityBody)
                 {
+                    // Bound the inbound body: ReadToEnd on an unbounded stream let any local
+                    // process drive the editor into an OOM. The cap is far above any legitimate
+                    // call (large execute-code payloads included).
+                    if (request.ContentLength64 > MaxRequestBodyBytes)
+                    {
+                        SendJson(response, 413, new { error = $"Request body too large ({request.ContentLength64} bytes; limit {MaxRequestBodyBytes})." });
+                        return;
+                    }
                     using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
-                        body = reader.ReadToEnd();
+                        body = ReadBounded(reader, MaxRequestBodyBytes);
+                    if (body == null)
+                    {
+                        SendJson(response, 413, new { error = $"Request body exceeded the {MaxRequestBodyBytes}-byte limit." });
+                        return;
+                    }
                 }
 
                 string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
@@ -642,7 +737,7 @@ namespace UnityMCP.Editor
                 case "scene/save":
                     return MCPSceneCommands.SaveScene();
                 case "scene/new":
-                    return MCPSceneCommands.NewScene();
+                    return MCPSceneCommands.NewScene(ParseJson(body));
                 case "scene/hierarchy":
                     return MCPSceneCommands.GetHierarchy(ParseJson(body));
 

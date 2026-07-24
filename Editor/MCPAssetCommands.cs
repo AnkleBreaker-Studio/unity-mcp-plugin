@@ -99,8 +99,52 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            bool deleted = AssetDatabase.DeleteAsset(path);
-            return new { success = deleted, path };
+            // Confine to the project like every other asset writer — a traversal/absolute path
+            // reached AssetDatabase.DeleteAsset raw before this.
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out _, out var pathError))
+                return new { error = pathError };
+            string assetPath = MCPAssetSafety.ToAssetDatabasePath(path);
+
+            // Existence check that holds on the whole supported range (AssetPathExists is 2023.2+,
+            // this package targets 2021.3): a real asset loads, a folder answers IsValidFolder.
+            bool exists = AssetDatabase.IsValidFolder(assetPath)
+                || AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath) != null;
+            if (!exists)
+                return new { error = $"Asset not found: {assetPath}" };
+
+            // DeleteAsset on a FOLDER is silently recursive: one truncated path
+            // ('Assets/Art/Materials' instead of the .mat) takes the whole tree. Asset deletion
+            // also registers nothing on the undo stack, so undo/last cannot bring it back —
+            // require an explicit opt-in and disclose the blast radius first.
+            bool isFolder = AssetDatabase.IsValidFolder(assetPath);
+            if (isFolder)
+            {
+                var contained = AssetDatabase.FindAssets("", new[] { assetPath });
+                if (!(args.ContainsKey("recursive") && Convert.ToBoolean(args["recursive"])))
+                    return new
+                    {
+                        error = $"'{assetPath}' is a FOLDER containing {contained.Length} asset(s). Deleting it removes them all and is not undoable. Pass recursive:true to confirm.",
+                        requiresRecursive = true,
+                        isFolder = true,
+                        assetCount = contained.Length,
+                    };
+            }
+
+            // Default to the OS trash so a mistake stays recoverable; permanent:true keeps the
+            // old hard-delete behaviour for callers that really mean it.
+            bool permanent = args.ContainsKey("permanent") && Convert.ToBoolean(args["permanent"]);
+            bool deleted = permanent
+                ? AssetDatabase.DeleteAsset(assetPath)
+                : AssetDatabase.MoveAssetToTrash(assetPath);
+
+            return new
+            {
+                success = deleted,
+                path = assetPath,
+                isFolder,
+                recoverable = !permanent,
+                method = permanent ? "deleted permanently" : "moved to OS trash",
+            };
         }
 
         public static object CreatePrefab(Dictionary<string, object> args)
@@ -113,6 +157,14 @@ namespace UnityMCP.Editor
 
             if (string.IsNullOrEmpty(savePath))
                 return new { error = "savePath is required" };
+
+            // Same confinement + clobber guard CreateMaterial already uses below. Without it,
+            // saving over an existing prefab kept the .meta GUID, so every scene reference
+            // silently re-bound to the new asset instead of erroring.
+            if (!MCPAssetSafety.TryResolveProjectPath(savePath, out _, out var prefabPathError))
+                return new { error = prefabPathError };
+            var prefabOverwrite = MCPAssetSafety.OverwriteGuard(savePath, args);
+            if (prefabOverwrite != null) return prefabOverwrite;
 
             // Ensure directory exists
             string dir = Path.GetDirectoryName(savePath)?.Replace('\\', '/');

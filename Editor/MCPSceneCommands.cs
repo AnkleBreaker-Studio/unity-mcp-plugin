@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -44,19 +45,50 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            // Check for unsaved changes
-            if (SceneManager.GetActiveScene().isDirty)
-            {
-                if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                {
-                    var scene = EditorSceneManager.OpenScene(path);
-                    return new { success = true, name = scene.name, path = scene.path };
-                }
-                return new { error = "Scene has unsaved changes and user cancelled" };
-            }
+            // Unsaved-changes guard. This used to call SaveCurrentModifiedScenesIfUserWantsTo(),
+            // a MODAL dialog raised from inside the request pump — it blocks the editor on a
+            // human click, and on an unattended/CI editor it blocks forever. Decide from the
+            // arguments instead, and check EVERY loaded scene (multi-scene setups lose work in
+            // the additively-loaded scenes too, which the active-scene-only test missed).
+            var guard = UnsavedScenesGuard(args, "Opening a scene replaces the current one");
+            if (guard != null) return guard;
 
             var openedScene = EditorSceneManager.OpenScene(path);
             return new { success = true, name = openedScene.name, path = openedScene.path };
+        }
+
+        /// <summary>
+        /// Refuse a scene-replacing operation while any loaded scene has unsaved changes,
+        /// unless the caller explicitly opts in via saveFirst (save them) or
+        /// discardUnsavedChanges (throw them away). Returns null when it is safe to proceed.
+        /// Never shows UI — this runs on the request pump.
+        /// </summary>
+        private static object UnsavedScenesGuard(Dictionary<string, object> args, string what)
+        {
+            var dirty = new List<string>();
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (s.isDirty) dirty.Add(string.IsNullOrEmpty(s.path) ? s.name + " (never saved)" : s.path);
+            }
+            if (dirty.Count == 0) return null;
+
+            bool discard = args != null && args.ContainsKey("discardUnsavedChanges") && Convert.ToBoolean(args["discardUnsavedChanges"]);
+            bool saveFirst = args != null && args.ContainsKey("saveFirst") && Convert.ToBoolean(args["saveFirst"]);
+
+            if (saveFirst)
+            {
+                EditorSceneManager.SaveOpenScenes();
+                return null;
+            }
+            if (discard) return null;
+
+            return new
+            {
+                error = $"{what}, but {dirty.Count} loaded scene(s) have unsaved changes: {string.Join(", ", dirty)}. Pass saveFirst:true to save them, or discardUnsavedChanges:true to throw the changes away.",
+                requiresConfirmation = true,
+                dirtyScenes = dirty,
+            };
         }
 
         public static object SaveScene()
@@ -66,8 +98,15 @@ namespace UnityMCP.Editor
             return new { success = saved, scene = scene.name, path = scene.path };
         }
 
-        public static object NewScene()
+        public static object NewScene(Dictionary<string, object> args)
         {
+            // NewSceneMode.Single silently discards the current scene, and the scripting API
+            // does NOT prompt (that prompt only exists on the File-menu path). An agent asked
+            // for "a clean scene" therefore destroyed unsaved work with no warning — OpenScene
+            // twenty lines above had a guard and this did not.
+            var guard = UnsavedScenesGuard(args, "Creating a new scene replaces the current one");
+            if (guard != null) return guard;
+
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             return new { success = true, name = scene.name };
         }

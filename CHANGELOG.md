@@ -2,6 +2,29 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.4] - 2026-07-24
+
+Findings from a 33-dimension + 10-blind-spot audit (127 + 40 agents, every CRITICAL/HIGH adversarially verified). The recurring pattern: a correct pattern existed but was never propagated, and guards failed OPEN.
+
+### Security
+- **CRITICAL — arbitrary `.md` file read over an unauthenticated GET.** `MCPContextManager.GetContextByCategory` fed the raw URL segment into `Path.Combine`, so `GET /api/context/..%2f..%2f..%2fsecret` escaped the context folder (and an absolute path replaced it outright). Category names are now allowlisted to a plain filename, optionally under `Custom/`. Live-verified: six traversal/absolute/NUL payloads all blocked while plain, `Custom/`-prefixed and bare-name lookups still resolve.
+- **Browser-reachable dispatch closed.** The Origin check only ran when an Origin was *present*, but a no-cors subresource load (`<img>`, `<iframe>`) sends none — so a page a developer merely visited could reach the bridge. Requests carrying browser `Sec-Fetch-Site`/`Sec-Fetch-Mode` metadata are now refused (page script cannot forge those headers), and every non-read-only route requires **POST**, which a no-cors GET can never be.
+- **Inbound request bodies are bounded (32 MB).** The read was an unbounded `ReadToEnd`; any local process could drive the editor into an OOM with one request. Oversized bodies get a 413, including chunked bodies with no declared length.
+
+### Fixed — data safety
+- **`asset/delete` is no longer a silent, permanent, unconfined delete.** It now resolves through `MCPAssetSafety`, refuses a FOLDER unless `recursive:true` (reporting how many assets it would take), and defaults to the OS trash (`permanent:true` restores the hard delete). Asset deletion registers nothing on the undo stack, so `unity_undo_last` could never bring it back.
+- **`scene/new` no longer discards unsaved work silently.** It replaced the current scene with no check while `scene/open` twenty lines above had one. Both now refuse when ANY loaded scene is dirty (multi-scene setups included) unless `saveFirst` or `discardUnsavedChanges` is passed.
+- **No more modal dialogs inside the request pump.** Three separate paths could raise a dialog that blocks the editor on a human click — and blocks *forever* on an unattended/CI editor:
+  - `scene/open` called `SaveCurrentModifiedScenesIfUserWantsTo()`; the decision now comes from the arguments.
+  - The new guard's own `saveFirst:true` escape hatch called `SaveOpenScenes()`, which raises the native **Save Scene** panel for a scene that has never been saved — reintroducing the exact modal the guard was written to remove. It now refuses when any dirty scene has no asset path, naming those scenes. (Caught by the follow-up audit reviewing the guard added minutes earlier in this same wave.)
+  - `scene/save` raised the same panel on a never-saved scene with no way to avoid it. It now accepts an optional `path` (which doubles as Save-As, confined via `MCPAssetSafety`) and returns `requiresPath` instead of blocking when neither the scene nor the caller supplies one.
+- **`asset/create-prefab` got the missing overwrite guard** that `create-material` in the same file already had. Overwriting a prefab kept its `.meta` GUID, so every scene reference silently re-bound to the new asset.
+
+### Fixed — reliability
+- **The bridge no longer unregisters from the instance registry on domain reload.** It deleted its entry on every recompile — exactly the window the MCP server's compile-resilience logic depends on — which made a routine recompile look like the project had gone away and pushed the server onto another project's port.
+- **ProBuilder gate corrected to `5.1.0`.** `MakeUnique()` (used by the PB-safe duplicate) only exists from 5.1.0, but the versionDefine accepted 4.0.0+, so ProBuilder 4.x–5.0.x failed to compile the whole assembly — not a degraded feature, a dead plugin.
+- **License metadata corrected** — `package.json` declared `MIT` while the shipped LICENSE is the AnkleBreaker Open License v1.0 (attribution required, resale prohibited).
+
 ## [2.39.3] - 2026-07-23
 
 ### Fixed (Discord ProBuilder report — "shared-mesh hazards + 8 tool traps")

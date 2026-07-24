@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -44,30 +45,110 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(path))
                 return new { error = "path is required" };
 
-            // Check for unsaved changes
-            if (SceneManager.GetActiveScene().isDirty)
-            {
-                if (EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                {
-                    var scene = EditorSceneManager.OpenScene(path);
-                    return new { success = true, name = scene.name, path = scene.path };
-                }
-                return new { error = "Scene has unsaved changes and user cancelled" };
-            }
+            // Unsaved-changes guard. This used to call SaveCurrentModifiedScenesIfUserWantsTo(),
+            // a MODAL dialog raised from inside the request pump — it blocks the editor on a
+            // human click, and on an unattended/CI editor it blocks forever. Decide from the
+            // arguments instead, and check EVERY loaded scene (multi-scene setups lose work in
+            // the additively-loaded scenes too, which the active-scene-only test missed).
+            var guard = UnsavedScenesGuard(args, "Opening a scene replaces the current one");
+            if (guard != null) return guard;
 
             var openedScene = EditorSceneManager.OpenScene(path);
             return new { success = true, name = openedScene.name, path = openedScene.path };
         }
 
-        public static object SaveScene()
+        /// <summary>
+        /// Refuse a scene-replacing operation while any loaded scene has unsaved changes,
+        /// unless the caller explicitly opts in via saveFirst (save them) or
+        /// discardUnsavedChanges (throw them away). Returns null when it is safe to proceed.
+        /// Never shows UI — this runs on the request pump.
+        /// </summary>
+        private static object UnsavedScenesGuard(Dictionary<string, object> args, string what)
+        {
+            var dirty = new List<string>();
+            var unsaveable = new List<string>();
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (!s.isDirty) continue;
+                if (string.IsNullOrEmpty(s.path))
+                {
+                    dirty.Add(s.name + " (never saved)");
+                    unsaveable.Add(s.name);
+                }
+                else dirty.Add(s.path);
+            }
+            if (dirty.Count == 0) return null;
+
+            bool discard = args != null && args.ContainsKey("discardUnsavedChanges") && Convert.ToBoolean(args["discardUnsavedChanges"]);
+            bool saveFirst = args != null && args.ContainsKey("saveFirst") && Convert.ToBoolean(args["saveFirst"]);
+
+            if (saveFirst)
+            {
+                // SaveOpenScenes() on a scene that has NEVER been saved opens the native
+                // "Save Scene" file panel — the very modal this guard exists to keep off the
+                // request pump. Refuse instead: a scene with no asset path cannot be saved
+                // non-interactively, so the caller must name a path or discard.
+                if (unsaveable.Count > 0)
+                    return new
+                    {
+                        error = $"saveFirst cannot be honoured: {unsaveable.Count} dirty scene(s) have never been saved and have no asset path ({string.Join(", ", unsaveable)}). Saving them would require the interactive Save Scene dialog. Save them explicitly with unity_scene_save(path:...), or pass discardUnsavedChanges:true.",
+                        requiresConfirmation = true,
+                        unsaveableScenes = unsaveable,
+                        dirtyScenes = dirty,
+                    };
+                EditorSceneManager.SaveOpenScenes();
+                return null;
+            }
+            if (discard) return null;
+
+            return new
+            {
+                error = $"{what}, but {dirty.Count} loaded scene(s) have unsaved changes: {string.Join(", ", dirty)}. Pass saveFirst:true to save them, or discardUnsavedChanges:true to throw the changes away.",
+                requiresConfirmation = true,
+                dirtyScenes = dirty,
+            };
+        }
+
+        public static object SaveScene(Dictionary<string, object> args)
         {
             var scene = SceneManager.GetActiveScene();
+            string path = args != null && args.ContainsKey("path") && args["path"] != null
+                ? args["path"].ToString()
+                : null;
+
+            // SaveScene() on a scene with no asset path opens the native Save Scene panel — a
+            // modal on the request pump, which hangs an unattended editor forever. Require an
+            // explicit path in that case instead of blocking on a human.
+            if (string.IsNullOrEmpty(path) && string.IsNullOrEmpty(scene.path))
+                return new
+                {
+                    error = $"Scene '{scene.name}' has never been saved and has no asset path. Pass path (e.g. 'Assets/Scenes/MyScene.unity') — saving without one would open the interactive Save Scene dialog.",
+                    requiresPath = true,
+                };
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                if (!MCPAssetSafety.TryResolveProjectPath(path, out _, out var pathError))
+                    return new { error = pathError };
+                if (!path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) path += ".unity";
+                bool savedAs = EditorSceneManager.SaveScene(scene, MCPAssetSafety.ToAssetDatabasePath(path));
+                return new { success = savedAs, scene = scene.name, path = scene.path };
+            }
+
             bool saved = EditorSceneManager.SaveScene(scene);
             return new { success = saved, scene = scene.name, path = scene.path };
         }
 
-        public static object NewScene()
+        public static object NewScene(Dictionary<string, object> args)
         {
+            // NewSceneMode.Single silently discards the current scene, and the scripting API
+            // does NOT prompt (that prompt only exists on the File-menu path). An agent asked
+            // for "a clean scene" therefore destroyed unsaved work with no warning — OpenScene
+            // twenty lines above had a guard and this did not.
+            var guard = UnsavedScenesGuard(args, "Creating a new scene replaces the current one");
+            if (guard != null) return guard;
+
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             return new { success = true, name = scene.name };
         }

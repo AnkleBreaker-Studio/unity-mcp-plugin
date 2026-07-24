@@ -66,10 +66,17 @@ namespace UnityMCP.Editor
         private static object UnsavedScenesGuard(Dictionary<string, object> args, string what)
         {
             var dirty = new List<string>();
+            var unsaveable = new List<string>();
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
                 var s = SceneManager.GetSceneAt(i);
-                if (s.isDirty) dirty.Add(string.IsNullOrEmpty(s.path) ? s.name + " (never saved)" : s.path);
+                if (!s.isDirty) continue;
+                if (string.IsNullOrEmpty(s.path))
+                {
+                    dirty.Add(s.name + " (never saved)");
+                    unsaveable.Add(s.name);
+                }
+                else dirty.Add(s.path);
             }
             if (dirty.Count == 0) return null;
 
@@ -78,6 +85,18 @@ namespace UnityMCP.Editor
 
             if (saveFirst)
             {
+                // SaveOpenScenes() on a scene that has NEVER been saved opens the native
+                // "Save Scene" file panel — the very modal this guard exists to keep off the
+                // request pump. Refuse instead: a scene with no asset path cannot be saved
+                // non-interactively, so the caller must name a path or discard.
+                if (unsaveable.Count > 0)
+                    return new
+                    {
+                        error = $"saveFirst cannot be honoured: {unsaveable.Count} dirty scene(s) have never been saved and have no asset path ({string.Join(", ", unsaveable)}). Saving them would require the interactive Save Scene dialog. Save them explicitly with unity_scene_save(path:...), or pass discardUnsavedChanges:true.",
+                        requiresConfirmation = true,
+                        unsaveableScenes = unsaveable,
+                        dirtyScenes = dirty,
+                    };
                 EditorSceneManager.SaveOpenScenes();
                 return null;
             }
@@ -91,9 +110,32 @@ namespace UnityMCP.Editor
             };
         }
 
-        public static object SaveScene()
+        public static object SaveScene(Dictionary<string, object> args)
         {
             var scene = SceneManager.GetActiveScene();
+            string path = args != null && args.ContainsKey("path") && args["path"] != null
+                ? args["path"].ToString()
+                : null;
+
+            // SaveScene() on a scene with no asset path opens the native Save Scene panel — a
+            // modal on the request pump, which hangs an unattended editor forever. Require an
+            // explicit path in that case instead of blocking on a human.
+            if (string.IsNullOrEmpty(path) && string.IsNullOrEmpty(scene.path))
+                return new
+                {
+                    error = $"Scene '{scene.name}' has never been saved and has no asset path. Pass path (e.g. 'Assets/Scenes/MyScene.unity') — saving without one would open the interactive Save Scene dialog.",
+                    requiresPath = true,
+                };
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                if (!MCPAssetSafety.TryResolveProjectPath(path, out _, out var pathError))
+                    return new { error = pathError };
+                if (!path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) path += ".unity";
+                bool savedAs = EditorSceneManager.SaveScene(scene, MCPAssetSafety.ToAssetDatabasePath(path));
+                return new { success = savedAs, scene = scene.name, path = scene.path };
+            }
+
             bool saved = EditorSceneManager.SaveScene(scene);
             return new { success = saved, scene = scene.name, path = scene.path };
         }

@@ -735,7 +735,7 @@ namespace UnityMCP.Editor
                 case "scene/open":
                     return MCPSceneCommands.OpenScene(ParseJson(body));
                 case "scene/save":
-                    return MCPSceneCommands.SaveScene();
+                    return MCPSceneCommands.SaveScene(ParseJson(body));
                 case "scene/new":
                     return MCPSceneCommands.NewScene(ParseJson(body));
                 case "scene/hierarchy":

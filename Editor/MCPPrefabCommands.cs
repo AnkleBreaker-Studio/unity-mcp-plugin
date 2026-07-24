@@ -324,15 +324,49 @@ namespace UnityMCP.Editor
             if (go.transform.parent != null)
                 duplicate.transform.SetParent(go.transform.parent);
 
+            // ProBuilder-safe clone: Object.Instantiate makes the copy's MeshFilter share the SAME
+            // runtime mesh the source's ProBuilderMesh owns. Deleting either object later
+            // (ProBuilderMesh.OnDestroy destroys that mesh) would blank ALL the copies. Give each
+            // cloned ProBuilderMesh its own independent mesh via ProBuilder's MakeUnique() so the
+            // duplicate is a fully independent, still-editable object (report A1).
+            int pbIsolated = MakeProBuilderClonesIndependent(duplicate);
+
             Undo.RegisterCreatedObjectUndo(duplicate, $"Duplicate {go.name}");
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "success", true },
                 { "original", go.name },
                 { "duplicate", duplicate.name },
                 { "instanceId", MCPObjectId.Get(duplicate) },
             };
+            if (pbIsolated > 0) result["proBuilderMeshesIsolated"] = pbIsolated;
+            return result;
+        }
+
+        /// <summary>
+        /// After an Object.Instantiate of a GameObject tree, give every cloned ProBuilderMesh an
+        /// independent runtime mesh (ProBuilder's MakeUnique) so the clone no longer shares the
+        /// source's mesh. Without this the copies share one mesh, and destroying any one of them
+        /// (or the source) blanks the rest — the core of the shared-mesh hazard (report A1).
+        /// Returns the count of ProBuilder meshes isolated; a harmless 0 when ProBuilder is absent.
+        /// </summary>
+        private static int MakeProBuilderClonesIndependent(GameObject clone)
+        {
+#if PROBUILDER_INSTALLED
+            int count = 0;
+            foreach (var pb in clone.GetComponentsInChildren<UnityEngine.ProBuilder.ProBuilderMesh>(true))
+            {
+                pb.MakeUnique();
+                pb.ToMesh();
+                pb.Refresh();
+                UnityEditor.ProBuilder.EditorUtility.SynchronizeWithMeshFilter(pb);
+                count++;
+            }
+            return count;
+#else
+            return 0;
+#endif
         }
 
         /// <summary>

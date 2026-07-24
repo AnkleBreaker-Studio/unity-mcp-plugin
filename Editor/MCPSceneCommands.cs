@@ -83,6 +83,13 @@ namespace UnityMCP.Editor
             if (args != null && args.ContainsKey("maxNodes"))
                 maxNodes = System.Convert.ToInt32(args["maxNodes"]);
 
+            // Dense by default: per-node fields that carry their default value (active=true,
+            // tag=Untagged, layer=Default, position=origin, the universal Transform component,
+            // childCount implied by a complete children array) are omitted — on real scenes
+            // that's most of the payload. verbose:true restores the full per-node shape.
+            bool verbose = args != null && args.ContainsKey("verbose") && args["verbose"] != null
+                && (args["verbose"].ToString().ToLowerInvariant() == "true" || args["verbose"].ToString() == "1");
+
             // Optional: only return hierarchy under a specific parent path
             string parentPath = null;
             if (args != null && args.ContainsKey("parentPath"))
@@ -112,7 +119,7 @@ namespace UnityMCP.Editor
 
             foreach (var root in startObjects)
             {
-                var node = BuildHierarchyNode(root, 0, maxDepth, ref nodeCount, maxNodes);
+                var node = BuildHierarchyNode(root, 0, maxDepth, ref nodeCount, maxNodes, verbose);
                 if (node != null)
                     hierarchy.Add(node);
                 if (nodeCount >= maxNodes)
@@ -158,7 +165,7 @@ namespace UnityMCP.Editor
         }
 
         private static Dictionary<string, object> BuildHierarchyNode(
-            GameObject go, int depth, int maxDepth, ref int nodeCount, int maxNodes)
+            GameObject go, int depth, int maxDepth, ref int nodeCount, int maxNodes, bool verbose)
         {
             if (nodeCount >= maxNodes)
                 return null;
@@ -168,20 +175,29 @@ namespace UnityMCP.Editor
             var components = new List<string>();
             foreach (var comp in go.GetComponents<Component>())
             {
-                if (comp != null)
-                    components.Add(comp.GetType().Name);
+                if (comp == null) continue;
+                string typeName = comp.GetType().Name;
+                // Dense mode: every GameObject has a Transform — listing it is pure noise.
+                // (RectTransform stays: it distinguishes UI objects.)
+                if (!verbose && typeName == "Transform") continue;
+                components.Add(typeName);
             }
 
             var node = new Dictionary<string, object>
             {
                 { "name", go.name },
                 { "instanceId", MCPObjectId.Get(go) },
-                { "active", go.activeSelf },
-                { "tag", go.tag },
-                { "layer", LayerMask.LayerToName(go.layer) },
-                { "components", components },
-                { "position", VectorToDict(go.transform.position) },
             };
+
+            // Dense mode omits default-valued fields; their absence means the default.
+            // verbose:true restores the always-present shape.
+            if (verbose || !go.activeSelf) node["active"] = go.activeSelf;
+            if (verbose || !go.CompareTag("Untagged")) node["tag"] = go.tag;
+            if (verbose || go.layer != 0) node["layer"] = LayerMask.LayerToName(go.layer);
+            if (verbose || components.Count > 0) node["components"] = components;
+            // Vector3 == uses an approximate comparison, so float noise still counts as origin.
+            if (verbose || go.transform.position != Vector3.zero)
+                node["position"] = VectorToDict(go.transform.position);
 
             if (depth < maxDepth && go.transform.childCount > 0)
             {
@@ -196,13 +212,15 @@ namespace UnityMCP.Editor
                         node["childrenTruncated"] = true;
                         break;
                     }
-                    var childNode = BuildHierarchyNode(go.transform.GetChild(i).gameObject, depth + 1, maxDepth, ref nodeCount, maxNodes);
+                    var childNode = BuildHierarchyNode(go.transform.GetChild(i).gameObject, depth + 1, maxDepth, ref nodeCount, maxNodes, verbose);
                     if (childNode != null)
                         children.Add(childNode);
                 }
                 if (children.Count > 0)
                     node["children"] = children;
-                if (!node.ContainsKey("childCount"))
+                // A complete children array implies childCount — only emit when it adds
+                // information (truncated above, or verbose callers wanting the old shape).
+                if (!node.ContainsKey("childCount") && (verbose || children.Count != go.transform.childCount))
                     node["childCount"] = go.transform.childCount;
             }
             else if (go.transform.childCount > 0)

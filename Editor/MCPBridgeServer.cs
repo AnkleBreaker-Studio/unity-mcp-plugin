@@ -20,7 +20,7 @@ namespace UnityMCP.Editor
     /// Both modes go through MCPRequestQueue for fair round-robin scheduling.
     /// </summary>
     [InitializeOnLoad]
-    public static class MCPBridgeServer
+    public static partial class MCPBridgeServer
     {
         private static HttpListener _listener;
         private static Thread _listenerThread;
@@ -45,6 +45,26 @@ namespace UnityMCP.Editor
         {
             { "testing/list-tests", MCPTestRunnerCommands.ListTests },
         };
+
+        // ─── Capability handshake (unity-mcp-server PRs #32/#20) ───
+        // One monotonic int, bumped whenever the bridge gains a wire-visible capability.
+        // Servers compare it to decide between fast paths and graceful fallbacks.
+        // v1: baseline — advertises the handshake itself + unknown-route 404s.
+        private const int ProtocolVersion = 1;
+
+        private static string _pluginVersion;
+        private static string PluginVersion
+        {
+            get
+            {
+                if (_pluginVersion == null)
+                {
+                    var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(MCPBridgeServer).Assembly);
+                    _pluginVersion = info != null ? info.version : "unknown";
+                }
+                return _pluginVersion;
+            }
+        }
 
         // SessionState key to persist running state across domain reloads (Play Mode, recompile)
         private const string WasRunningKey = "UnityMCP_WasRunningBeforeReload";
@@ -303,6 +323,54 @@ namespace UnityMCP.Editor
 
         // ─── Request Handler ───
 
+        /// <summary>
+        /// True when the request comes from a local non-browser client: loopback Host
+        /// (or none) and no cross-site Origin. Browser pages always attach their page
+        /// Origin on cross-origin fetches — the vehicle CSRF and DNS-rebinding ride on.
+        /// A "null" Origin (file:// pages, sandboxed frames) is rejected too.
+        /// </summary>
+        private static bool IsTrustedLocalRequest(HttpListenerRequest request)
+        {
+            string host = request.Headers["Host"];
+            if (!string.IsNullOrEmpty(host))
+            {
+                string hostName = host;
+                int colon = host.LastIndexOf(':');
+                bool bracketed = host.IndexOf(']') >= 0;
+                // Bare unbracketed IPv6 ("::1") has multiple colons and no brackets —
+                // don't treat its last colon as a port separator.
+                bool bareIpv6 = !bracketed && host.IndexOf(':') != colon;
+                if (!bareIpv6 && colon >= 0 && host.IndexOf(']') < colon)
+                    hostName = host.Substring(0, colon);
+                hostName = hostName.Trim('[', ']');
+                if (!IsLoopbackHostName(hostName))
+                    return false;
+            }
+
+            string origin = request.Headers["Origin"];
+            if (!string.IsNullOrEmpty(origin))
+            {
+                // Parse and match the origin host EXACTLY. A StartsWith("http://localhost")
+                // prefix check would let http://localhost.evil.com straight through — and
+                // with execute-code behind this guard that is a browser-reachable RCE.
+                // Uri.TryCreate also rejects the literal "null" Origin (file:// pages,
+                // sandboxed frames), which we deliberately do not trust.
+                if (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+                    return false;
+                if (!IsLoopbackHostName(originUri.Host.Trim('[', ']')))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsLoopbackHostName(string hostName)
+        {
+            return hostName == "127.0.0.1"
+                || hostName == "::1"
+                || string.Equals(hostName, "localhost", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void HandleRequest(HttpListenerContext context)
         {
             var request = context.Request;
@@ -310,6 +378,18 @@ namespace UnityMCP.Editor
 
             try
             {
+                // ─── Cross-origin / DNS-rebinding guard ───
+                // The bridge can execute arbitrary editor code, so only same-machine
+                // tools may talk to it. Legit clients (Node MCP server, curl) send a
+                // loopback Host and no Origin header; a browser page doing a CSRF/
+                // DNS-rebinding fetch always attaches its page Origin (or a non-loopback
+                // Host), which we reject before touching any editor state.
+                if (!IsTrustedLocalRequest(request))
+                {
+                    SendJson(response, 403, new { error = "Forbidden: only local, non-browser clients may call the MCP bridge" });
+                    return;
+                }
+
                 string path = request.Url.AbsolutePath.TrimStart('/');
                 if (!path.StartsWith("api/"))
                 {
@@ -345,25 +425,42 @@ namespace UnityMCP.Editor
                 }
 
                 // ═══ Project Context endpoints (read-only, no queue needed) ═══
+                // Must run on the main thread: GetContextResponse reads EditorPrefs
+                // (main-thread-only), which made every context call throw HTTP 500
+                // from this ThreadPool thread (community PR #17 by rcasaleiro).
                 if (apiPath == "context")
                 {
-                    SendJson(response, 200, MCPContextManager.GetContextResponse());
+                    SendJson(response, 200, ExecuteOnMainThread(() => MCPContextManager.GetContextResponse()));
                     return;
                 }
                 if (apiPath.StartsWith("context/"))
                 {
                     string category = apiPath.Substring("context/".Length);
-                    SendJson(response, 200, MCPContextManager.GetContextResponse(category));
+                    SendJson(response, 200, ExecuteOnMainThread(() => MCPContextManager.GetContextResponse(category)));
                     return;
                 }
 
                 // ═══ Deferred paths (Unity APIs with async callbacks) ═══
-                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                // These complete via an async main-thread callback and MUST go through the async
+                // queue (queue/submit → SubmitDeferredRequest, which is non-blocking). Running one
+                // on this synchronous endpoint self-deadlocks the editor for the full sync timeout:
+                // the ticket executes on the main thread and blocks on the main-thread pump, which
+                // can't drain until the current update tick returns — but it's blocked inside it.
+                // The Node server always uses queue/submit; this guard only trips a raw/legacy
+                // direct POST, turning a 30s hang into an actionable error.
+                if (_deferredRoutes.ContainsKey(apiPath))
                 {
-                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                        () => ExecuteOnMainThreadDeferred(resolve =>
-                            deferredHandler(ParseJson(body), resolve)));
-                    SendJson(response, 200, result);
+                    SendJson(response, 409, new { error = $"Route '{apiPath}' must be called via the async queue (POST /api/queue/submit), not the synchronous endpoint." });
+                    return;
+                }
+
+                // ═══ Unknown routes: 404 before dispatch (capability handshake) ═══
+                // Lets servers distinguish "this plugin doesn't have that feature"
+                // from a failed call and degrade gracefully. KnownRoutes is generated
+                // from the dispatch switch (tools~/generate-routes.mjs, CI-checked).
+                if (!KnownRoutes.Contains(apiPath))
+                {
+                    SendJson(response, 404, new { error = $"Unknown route: {apiPath}" });
                     return;
                 }
 
@@ -376,7 +473,9 @@ namespace UnityMCP.Editor
             }
             catch (Exception ex)
             {
-                SendJson(response, 500, new { error = ex.Message, stackTrace = ex.StackTrace });
+                // Full stack trace goes to the editor log only — never to the wire.
+                Debug.LogError($"[AB-UMCP] Request failed: {ex.Message}\n{ex.StackTrace}");
+                SendJson(response, 500, new { error = ex.Message });
             }
         }
 
@@ -463,87 +562,12 @@ namespace UnityMCP.Editor
         /// </summary>
         private static object GetRegisteredRoutes()
         {
-            // We collect routes by reflecting on the switch cases in RouteRequest.
-            // Since C# doesn't easily let us introspect switch cases at runtime,
-            // we maintain a static list of all registered route prefixes/categories.
-            var routes = new List<string>
-            {
-                "ping",
-                "editor/state", "editor/play-mode", "editor/execute-menu-item", "editor/undo", "editor/redo", "editor/undo-history",
-                "scene/info", "scene/open", "scene/save", "scene/new", "scene/hierarchy", "scene/stats",
-                "gameobject/create", "gameobject/delete", "gameobject/info", "gameobject/set-transform",
-                "gameobject/duplicate", "gameobject/set-active", "gameobject/reparent",
-                "component/add", "component/remove", "component/get-properties", "component/set-property",
-                "component/set-reference", "component/batch-wire", "component/get-referenceable",
-                "asset/list", "asset/import", "asset/delete", "asset/create-prefab", "asset/instantiate-prefab",
-                "script/create", "script/read", "script/update", "script/execute-code",
-                "material/create", "material/set-material",
-                "build/build", "build/play-mode",
-                "console/log", "console/clear",
-                "compilation/errors",
-                "selection/get", "selection/set", "selection/focus-scene-view", "selection/find-by-type",
-                "search/by-component", "search/by-tag", "search/by-layer", "search/by-name",
-                "search/assets", "search/missing-references",
-                "screenshot/game", "screenshot/scene",
-                "prefab/info", "prefab/set-object-reference",
-                "packages/list", "packages/add", "packages/remove", "packages/search", "packages/info",
-                "project/info",
-                // Animation
-                "animation/create-controller", "animation/get-controller", "animation/add-state",
-                "animation/remove-state", "animation/add-transition", "animation/remove-transition",
-                "animation/set-parameter", "animation/remove-parameter", "animation/get-parameters",
-                "animation/create-clip", "animation/set-clip-curve", "animation/get-clip-info",
-                "animation/set-state-motion", "animation/add-layer", "animation/remove-layer",
-                "animation/get-layers", "animation/set-default-state", "animation/add-blend-tree",
-                // Physics
-                "physics/raycast", "physics/overlap-sphere", "physics/settings",
-                "physics/add-joint", "physics/get-joint", "physics/set-joint",
-                // Audio
-                "audio/play", "audio/stop", "audio/get-info", "audio/set-property",
-                // UI
-                "ui/create-canvas", "ui/add-element", "ui/set-rect", "ui/set-text",
-                "ui/set-image", "ui/set-button", "ui/get-hierarchy",
-                // Lighting
-                "lighting/create", "lighting/set-property", "lighting/bake", "lighting/get-settings",
-                "lighting/set-settings", "lighting/get-probes",
-                // NavMesh
-                "navmesh/bake", "navmesh/add-agent", "navmesh/set-area", "navmesh/get-info",
-                "navmesh/add-obstacle", "navmesh/add-link",
-                // ShaderGraph
-                "shadergraph/create", "shadergraph/get-info", "shadergraph/add-node",
-                "shadergraph/remove-node", "shadergraph/connect", "shadergraph/disconnect",
-                "shadergraph/set-property", "shadergraph/list-nodes", "shadergraph/get-connections",
-                // Amplify
-                "amplify/list", "amplify/info", "amplify/open", "amplify/list-functions",
-                "amplify/get-node-types", "amplify/get-nodes", "amplify/get-connections",
-                "amplify/create-shader", "amplify/add-node", "amplify/remove-node",
-                "amplify/connect", "amplify/disconnect", "amplify/node-info",
-                "amplify/set-node-property", "amplify/move-node",
-                // Graphics
-                "graphics/camera-info", "graphics/render-settings", "graphics/set-render-settings",
-                "graphics/texture-info", "graphics/renderer-info", "graphics/lighting-summary",
-                // Terrain
-                "terrain/create", "terrain/info", "terrain/set-height", "terrain/flatten",
-                "terrain/add-layer", "terrain/get-height", "terrain/list",
-                "terrain/raise-lower", "terrain/smooth", "terrain/noise",
-                "terrain/set-heights-region", "terrain/get-heights-region",
-                "terrain/remove-layer", "terrain/paint-layer", "terrain/fill-layer",
-                "terrain/add-tree-prototype", "terrain/remove-tree-prototype",
-                "terrain/place-trees", "terrain/clear-trees", "terrain/get-tree-instances",
-                "terrain/add-detail-prototype", "terrain/paint-detail",
-                "terrain/scatter-detail", "terrain/clear-detail",
-                "terrain/set-holes", "terrain/set-settings", "terrain/resize",
-                "terrain/create-grid", "terrain/set-neighbors",
-                "terrain/import-heightmap", "terrain/export-heightmap", "terrain/get-steepness",
-                // Particle System
-                "particle/create", "particle/info", "particle/set-main", "particle/set-emission",
-                "particle/set-shape", "particle/set-velocity", "particle/set-color",
-                "particle/set-size", "particle/set-renderer",
-            };
-
-            // Group by category
+            // The route list is GENERATED from the RouteRequest dispatch switch by
+            // tools~/generate-routes.mjs into MCPBridgeServer.Routes.g.cs (CI-checked).
+            // The previous hand-maintained list had drifted to ~150 of ~320 routes
+            // with several wrong names, silently breaking dynamic tool discovery.
             var grouped = new Dictionary<string, List<string>>();
-            foreach (var route in routes)
+            foreach (var route in GeneratedRoutes)
             {
                 string cat = ExtractCategory(route);
                 if (!grouped.ContainsKey(cat)) grouped[cat] = new List<string>();
@@ -552,9 +576,9 @@ namespace UnityMCP.Editor
 
             return new Dictionary<string, object>
             {
-                { "routes", routes },
+                { "routes", GeneratedRoutes },
                 { "categories", grouped },
-                { "totalRoutes", routes.Count }
+                { "totalRoutes", GeneratedRoutes.Length }
             };
         }
 
@@ -592,7 +616,12 @@ namespace UnityMCP.Editor
                         platform = Application.platform.ToString(),
                         isClone = MCPInstanceRegistry.IsParrelSyncClone(),
                         cloneIndex = MCPInstanceRegistry.GetParrelSyncCloneIndex(),
-                        processId = System.Diagnostics.Process.GetCurrentProcess().Id
+                        processId = System.Diagnostics.Process.GetCurrentProcess().Id,
+                        // Capability handshake: servers gate newer wire features on this
+                        // monotonic int so the pair degrades gracefully across version
+                        // drift (server and plugin ship on separate release trains).
+                        protocolVersion = ProtocolVersion,
+                        pluginVersion = PluginVersion
                     };
 
                 // ─── Editor State ───
@@ -1050,12 +1079,44 @@ namespace UnityMCP.Editor
                 // ─── Undo ───
                 case "undo/perform":
                     return MCPUndoCommands.PerformUndo(ParseJson(body));
+                case "undo/last":
+                    return MCPUndoCommands.UndoLast(ParseJson(body));
                 case "undo/redo":
                     return MCPUndoCommands.PerformRedo(ParseJson(body));
                 case "undo/history":
                     return MCPUndoCommands.GetUndoHistory(ParseJson(body));
                 case "undo/clear":
                     return MCPUndoCommands.ClearUndo(ParseJson(body));
+
+                // ─── ProBuilder ───
+                case "probuilder/create-shape":
+                    return MCPProBuilderCommands.CreateShape(ParseJson(body));
+                case "probuilder/info":
+                    return MCPProBuilderCommands.GetInfo(ParseJson(body));
+                case "probuilder/extrude-faces":
+                    return MCPProBuilderCommands.ExtrudeFaces(ParseJson(body));
+                case "probuilder/bevel-edges":
+                    return MCPProBuilderCommands.BevelEdges(ParseJson(body));
+                case "probuilder/subdivide":
+                    return MCPProBuilderCommands.Subdivide(ParseJson(body));
+                case "probuilder/delete-faces":
+                    return MCPProBuilderCommands.DeleteFaces(ParseJson(body));
+                case "probuilder/translate-faces":
+                    return MCPProBuilderCommands.TranslateFaces(ParseJson(body));
+                case "probuilder/flip-normals":
+                    return MCPProBuilderCommands.FlipNormals(ParseJson(body));
+                case "probuilder/set-face-material":
+                    return MCPProBuilderCommands.SetFaceMaterial(ParseJson(body));
+                case "probuilder/boolean":
+                    return MCPProBuilderCommands.BooleanOp(ParseJson(body));
+                case "probuilder/combine":
+                    return MCPProBuilderCommands.Combine(ParseJson(body));
+                case "probuilder/probuilderize":
+                    return MCPProBuilderCommands.ProBuilderize(ParseJson(body));
+                case "probuilder/center-pivot":
+                    return MCPProBuilderCommands.CenterPivot(ParseJson(body));
+                case "probuilder/export-mesh":
+                    return MCPProBuilderCommands.ExportMesh(ParseJson(body));
 
                 // ─── Screenshot / Scene View ───
                 case "screenshot/game":
@@ -1380,48 +1441,11 @@ namespace UnityMCP.Editor
                 return new { error = $"Timeout waiting for Unity main thread after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
 
             if (exception != null)
-                return new { error = exception.Message, stackTrace = exception.StackTrace };
-
-            return result;
-        }
-
-        /// <summary>
-        /// Execute an action on the main thread that completes asynchronously via callback.
-        /// Unlike ExecuteOnMainThread, the calling thread blocks until the resolve callback
-        /// is invoked — not when the action returns. Use for Unity APIs whose callbacks
-        /// fire on a subsequent editor frame (e.g. TestRunnerApi.RetrieveTestList).
-        /// </summary>
-        private static object ExecuteOnMainThreadDeferred(Action<Action<object>> asyncAction)
-        {
-            object result = null;
-            Exception exception = null;
-            var resetEvent = new ManualResetEventSlim(false);
-
-            lock (_mainThreadQueue)
             {
-                _mainThreadQueue.Enqueue(() =>
-                {
-                    try
-                    {
-                        asyncAction(r =>
-                        {
-                            result = r;
-                            resetEvent.Set();
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        exception = ex;
-                        resetEvent.Set();
-                    }
-                });
+                // Trace goes to the editor log only — never to the wire.
+                Debug.LogError($"[AB-UMCP] Main-thread execution failed: {exception.Message}\n{exception.StackTrace}");
+                return new { error = exception.Message };
             }
-
-            if (!resetEvent.Wait(MCPRequestQueue.SyncTimeoutMs))
-                return new { error = $"Timeout waiting for Unity callback after {MCPRequestQueue.SyncTimeoutMs / 1000}s" };
-
-            if (exception != null)
-                return new { error = exception.Message, stackTrace = exception.StackTrace };
 
             return result;
         }

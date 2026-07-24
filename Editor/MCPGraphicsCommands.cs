@@ -142,6 +142,11 @@ namespace UnityMCP.Editor
             try
             {
                 var camera = sceneView.camera;
+                // A backgrounded editor doesn't repaint the SceneView, so its camera can lag
+                // behind pivot/rotation/size changes made through code (LookAt, focus). Sync
+                // the render camera to the view state so captures reflect the requested view.
+                camera.transform.rotation = sceneView.rotation;
+                camera.transform.position = sceneView.pivot - sceneView.rotation * Vector3.forward * sceneView.cameraDistance;
                 rt = new RenderTexture(width, height, 24);
                 camera.targetTexture = rt;
                 camera.Render();

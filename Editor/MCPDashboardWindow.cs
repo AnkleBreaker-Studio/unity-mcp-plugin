@@ -1,788 +1,847 @@
 using System.Collections.Generic;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace UnityMCP.Editor
 {
     /// <summary>
     /// Editor window providing an overview of AB Unity MCP status, feature categories,
-    /// server controls, queue monitoring, settings, and active agent sessions.
-    /// Accessible via Window > AB Unity MCP.
+    /// server controls, queue monitoring, studio news, settings, and active agent
+    /// sessions. Accessible via Window > AB Unity MCP.
+    ///
+    /// UI Toolkit, themed to the AnkleBreaker studio palette (shared brand sheet via
+    /// <see cref="MCPTheme"/>). Dynamic sections refresh on a schedule and only rebuild
+    /// their rows when a cheap content signature changes.
     /// </summary>
     public class MCPDashboardWindow : EditorWindow
     {
-        private Vector2 _scrollPosition;
-        private bool _settingsFoldout = false;
-        private bool _agentsFoldout = true;
-        private bool _categoriesFoldout = true;
-        private bool _queueFoldout = true;
-        private bool _contextFoldout = true;
-        private bool _recentActionsFoldout = true;
-        private string _expandedTestCategory = null;
-
-        private static readonly Color ColorGreen  = new Color(0.2f, 0.8f, 0.2f);
-        private static readonly Color ColorRed    = new Color(0.9f, 0.2f, 0.2f);
-        private static readonly Color ColorYellow = new Color(0.9f, 0.8f, 0.1f);
-        private static readonly Color ColorGrey   = new Color(0.5f, 0.5f, 0.5f);
-        private static readonly Color ColorBlue   = new Color(0.4f, 0.7f, 1.0f);
-
-        private GUIStyle _headerStyle;
-        private GUIStyle _subHeaderStyle;
-        private GUIStyle _dotStyle;
-        private bool _stylesInitialized;
+        private const int RefreshIntervalMs = 750;
 
         [MenuItem("Window/AB Unity MCP")]
         public static void ShowWindow()
         {
             var window = GetWindow<MCPDashboardWindow>("AB Unity MCP");
-            window.minSize = new Vector2(340, 500);
+            window.minSize = new Vector2(360, 500);
         }
 
-        private void InitStyles()
-        {
-            if (_stylesInitialized) return;
+        // Cached roots for dynamic sections (rebuilt when their signature changes).
+        private VisualElement _statusRows;
+        private Button _startBtn;
+        private Button _stopBtn;
+        private VisualElement _newsRows;
+        private VisualElement _queueRows;
+        private VisualElement _contextRows;
+        private VisualElement _agentRows;
+        private VisualElement _actionRows;
+        private VisualElement _categoryRows;
+        private VisualElement _testBar;
+        private Toggle _autoStartToggle;
+        private Toggle _newsToggle;
+        private Toggle _manualPortToggle;
+        private IntegerField _portField;
+        private VisualElement _portManualGroup;
+        private Label _portAutoInfo;
+        private Label _portRestartHint;
+        private Toggle _mppmToggle;
 
-            _headerStyle = new GUIStyle(EditorStyles.largeLabel)
+        private string _statusSig, _newsSig, _queueSig, _contextSig, _agentSig, _actionSig, _categorySig;
+        private string _expandedTestCategory;
+
+        private void OnDisable()
+        {
+            MCPNewsService.Changed -= OnNewsChanged;
+        }
+
+        public void CreateGUI()
+        {
+            MCPTheme.Apply(rootVisualElement);
+            MCPNewsService.Changed += OnNewsChanged;
+
+            var scroll = new ScrollView();
+            scroll.AddToClassList("ab-dash__scroll");
+            rootVisualElement.Add(scroll);
+
+            BuildHeader(scroll);
+            BuildStatus(scroll);
+            BuildControls(scroll);
+            BuildNews(scroll);
+            BuildFoldout(scroll, "Request Queue", true, out _queueRows);
+            BuildContext(scroll);
+            BuildFoldout(scroll, "Active Agent Sessions", true, out _agentRows);
+            BuildActions(scroll);
+            BuildCategories(scroll);
+            BuildSettings(scroll);
+            BuildVersion(scroll);
+
+            // First population is deferred one frame: on layout-restored windows Unity applies
+            // saved view-data AFTER CreateGUI, which can stomp children added synchronously here.
+            rootVisualElement.schedule.Execute(RefreshAll);
+            rootVisualElement.schedule.Execute(RefreshAll).Every(RefreshIntervalMs);
+        }
+
+        private void OnNewsChanged() => RefreshNews();
+
+        private void RefreshAll()
+        {
+            // Each section refreshes in isolation: a transient failure (e.g. a data source
+            // hiccup around a domain reload) must not blank the other sections, and resetting
+            // the failed section's signature makes it rebuild — and self-heal — on the next tick.
+            Guarded(RefreshStatus, () => _statusSig = null);
+            Guarded(RefreshControls, null);
+            Guarded(RefreshNews, () => _newsSig = null);
+            Guarded(RefreshQueue, () => _queueSig = null);
+            Guarded(RefreshContext, () => _contextSig = null);
+            Guarded(RefreshAgents, () => _agentSig = null);
+            Guarded(RefreshActions, () => _actionSig = null);
+            Guarded(RefreshCategories, () => _categorySig = null);
+            Guarded(RefreshSettings, null);
+        }
+
+        private static void Guarded(System.Action refresh, System.Action resetSignature)
+        {
+            try { refresh(); }
+            catch (System.Exception)
             {
-                fontSize = 16,
-                fontStyle = FontStyle.Bold,
-            };
-
-            _subHeaderStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = 12,
-            };
-
-            _dotStyle = new GUIStyle(EditorStyles.label)
-            {
-                fontSize = 18,
-                alignment = TextAnchor.MiddleCenter,
-                fixedWidth = 22,
-            };
-
-            _stylesInitialized = true;
+                try { resetSignature?.Invoke(); } catch { }
+            }
         }
 
-        private void OnInspectorUpdate()
+        // ─── Small builders ──────────────────────────────────────────────
+
+        private static VisualElement Row(VisualElement parent)
         {
-            // Repaint periodically for live status
-            Repaint();
+            var row = new VisualElement();
+            row.AddToClassList("ab-dash__row");
+            parent.Add(row);
+            return row;
         }
 
-        private void OnGUI()
+        private static VisualElement Dot(VisualElement row, string colorClass)
         {
-            InitStyles();
-            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
-
-            DrawHeader();
-            EditorGUILayout.Space(6);
-            DrawConnectionStatus();
-            EditorGUILayout.Space(4);
-            DrawServerControls();
-            EditorGUILayout.Space(8);
-            DrawQueueStatus();
-            EditorGUILayout.Space(8);
-            DrawProjectContext();
-            EditorGUILayout.Space(8);
-            DrawAgentSessions();
-            EditorGUILayout.Space(8);
-            DrawRecentActions();
-            EditorGUILayout.Space(8);
-            DrawCategoryStatus();
-            EditorGUILayout.Space(8);
-            DrawSettings();
-            EditorGUILayout.Space(8);
-            DrawVersionInfo();
-
-            EditorGUILayout.EndScrollView();
+            var dot = new VisualElement();
+            dot.AddToClassList("ab-dash__dot");
+            dot.AddToClassList(colorClass);
+            row.Add(dot);
+            return dot;
         }
 
-        // ─── Header ───
-
-        private void DrawHeader()
+        private static Label Text(VisualElement row, string text, string styleClass)
         {
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.LabelField("AnkleBreaker Unity MCP", _headerStyle, GUILayout.Height(28));
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.EndHorizontal();
+            var label = new Label(text);
+            label.AddToClassList(styleClass);
+            row.Add(label);
+            return label;
         }
 
-        // ─── Connection Status ───
+        private static void Grow(VisualElement row)
+        {
+            var spacer = new VisualElement();
+            spacer.AddToClassList("ab-dash__grow");
+            row.Add(spacer);
+        }
 
-        private void DrawConnectionStatus()
+        private Foldout BuildFoldout(VisualElement parent, string title, bool open, out VisualElement rows)
+        {
+            var foldout = new Foldout { text = title, value = open };
+            foldout.AddToClassList("ab-dash__section");
+            parent.Add(foldout);
+
+            var box = new VisualElement();
+            box.AddToClassList("ab-box");
+            foldout.Add(box);
+            rows = box;
+            return foldout;
+        }
+
+        // ─── Header ──────────────────────────────────────────────────────
+
+        private void BuildHeader(VisualElement parent)
+        {
+            var title = new Label("AnkleBreaker Unity MCP");
+            title.AddToClassList("ab-title");
+            parent.Add(title);
+
+            var subtitle = new Label("Multi-agent MCP bridge for the Unity Editor");
+            subtitle.AddToClassList("ab-subtitle");
+            parent.Add(subtitle);
+        }
+
+        // ─── Connection status ───────────────────────────────────────────
+
+        private void BuildStatus(VisualElement parent)
+        {
+            _statusRows = new VisualElement();
+            _statusRows.AddToClassList("ab-box");
+            parent.Add(_statusRows);
+        }
+
+        private void RefreshStatus()
         {
             bool running = MCPBridgeServer.IsRunning;
-
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-
-            // Status dot
-            var prevColor = GUI.color;
-            GUI.color = running ? ColorGreen : ColorRed;
-            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-            GUI.color = prevColor;
-
-            EditorGUILayout.LabelField(
-                running ? "Server Running" : "Server Stopped",
-                EditorStyles.boldLabel);
-
-            GUILayout.FlexibleSpace();
-
-            // Show actual active port when running, settings port when stopped
-            int displayPort = running ? MCPBridgeServer.ActivePort : MCPSettingsManager.Port;
-            string portLabel = running && !MCPSettingsManager.UseManualPort
-                ? $"Port {displayPort} (auto)"
-                : $"Port {displayPort}";
-            EditorGUILayout.LabelField(portLabel, GUILayout.Width(100));
-
-            // Cache values once per event to prevent Layout/Repaint mismatch.
-            // Using local bools ensures the same controls exist in both passes.
             int agents = MCPRequestQueue.ActiveSessionCount;
             int queued = MCPRequestQueue.TotalQueuedCount;
-            bool showAgents = agents > 0;
-            bool showQueued = queued > 0;
+            bool clone = MCPInstanceRegistry.IsParrelSyncClone();
+            int displayPort = running ? MCPBridgeServer.ActivePort : MCPSettingsManager.Port;
 
-            // Always draw the same number of controls regardless of state —
-            // hide them with alpha when inactive to avoid IMGUI control count mismatch.
-            var savedAlpha = GUI.color.a;
+            string sig = $"{running}|{displayPort}|{agents}|{queued}|{clone}";
+            if (sig == _statusSig && _statusRows.childCount > 0) return;
+            _statusSig = sig;
 
-            // Agent count indicator
-            GUI.color = showAgents ? ColorGreen : new Color(0, 0, 0, 0);
-            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-            GUI.color = showAgents ? new Color(prevColor.r, prevColor.g, prevColor.b, savedAlpha) : new Color(0, 0, 0, 0);
-            EditorGUILayout.LabelField(showAgents ? $"{agents} agent{(agents > 1 ? "s" : "")}" : "", GUILayout.Width(65));
+            _statusRows.Clear();
 
-            // Queue count indicator
-            GUI.color = showQueued ? ColorYellow : new Color(0, 0, 0, 0);
-            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-            GUI.color = showQueued ? new Color(prevColor.r, prevColor.g, prevColor.b, savedAlpha) : new Color(0, 0, 0, 0);
-            EditorGUILayout.LabelField(showQueued ? $"{queued} queued" : "", GUILayout.Width(65));
+            var main = Row(_statusRows);
+            Dot(main, running ? "ab-dash__dot--green" : "ab-dash__dot--red");
+            Text(main, running ? "Server Running" : "Server Stopped", "ab-dash__bold");
+            Grow(main);
+            string portLabel = running && !MCPSettingsManager.UseManualPort
+                ? $"Port {displayPort} (auto)" : $"Port {displayPort}";
+            Text(main, portLabel, "ab-dash__mini");
 
-            GUI.color = prevColor;
-
-            EditorGUILayout.EndHorizontal();
-
-            // ParrelSync clone indicator (shown below the main status bar)
-            if (MCPInstanceRegistry.IsParrelSyncClone())
+            if (agents > 0 || queued > 0)
             {
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.Space(24);
-                var cloneStyle = new GUIStyle(EditorStyles.miniLabel)
+                var counts = Row(_statusRows);
+                if (agents > 0)
                 {
-                    normal = { textColor = ColorBlue },
-                    fontStyle = FontStyle.Italic,
-                };
-                int cloneIdx = MCPInstanceRegistry.GetParrelSyncCloneIndex();
-                EditorGUILayout.LabelField(
-                    $"\u2937 ParrelSync Clone #{cloneIdx}",
-                    cloneStyle);
-                EditorGUILayout.EndHorizontal();
-            }
-        }
-
-        // ─── Server Controls ───
-
-        private void DrawServerControls()
-        {
-            EditorGUILayout.BeginHorizontal();
-
-            bool running = MCPBridgeServer.IsRunning;
-
-            GUI.enabled = !running;
-            if (GUILayout.Button("Start", GUILayout.Height(24)))
-                MCPBridgeServer.Start();
-
-            GUI.enabled = running;
-            if (GUILayout.Button("Stop", GUILayout.Height(24)))
-                MCPBridgeServer.Stop();
-
-            GUI.enabled = true;
-            if (GUILayout.Button("Restart", GUILayout.Height(24)))
-            {
-                MCPBridgeServer.Stop();
-                EditorApplication.delayCall += () => MCPBridgeServer.Start();
-            }
-
-            EditorGUILayout.EndHorizontal();
-        }
-
-        // ─── Queue Status (Multi-Agent) ───
-
-        private void DrawQueueStatus()
-        {
-            _queueFoldout = EditorGUILayout.Foldout(_queueFoldout, "Request Queue", true, EditorStyles.foldoutHeader);
-            if (!_queueFoldout) return;
-
-            var queueInfo = MCPRequestQueue.GetQueueInfo();
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            // Summary row
-            EditorGUILayout.BeginHorizontal();
-
-            int totalQueued = 0;
-            if (queueInfo.ContainsKey("totalQueued"))
-                int.TryParse(queueInfo["totalQueued"].ToString(), out totalQueued);
-
-            int activeAgents = 0;
-            if (queueInfo.ContainsKey("activeAgents"))
-                int.TryParse(queueInfo["activeAgents"].ToString(), out activeAgents);
-
-            int cacheSize = 0;
-            if (queueInfo.ContainsKey("completedCacheSize"))
-                int.TryParse(queueInfo["completedCacheSize"].ToString(), out cacheSize);
-
-            var prevColor = GUI.color;
-            GUI.color = totalQueued > 0 ? ColorYellow : ColorGreen;
-            GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-            GUI.color = prevColor;
-
-            string statusText = totalQueued > 0
-                ? $"{totalQueued} pending  |  {activeAgents} agents  |  {cacheSize} cached"
-                : $"Idle  |  {activeAgents} agents  |  {cacheSize} cached";
-            EditorGUILayout.LabelField(statusText, EditorStyles.miniLabel);
-
-            EditorGUILayout.EndHorizontal();
-
-            // Per-agent breakdown (if any queued)
-            if (queueInfo.ContainsKey("perAgentQueued") && queueInfo["perAgentQueued"] is Dictionary<string, object> perAgent)
-            {
-                if (perAgent.Count > 0)
+                    Dot(counts, "ab-dash__dot--green");
+                    Text(counts, $"{agents} agent{(agents > 1 ? "s" : "")}", "ab-dash__label");
+                }
+                if (queued > 0)
                 {
-                    EditorGUILayout.Space(2);
-                    EditorGUILayout.LabelField("Per-Agent Queue Depth:", EditorStyles.miniLabel);
-
-                    foreach (var kvp in perAgent)
-                    {
-                        EditorGUILayout.BeginHorizontal();
-                        GUILayout.Space(24);
-
-                        int depth = 0;
-                        int.TryParse(kvp.Value.ToString(), out depth);
-
-                        var agentColor = depth > 0 ? ColorYellow : ColorGreen;
-                        GUI.color = agentColor;
-                        GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                        GUI.color = prevColor;
-
-                        EditorGUILayout.LabelField(kvp.Key, GUILayout.Width(160));
-                        EditorGUILayout.LabelField($"{depth} pending", GUILayout.Width(80));
-
-                        EditorGUILayout.EndHorizontal();
-                    }
+                    Dot(counts, "ab-dash__dot--yellow");
+                    Text(counts, $"{queued} queued", "ab-dash__label");
                 }
             }
 
-            EditorGUILayout.EndVertical();
+            if (clone)
+            {
+                var cloneRow = Row(_statusRows);
+                Text(cloneRow, $"⤷ ParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}", "ab-dash__blue-text");
+            }
         }
 
-        // ─── Project Context ───
+        // ─── Server controls ─────────────────────────────────────────────
 
-        private void DrawProjectContext()
+        private void BuildControls(VisualElement parent)
         {
-            _contextFoldout = EditorGUILayout.Foldout(_contextFoldout, "Project Context", true, EditorStyles.foldoutHeader);
-            if (!_contextFoldout) return;
+            var row = Row(parent);
+            row.AddToClassList("ab-dash__section");
 
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            // Enabled toggle
-            EditorGUILayout.BeginHorizontal();
-            bool enabled = EditorGUILayout.Toggle("Enable Context", MCPSettingsManager.ContextEnabled);
-            if (enabled != MCPSettingsManager.ContextEnabled)
-                MCPSettingsManager.ContextEnabled = enabled;
-            GUILayout.FlexibleSpace();
-
-            // Buttons
-            if (GUILayout.Button("Create Templates", GUILayout.Width(110), GUILayout.Height(18)))
+            _startBtn = new Button(OnStartClicked) { text = "Start" };
+            _stopBtn = new Button(OnStopClicked) { text = "Stop" };
+            var restart = new Button(OnRestartClicked) { text = "Restart" };
+            foreach (var b in new[] { _startBtn, _stopBtn, restart })
             {
-                int created = MCPContextManager.CreateDefaultTemplates();
-                if (created > 0)
-                    EditorUtility.DisplayDialog("Templates Created",
-                        $"Created {created} template file(s) in:\n{MCPSettingsManager.ContextPath}", "OK");
-                else
-                    EditorUtility.DisplayDialog("Templates Exist",
-                        "All template files already exist.", "OK");
+                b.AddToClassList("ab-dash__grow");
+                row.Add(b);
+            }
+        }
+
+        private void OnStartClicked() => MCPBridgeServer.Start();
+        private void OnStopClicked() => MCPBridgeServer.Stop();
+
+        private void OnRestartClicked()
+        {
+            MCPBridgeServer.Stop();
+            EditorApplication.delayCall += () => MCPBridgeServer.Start();
+        }
+
+        private void RefreshControls()
+        {
+            bool running = MCPBridgeServer.IsRunning;
+            _startBtn.SetEnabled(!running);
+            _stopBtn.SetEnabled(running);
+        }
+
+        // ─── AnkleBreaker news ───────────────────────────────────────────
+
+        private void BuildNews(VisualElement parent)
+        {
+            BuildFoldout(parent, "AnkleBreaker News", true, out _newsRows);
+        }
+
+        private void RefreshNews()
+        {
+            if (_newsRows == null) return;
+
+            var posts = MCPNewsService.Posts;
+            var sb = new StringBuilder();
+            sb.Append(MCPNewsService.Enabled).Append('|').Append(MCPNewsService.UnseenCount)
+              .Append('|').Append(MCPNewsService.LastError ?? "");
+            foreach (var p in posts) sb.Append('|').Append(p.Slug);
+            string sig = sb.ToString();
+            if (sig == _newsSig && _newsRows.childCount > 0) return;
+            _newsSig = sig;
+
+            _newsRows.Clear();
+
+            if (!MCPNewsService.Enabled)
+            {
+                Text(_newsRows, "News notifications are disabled.", "ab-dash__mini");
+                var enableBtn = new Button(OnEnableNewsClicked) { text = "Enable News" };
+                _newsRows.Add(enableBtn);
+                return;
             }
 
-            if (GUILayout.Button("Open Folder", GUILayout.Width(90), GUILayout.Height(18)))
+            var header = Row(_newsRows);
+            int unseen = MCPNewsService.UnseenCount;
+            Text(header, unseen > 0 ? $"{unseen} new post{(unseen > 1 ? "s" : "")}" : "You're all caught up",
+                unseen > 0 ? "ab-dash__accent-text" : "ab-dash__mini");
+            Grow(header);
+            if (unseen > 0)
+                header.Add(new Button(MCPNewsService.MarkAllSeen) { text = "Mark All Read" });
+            header.Add(new Button(OnOpenDevlogClicked) { text = "Devlog" });
+            header.Add(new Button(MCPNewsService.ForceRefresh) { text = "↺" });
+
+            if (posts.Count == 0)
             {
-                string folderPath = MCPContextManager.GetContextFolderPath();
-                if (System.IO.Directory.Exists(folderPath))
-                    EditorUtility.RevealInFinder(folderPath);
-                else
-                    EditorUtility.DisplayDialog("Folder Not Found",
-                        $"Context folder does not exist yet.\nClick 'Create Templates' to set it up.\n\n{folderPath}", "OK");
+                Text(_newsRows, MCPNewsService.LastError == null
+                    ? "Fetching studio news…"
+                    : $"Couldn't reach the devlog ({MCPNewsService.LastError})", "ab-dash__mini");
+                return;
             }
 
-            EditorGUILayout.EndHorizontal();
+            foreach (var post in posts)
+            {
+                var item = new VisualElement();
+                item.AddToClassList("ab-news__item");
+                if (MCPNewsService.IsUnseen(post))
+                    item.AddToClassList("ab-news__item--unseen");
+
+                // Feed-derived text: disable rich text so markup in a title can never render
+                // (defense-in-depth — MCPNewsService already strips angle brackets at parse).
+                var title = new Label(post.Title) { enableRichText = false };
+                title.AddToClassList("ab-news__title");
+                item.Add(title);
+
+                Grow(item);
+
+                if (!string.IsNullOrEmpty(post.Category))
+                {
+                    var chip = new Label(post.Category) { enableRichText = false };
+                    chip.AddToClassList("ab-chip");
+                    item.Add(chip);
+                }
+
+                if (post.PubDateUtc.Ticks > 0)
+                {
+                    var date = new Label(post.PubDateUtc.ToLocalTime().ToString("d MMM yyyy"));
+                    date.AddToClassList("ab-dash__mini");
+                    date.style.marginLeft = 6;
+                    item.Add(date);
+                }
+
+                var captured = post;
+                item.RegisterCallback<ClickEvent>(_ => MCPNewsService.OpenPost(captured));
+                _newsRows.Add(item);
+            }
+        }
+
+        private void OnEnableNewsClicked()
+        {
+            MCPNewsService.Enabled = true;
+            MCPNewsService.ForceRefresh();
+        }
+
+        private void OnOpenDevlogClicked() => Application.OpenURL(MCPNewsService.DevlogUrl);
+
+        // ─── Request queue ───────────────────────────────────────────────
+
+        private void RefreshQueue()
+        {
+            var info = MCPRequestQueue.GetQueueInfo();
+            int totalQueued = ReadInt(info, "totalQueued");
+            int activeAgents = ReadInt(info, "activeAgents");
+            int cacheSize = ReadInt(info, "completedCacheSize");
+
+            var sb = new StringBuilder();
+            sb.Append(totalQueued).Append('|').Append(activeAgents).Append('|').Append(cacheSize);
+            var perAgent = info.TryGetValue("perAgentQueued", out var pa) ? pa as Dictionary<string, object> : null;
+            if (perAgent != null)
+                foreach (var kvp in perAgent) sb.Append('|').Append(kvp.Key).Append(':').Append(kvp.Value);
+            string sig = sb.ToString();
+            if (sig == _queueSig && _queueRows.childCount > 0) return;
+            _queueSig = sig;
+
+            _queueRows.Clear();
+
+            var summary = Row(_queueRows);
+            Dot(summary, totalQueued > 0 ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
+            string statusText = totalQueued > 0
+                ? $"{totalQueued} pending  ·  {activeAgents} agents  ·  {cacheSize} cached"
+                : $"Idle  ·  {activeAgents} agents  ·  {cacheSize} cached";
+            Text(summary, statusText, "ab-dash__label");
+
+            if (perAgent != null && perAgent.Count > 0)
+            {
+                Text(_queueRows, "Per-agent queue depth:", "ab-dash__mini");
+                foreach (var kvp in perAgent)
+                {
+                    int depth = 0;
+                    int.TryParse(kvp.Value.ToString(), out depth);
+                    var row = Row(_queueRows);
+                    Dot(row, depth > 0 ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
+                    Text(row, kvp.Key, "ab-dash__label");
+                    Grow(row);
+                    Text(row, $"{depth} pending", "ab-dash__mini");
+                }
+            }
+        }
+
+        // ─── Project context ─────────────────────────────────────────────
+
+        private void BuildContext(VisualElement parent)
+        {
+            BuildFoldout(parent, "Project Context", true, out _contextRows);
+        }
+
+        private void RefreshContext()
+        {
+            bool enabled = MCPSettingsManager.ContextEnabled;
+            var files = MCPContextManager.GetContextFileList();
+
+            var sb = new StringBuilder();
+            sb.Append(enabled).Append('|').Append(MCPSettingsManager.ContextPath);
+            foreach (var f in files) sb.Append('|').Append(f.Category).Append(':').Append(f.Exists).Append(':').Append(f.SizeBytes);
+            string sig = sb.ToString();
+            if (sig == _contextSig && _contextRows.childCount > 0) return;
+            _contextSig = sig;
+
+            _contextRows.Clear();
+
+            var header = Row(_contextRows);
+            var toggle = new Toggle("Enable Context") { value = enabled };
+            toggle.RegisterValueChangedCallback(OnContextToggled);
+            header.Add(toggle);
+            Grow(header);
+            header.Add(new Button(OnCreateTemplatesClicked) { text = "Create Templates" });
+            header.Add(new Button(OnOpenContextFolderClicked) { text = "Open Folder" });
 
             if (!enabled)
             {
-                EditorGUILayout.HelpBox("Project context is disabled. Agents will not receive project documentation.", MessageType.Info);
-                EditorGUILayout.EndVertical();
+                Text(_contextRows, "Project context is disabled. Agents will not receive project documentation.", "ab-dash__mini");
                 return;
             }
 
-            // Path display
-            EditorGUILayout.LabelField("Path:", MCPSettingsManager.ContextPath, EditorStyles.miniLabel);
+            Text(_contextRows, $"Path: {MCPSettingsManager.ContextPath}", "ab-dash__mini");
 
-            // File list
-            var files = MCPContextManager.GetContextFileList();
             bool anyFiles = false;
-
             foreach (var file in files)
             {
-                if (!file.IsStandard && !file.Exists) continue; // Don't show missing custom files
-
+                if (!file.IsStandard && !file.Exists) continue;
                 anyFiles = true;
-                EditorGUILayout.BeginHorizontal();
 
-                var prevColor = GUI.color;
-                if (file.Exists && file.SizeBytes > 0)
-                    GUI.color = ColorGreen;
-                else if (file.Exists)
-                    GUI.color = ColorYellow;
-                else
-                    GUI.color = ColorGrey;
-
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-
-                string displayName = file.Category;
-                EditorGUILayout.LabelField(displayName, GUILayout.MinWidth(140));
-
-                if (file.Exists)
-                {
-                    string sizeLabel = file.SizeBytes > 1024
-                        ? $"{file.SizeBytes / 1024f:0.#} KB"
-                        : $"{file.SizeBytes} B";
-                    EditorGUILayout.LabelField(
-                        file.SizeBytes == 0 ? "empty" : sizeLabel,
-                        EditorStyles.miniLabel, GUILayout.Width(60));
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("not created", EditorStyles.miniLabel, GUILayout.Width(60));
-                }
-
-                GUILayout.FlexibleSpace();
-                EditorGUILayout.EndHorizontal();
+                var row = Row(_contextRows);
+                string dotClass = file.Exists && file.SizeBytes > 0 ? "ab-dash__dot--green"
+                    : file.Exists ? "ab-dash__dot--yellow" : "ab-dash__dot--grey";
+                Dot(row, dotClass);
+                Text(row, file.Category, "ab-dash__label");
+                Grow(row);
+                string sizeLabel = !file.Exists ? "not created"
+                    : file.SizeBytes == 0 ? "empty"
+                    : file.SizeBytes > 1024 ? $"{file.SizeBytes / 1024f:0.#} KB" : $"{file.SizeBytes} B";
+                Text(row, sizeLabel, "ab-dash__mini");
             }
 
             if (!anyFiles)
-            {
-                EditorGUILayout.HelpBox(
-                    "No context files found. Click 'Create Templates' to get started.",
-                    MessageType.Info);
-            }
-
-            EditorGUILayout.EndVertical();
+                Text(_contextRows, "No context files found. Click 'Create Templates' to get started.", "ab-dash__mini");
         }
 
-        // ─── Recent Actions ───
+        private void OnContextToggled(ChangeEvent<bool> evt) => MCPSettingsManager.ContextEnabled = evt.newValue;
 
-        private void DrawRecentActions()
+        private void OnCreateTemplatesClicked()
         {
-            _recentActionsFoldout = EditorGUILayout.Foldout(_recentActionsFoldout, "Recent Actions", true, EditorStyles.foldoutHeader);
-            if (!_recentActionsFoldout) return;
-
-            var recent = MCPActionHistory.GetRecent(8);
-
-            if (recent.Count == 0)
-            {
-                EditorGUILayout.HelpBox("No actions recorded yet.", MessageType.Info);
-                return;
-            }
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            // Show newest first
-            for (int i = recent.Count - 1; i >= 0; i--)
-            {
-                var r = recent[i];
-                EditorGUILayout.BeginHorizontal();
-
-                // Status dot
-                var prevColor = GUI.color;
-                Color dotColor;
-                switch (r.Status)
-                {
-                    case "Completed": dotColor = ColorGreen; break;
-                    case "Failed":    dotColor = ColorRed;   break;
-                    default:          dotColor = ColorYellow; break;
-                }
-                GUI.color = dotColor;
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-
-                // Timestamp
-                EditorGUILayout.LabelField(r.Timestamp.ToString("HH:mm:ss"),
-                    EditorStyles.miniLabel, GUILayout.Width(55));
-
-                // Agent (short)
-                string agent = r.AgentId ?? "?";
-                if (agent.Length > 10) agent = agent.Substring(0, 8) + "..";
-                prevColor = GUI.color;
-                GUI.color = ColorBlue;
-                EditorGUILayout.LabelField(agent, EditorStyles.miniLabel, GUILayout.Width(65));
-                GUI.color = prevColor;
-
-                // Action command
-                string cmd = MCPActionRecord.ExtractCommand(r.ActionName);
-                EditorGUILayout.LabelField(cmd, EditorStyles.miniLabel, GUILayout.Width(100));
-
-                // Target (truncated)
-                string target = r.TargetPath ?? "";
-                if (target.Length > 25)
-                    target = ".." + target.Substring(target.Length - 23);
-                EditorGUILayout.LabelField(target, EditorStyles.miniLabel);
-
-                GUILayout.FlexibleSpace();
-                EditorGUILayout.EndHorizontal();
-            }
-
-            // Open full history button
-            EditorGUILayout.Space(2);
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            string btnLabel = MCPActionHistory.Count > 8
-                ? $"Open Full History ({MCPActionHistory.Count} actions)"
-                : "Open Full History";
-            if (GUILayout.Button(btnLabel, GUILayout.Width(200), GUILayout.Height(20)))
-            {
-                MCPActionHistoryWindow.ShowWindow();
-            }
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.EndVertical();
+            int created = MCPContextManager.CreateDefaultTemplates();
+            EditorUtility.DisplayDialog(
+                created > 0 ? "Templates Created" : "Templates Exist",
+                created > 0
+                    ? $"Created {created} template file(s) in:\n{MCPSettingsManager.ContextPath}"
+                    : "All template files already exist.",
+                "OK");
         }
 
-        // ─── Feature Categories + Test Status ───
-
-        private void DrawCategoryStatus()
+        private void OnOpenContextFolderClicked()
         {
-            _categoriesFoldout = EditorGUILayout.Foldout(_categoriesFoldout, "Feature Categories", true, EditorStyles.foldoutHeader);
-            if (!_categoriesFoldout) return;
-
-            // Test controls bar
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-
-            // Summary
-            int passed = MCPSelfTest.PassedCount;
-            int failed = MCPSelfTest.FailedCount;
-            int warnings = MCPSelfTest.WarningCount;
-            int total = MCPSettingsManager.GetAllCategoryNames().Length;
-
-            if (MCPSelfTest.IsRunning)
-            {
-                EditorGUILayout.LabelField(
-                    $"Testing: {MCPSelfTest.CurrentCategory}...",
-                    EditorStyles.miniLabel);
-                var rect = GUILayoutUtility.GetRect(100, 16, GUILayout.ExpandWidth(true));
-                EditorGUI.ProgressBar(rect, MCPSelfTest.Progress, $"{(int)(MCPSelfTest.Progress * 100)}%");
-            }
-            else if (MCPSelfTest.LastRunTime > System.DateTime.MinValue)
-            {
-                string summary = "";
-                if (failed > 0)
-                    summary += $"<color=#E63333>{failed} failed</color>  ";
-                if (warnings > 0)
-                    summary += $"<color=#E6CC11>{warnings} warn</color>  ";
-                summary += $"<color=#33CC33>{passed}/{total} passed</color>";
-
-                var richStyle = new GUIStyle(EditorStyles.miniLabel) { richText = true };
-                EditorGUILayout.LabelField(summary, richStyle, GUILayout.ExpandWidth(true));
-            }
+            string folderPath = MCPContextManager.GetContextFolderPath();
+            if (System.IO.Directory.Exists(folderPath))
+                EditorUtility.RevealInFinder(folderPath);
             else
-            {
-                EditorGUILayout.LabelField("No tests run yet", EditorStyles.miniLabel);
-            }
-
-            GUILayout.FlexibleSpace();
-
-            GUI.enabled = !MCPSelfTest.IsRunning && MCPBridgeServer.IsRunning;
-            if (GUILayout.Button("Run Tests", GUILayout.Width(80), GUILayout.Height(20)))
-            {
-                MCPSelfTest.RunAllAsync();
-            }
-            GUI.enabled = true;
-
-            EditorGUILayout.EndHorizontal();
-
-            // Category rows
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-            string[] categories = MCPSettingsManager.GetAllCategoryNames();
-            foreach (var cat in categories)
-            {
-                bool enabled = MCPSettingsManager.IsCategoryEnabled(cat);
-                var testResult = MCPSelfTest.GetResult(cat);
-
-                EditorGUILayout.BeginHorizontal();
-
-                // Status dot — reflects test status when available, else enabled/disabled
-                var prevColor = GUI.color;
-                Color dotColor = GetCategoryDotColor(enabled, testResult);
-                GUI.color = dotColor;
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-
-                // Pretty name
-                string displayName = char.ToUpper(cat[0]) + cat.Substring(1);
-                EditorGUILayout.LabelField(displayName, GUILayout.Width(100));
-
-                // Test status label — always draw both controls to avoid IMGUI control count mismatch
-                bool hasTested = testResult != null && testResult.Status != MCPTestResult.TestStatus.Untested;
-                bool hasDetails = hasTested && (testResult.Status == MCPTestResult.TestStatus.Failed ||
-                    testResult.Status == MCPTestResult.TestStatus.Warning);
-
-                if (hasTested)
-                {
-                    string statusLabel = GetTestStatusText(testResult);
-                    var statusStyle = new GUIStyle(EditorStyles.miniLabel)
-                    {
-                        normal = { textColor = dotColor },
-                    };
-                    EditorGUILayout.LabelField(statusLabel, statusStyle, GUILayout.Width(90));
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("\u2014", EditorStyles.miniLabel, GUILayout.Width(90));
-                }
-
-                // Always draw the details button to keep control count stable
-                if (hasDetails)
-                {
-                    if (GUILayout.Button("?", GUILayout.Width(20), GUILayout.Height(16)))
-                    {
-                        _expandedTestCategory = _expandedTestCategory == cat ? null : cat;
-                    }
-                }
-                else
-                {
-                    // Invisible placeholder — same control, no visual
-                    var transparent = GUI.color;
-                    GUI.color = new Color(0, 0, 0, 0);
-                    GUILayout.Button("", GUILayout.Width(20), GUILayout.Height(16));
-                    GUI.color = transparent;
-                }
-
-                GUILayout.FlexibleSpace();
-
-                bool newEnabled = EditorGUILayout.Toggle(enabled, GUILayout.Width(30));
-                if (newEnabled != enabled)
-                    MCPSettingsManager.SetCategoryEnabled(cat, newEnabled);
-
-                EditorGUILayout.EndHorizontal();
-
-                // Expanded error details
-                if (_expandedTestCategory == cat && testResult != null &&
-                    !string.IsNullOrEmpty(testResult.Details))
-                {
-                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                    EditorGUILayout.SelectableLabel(
-                        testResult.Details,
-                        EditorStyles.wordWrappedMiniLabel,
-                        GUILayout.MinHeight(36));
-                    EditorGUILayout.EndVertical();
-                }
-            }
-
-            EditorGUILayout.EndVertical();
+                EditorUtility.DisplayDialog("Folder Not Found",
+                    $"Context folder does not exist yet.\nClick 'Create Templates' to set it up.\n\n{folderPath}", "OK");
         }
 
-        private Color GetCategoryDotColor(bool enabled, MCPTestResult result)
+        // ─── Agent sessions ──────────────────────────────────────────────
+
+        private void RefreshAgents()
         {
-            if (!enabled) return ColorGrey;
-            if (result == null || result.Status == MCPTestResult.TestStatus.Untested)
-                return enabled ? ColorGreen : ColorGrey;
-
-            switch (result.Status)
-            {
-                case MCPTestResult.TestStatus.Passed:  return ColorGreen;
-                case MCPTestResult.TestStatus.Warning: return ColorYellow;
-                case MCPTestResult.TestStatus.Failed:  return ColorRed;
-                default: return ColorGrey;
-            }
-        }
-
-        private string GetTestStatusText(MCPTestResult result)
-        {
-            switch (result.Status)
-            {
-                case MCPTestResult.TestStatus.Passed:
-                    return $"\u2713 {result.DurationMs:0}ms";
-                case MCPTestResult.TestStatus.Warning:
-                    return $"\u26A0 {result.Message}";
-                case MCPTestResult.TestStatus.Failed:
-                    return $"\u2717 {result.Message}";
-                default:
-                    return "\u2014";
-            }
-        }
-
-        // ─── Agent Sessions ───
-
-        private void DrawAgentSessions()
-        {
-            _agentsFoldout = EditorGUILayout.Foldout(_agentsFoldout, "Active Agent Sessions", true, EditorStyles.foldoutHeader);
-            if (!_agentsFoldout) return;
-
             var sessions = MCPRequestQueue.GetActiveSessions();
+
+            var sb = new StringBuilder();
+            foreach (var s in sessions)
+                foreach (var kvp in s) sb.Append(kvp.Key).Append(':').Append(kvp.Value).Append('|');
+            string sig = sb.ToString();
+            if (sig == _agentSig && _agentRows.childCount > 0) return;
+            _agentSig = sig;
+
+            _agentRows.Clear();
 
             if (sessions.Count == 0)
             {
-                EditorGUILayout.HelpBox("No active agent sessions.", MessageType.Info);
+                Text(_agentRows, "No active agent sessions.", "ab-dash__mini");
                 return;
             }
 
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
             foreach (var session in sessions)
             {
-                EditorGUILayout.BeginHorizontal();
-
-                var prevColor = GUI.color;
-                GUI.color = ColorGreen;
-                GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(22));
-                GUI.color = prevColor;
-
-                string agentId = session.ContainsKey("agentId") ? session["agentId"].ToString() : "?";
-                string action = session.ContainsKey("currentAction") ? session["currentAction"].ToString() : "idle";
-                object totalObj = session.ContainsKey("totalActions") ? session["totalActions"] : 0;
-                object queuedObj = session.ContainsKey("queuedRequests") ? session["queuedRequests"] : 0;
-                object completedObj = session.ContainsKey("completedRequests") ? session["completedRequests"] : 0;
-                object avgMs = session.ContainsKey("averageResponseTimeMs") ? session["averageResponseTimeMs"] : 0;
-
-                EditorGUILayout.LabelField(agentId, EditorStyles.boldLabel, GUILayout.Width(160));
-                EditorGUILayout.LabelField(action, GUILayout.MinWidth(80));
-                GUILayout.FlexibleSpace();
-
-                // Queue + completed stats
-                int queuedInt = 0;
-                int.TryParse(queuedObj.ToString(), out queuedInt);
-
-                var richStyle = new GUIStyle(EditorStyles.miniLabel) { richText = true };
-                string stats = $"{totalObj} total";
-                if (queuedInt > 0)
-                    stats += $"  <color=#E6CC11>{queuedInt}q</color>";
-                stats += $"  <color=#33CC33>{completedObj}ok</color>";
-                stats += $"  {avgMs}ms";
-
-                EditorGUILayout.LabelField(stats, richStyle, GUILayout.Width(170));
-
-                EditorGUILayout.EndHorizontal();
+                var row = Row(_agentRows);
+                Dot(row, "ab-dash__dot--green");
+                Text(row, Read(session, "agentId", "?"), "ab-dash__bold");
+                var action = Text(row, Read(session, "currentAction", "idle"), "ab-dash__mini");
+                action.AddToClassList("ab-dash__ellipsis");
+                action.style.marginLeft = 8;
+                Grow(row);
+                string stats = $"{Read(session, "totalActions", "0")} total · " +
+                               $"{Read(session, "queuedRequests", "0")}q · " +
+                               $"{Read(session, "completedRequests", "0")}ok · " +
+                               $"{Read(session, "averageResponseTimeMs", "0")}ms";
+                Text(row, stats, "ab-dash__mini").AddToClassList("ab-dash__ellipsis");
             }
-
-            EditorGUILayout.EndVertical();
         }
 
-        // ─── Settings ───
+        // ─── Recent actions ──────────────────────────────────────────────
 
-        private void DrawSettings()
+        private void BuildActions(VisualElement parent)
         {
-            _settingsFoldout = EditorGUILayout.Foldout(_settingsFoldout, "Settings", true, EditorStyles.foldoutHeader);
-            if (!_settingsFoldout) return;
+            BuildFoldout(parent, "Recent Actions", true, out _actionRows);
+        }
 
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        private void RefreshActions()
+        {
+            var recent = MCPActionHistory.GetRecent(8);
 
-            // ─── General ───
-            EditorGUILayout.LabelField("General", EditorStyles.boldLabel);
+            var sb = new StringBuilder();
+            foreach (var r in recent) sb.Append(r.Id).Append(':').Append(r.Status).Append('|');
+            string sig = sb.ToString();
+            if (sig == _actionSig && _actionRows.childCount > 0) return;
+            _actionSig = sig;
 
-            bool autoStart = EditorGUILayout.Toggle("Auto-start on Editor Load", MCPSettingsManager.AutoStart);
-            if (autoStart != MCPSettingsManager.AutoStart)
-                MCPSettingsManager.AutoStart = autoStart;
+            _actionRows.Clear();
 
-            EditorGUILayout.Space(6);
-
-            // ─── Port ───
-            EditorGUILayout.LabelField("Port", EditorStyles.boldLabel);
-
-            bool useManual = EditorGUILayout.Toggle("Use Manual Port", MCPSettingsManager.UseManualPort);
-            if (useManual != MCPSettingsManager.UseManualPort)
-                MCPSettingsManager.UseManualPort = useManual;
-
-            if (useManual)
+            if (recent.Count == 0)
             {
-                // Manual port entry
-                EditorGUILayout.BeginHorizontal();
-                int port = EditorGUILayout.IntField("Server Port", MCPSettingsManager.Port);
-                if (port != MCPSettingsManager.Port && port > 1024 && port < 65536)
-                {
-                    MCPSettingsManager.Port = port;
-                }
-                EditorGUILayout.EndHorizontal();
+                Text(_actionRows, "No actions recorded yet.", "ab-dash__mini");
+                return;
+            }
 
-                if (MCPBridgeServer.IsRunning && MCPBridgeServer.ActivePort != MCPSettingsManager.Port)
-                    EditorGUILayout.HelpBox("Restart server to apply port change.", MessageType.Info);
+            for (int i = recent.Count - 1; i >= 0; i--)
+            {
+                var r = recent[i];
+                var row = Row(_actionRows);
+                string dotClass = r.Status == "Completed" ? "ab-dash__dot--green"
+                    : r.Status == "Failed" ? "ab-dash__dot--red" : "ab-dash__dot--yellow";
+                Dot(row, dotClass);
+                Text(row, r.Timestamp.ToString("HH:mm:ss"), "ab-dash__mini");
+
+                string agent = r.AgentId ?? "?";
+                if (agent.Length > 10) agent = agent.Substring(0, 8) + "..";
+                Text(row, agent, "ab-dash__blue-text").style.marginLeft = 6;
+
+                Text(row, MCPActionRecord.ExtractCommand(r.ActionName), "ab-dash__label").style.marginLeft = 6;
+
+                string target = r.TargetPath ?? "";
+                if (target.Length > 28) target = ".." + target.Substring(target.Length - 26);
+                var targetLabel = Text(row, target, "ab-dash__mini");
+                targetLabel.AddToClassList("ab-dash__ellipsis");
+                targetLabel.style.marginLeft = 6;
+                Grow(row);
+            }
+
+            var footer = Row(_actionRows);
+            Grow(footer);
+            string btnLabel = MCPActionHistory.Count > 8
+                ? $"Open Full History ({MCPActionHistory.Count} actions)" : "Open Full History";
+            footer.Add(new Button(MCPActionHistoryWindow.ShowWindow) { text = btnLabel });
+            Grow(footer);
+        }
+
+        // ─── Feature categories + tests ──────────────────────────────────
+
+        private void BuildCategories(VisualElement parent)
+        {
+            var foldout = BuildFoldout(parent, "Feature Categories", true, out _categoryRows);
+            _testBar = new VisualElement();
+            _testBar.AddToClassList("ab-dash__row");
+            foldout.Insert(0, _testBar);
+        }
+
+        private void RefreshCategories()
+        {
+            string[] categories = MCPSettingsManager.GetAllCategoryNames();
+
+            var sb = new StringBuilder();
+            sb.Append(MCPSelfTest.IsRunning).Append('|').Append(MCPSelfTest.Progress.ToString("0.00"))
+              .Append('|').Append(MCPSelfTest.CurrentCategory).Append('|').Append(_expandedTestCategory)
+              .Append('|').Append(MCPBridgeServer.IsRunning);
+            foreach (var cat in categories)
+            {
+                var r = MCPSelfTest.GetResult(cat);
+                sb.Append('|').Append(cat).Append(':').Append(MCPSettingsManager.IsCategoryEnabled(cat))
+                  .Append(':').Append(r == null ? "-" : r.Status.ToString()).Append(':').Append(r?.Message);
+            }
+            string sig = sb.ToString();
+            if (sig == _categorySig && _categoryRows.childCount > 0) return;
+            _categorySig = sig;
+
+            RefreshTestBar();
+
+            _categoryRows.Clear();
+            foreach (var cat in categories)
+            {
+                bool enabled = MCPSettingsManager.IsCategoryEnabled(cat);
+                var result = MCPSelfTest.GetResult(cat);
+
+                var row = Row(_categoryRows);
+                Dot(row, CategoryDotClass(enabled, result));
+                Text(row, char.ToUpper(cat[0]) + cat.Substring(1), "ab-dash__label");
+
+                bool hasTested = result != null && result.Status != MCPTestResult.TestStatus.Untested;
+                if (hasTested)
+                {
+                    string statusClass = result.Status == MCPTestResult.TestStatus.Passed ? "ab-dash__green-text"
+                        : result.Status == MCPTestResult.TestStatus.Warning ? "ab-dash__yellow-text" : "ab-dash__red-text";
+                    Text(row, TestStatusText(result), statusClass).style.marginLeft = 8;
+
+                    bool hasDetails = result.Status == MCPTestResult.TestStatus.Failed ||
+                                      result.Status == MCPTestResult.TestStatus.Warning;
+                    if (hasDetails && !string.IsNullOrEmpty(result.Details))
+                    {
+                        string captured = cat;
+                        var detailsBtn = new Button(() => ToggleDetails(captured)) { text = "?" };
+                        detailsBtn.style.marginLeft = 4;
+                        row.Add(detailsBtn);
+                    }
+                }
+
+                Grow(row);
+
+                var toggle = new Toggle { value = enabled };
+                string catCapture = cat;
+                toggle.RegisterValueChangedCallback(evt => MCPSettingsManager.SetCategoryEnabled(catCapture, evt.newValue));
+                row.Add(toggle);
+
+                if (_expandedTestCategory == cat && result != null && !string.IsNullOrEmpty(result.Details))
+                {
+                    var details = new Label(result.Details);
+                    details.AddToClassList("ab-dash__details");
+                    _categoryRows.Add(details);
+                }
+            }
+        }
+
+        private void ToggleDetails(string category)
+        {
+            _expandedTestCategory = _expandedTestCategory == category ? null : category;
+            _categorySig = null;
+            RefreshCategories();
+        }
+
+        private void RefreshTestBar()
+        {
+            _testBar.Clear();
+
+            if (MCPSelfTest.IsRunning)
+            {
+                Text(_testBar, $"Testing: {MCPSelfTest.CurrentCategory}…", "ab-dash__mini");
+                var track = new VisualElement();
+                track.AddToClassList("ab-dash__progress-track");
+                var fill = new VisualElement();
+                fill.AddToClassList("ab-dash__progress-fill");
+                fill.style.width = Length.Percent(Mathf.Clamp01(MCPSelfTest.Progress) * 100f);
+                track.Add(fill);
+                _testBar.Add(track);
+                return;
+            }
+
+            if (MCPSelfTest.LastRunTime > System.DateTime.MinValue)
+            {
+                int failed = MCPSelfTest.FailedCount;
+                int warnings = MCPSelfTest.WarningCount;
+                int total = MCPSettingsManager.GetAllCategoryNames().Length;
+                if (failed > 0) Text(_testBar, $"{failed} failed", "ab-dash__red-text").style.marginRight = 8;
+                if (warnings > 0) Text(_testBar, $"{warnings} warn", "ab-dash__yellow-text").style.marginRight = 8;
+                Text(_testBar, $"{MCPSelfTest.PassedCount}/{total} passed", "ab-dash__green-text");
             }
             else
             {
-                // Auto-select info
-                string autoInfo = MCPBridgeServer.IsRunning
-                    ? $"Auto-selected port {MCPBridgeServer.ActivePort} (range: {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd})"
-                    : $"Will auto-select from range {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd}";
-                EditorGUILayout.HelpBox(autoInfo, MessageType.None);
+                Text(_testBar, "No tests run yet", "ab-dash__mini");
             }
 
-            EditorGUILayout.Space(6);
-
-            // ─── Multiplayer Play Mode (MPPM) ───
-            EditorGUILayout.LabelField("Multiplayer Play Mode (MPPM)", EditorStyles.boldLabel);
-
-            // Start on MPPM Virtual Players
-            bool startOnVP = EditorGUILayout.Toggle(
-                new GUIContent("Start on Virtual Players",
-                    "When off, the MCP bridge does not auto-start on Multiplayer Play Mode " +
-                    "virtual players — only on the main Editor. Manual start still works."),
-                MCPSettingsManager.StartOnVirtualPlayers);
-            if (startOnVP != MCPSettingsManager.StartOnVirtualPlayers)
-                MCPSettingsManager.StartOnVirtualPlayers = startOnVP;
-
-            EditorGUILayout.Space(4);
-
-            // Reset button
-            if (GUILayout.Button("Reset All Settings to Defaults"))
-            {
-                if (EditorUtility.DisplayDialog("Reset Settings",
-                    "Reset all MCP settings to defaults?", "Reset", "Cancel"))
-                {
-                    MCPSettingsManager.ResetToDefaults();
-                }
-            }
-
-            EditorGUILayout.EndVertical();
+            Grow(_testBar);
+            var runBtn = new Button(MCPSelfTest.RunAllAsync) { text = "Run Tests" };
+            runBtn.SetEnabled(!MCPSelfTest.IsRunning && MCPBridgeServer.IsRunning);
+            _testBar.Add(runBtn);
         }
 
-        // ─── Version Info ───
-
-        private void DrawVersionInfo()
+        private static string CategoryDotClass(bool enabled, MCPTestResult result)
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-            EditorGUILayout.LabelField($"Plugin Version: {MCPUpdateChecker.CurrentVersion}", GUILayout.Width(155));
-            GUILayout.FlexibleSpace();
-
-            if (GUILayout.Button("Check for Updates", GUILayout.Width(130)))
+            if (!enabled) return "ab-dash__dot--grey";
+            if (result == null || result.Status == MCPTestResult.TestStatus.Untested) return "ab-dash__dot--green";
+            switch (result.Status)
             {
-                MCPUpdateChecker.CheckForUpdates((hasUpdate, latestVersion) =>
-                {
-                    if (hasUpdate)
-                    {
-                        EditorUtility.DisplayDialog("Update Available",
-                            $"A new version ({latestVersion}) is available.\n" +
-                            "Update via Unity Package Manager.",
-                            "OK");
-                    }
-                    else
-                    {
-                        EditorUtility.DisplayDialog("Up to Date",
-                            "You are running the latest version.", "OK");
-                    }
-                });
+                case MCPTestResult.TestStatus.Passed: return "ab-dash__dot--green";
+                case MCPTestResult.TestStatus.Warning: return "ab-dash__dot--yellow";
+                case MCPTestResult.TestStatus.Failed: return "ab-dash__dot--red";
+                default: return "ab-dash__dot--grey";
+            }
+        }
+
+        private static string TestStatusText(MCPTestResult result)
+        {
+            switch (result.Status)
+            {
+                case MCPTestResult.TestStatus.Passed: return $"✓ {result.DurationMs:0}ms";
+                case MCPTestResult.TestStatus.Warning: return $"⚠ {result.Message}";
+                case MCPTestResult.TestStatus.Failed: return $"✗ {result.Message}";
+                default: return "—";
+            }
+        }
+
+        // ─── Settings ────────────────────────────────────────────────────
+
+        private void BuildSettings(VisualElement parent)
+        {
+            BuildFoldout(parent, "Settings", false, out var box);
+
+            Text(box, "General", "ab-section-heading");
+
+            _autoStartToggle = new Toggle("Auto-start on Editor Load") { value = MCPSettingsManager.AutoStart };
+            _autoStartToggle.RegisterValueChangedCallback(OnAutoStartToggled);
+            box.Add(_autoStartToggle);
+
+            _newsToggle = new Toggle("News Notifications") { value = MCPNewsService.Enabled };
+            _newsToggle.RegisterValueChangedCallback(OnNewsToggled);
+            box.Add(_newsToggle);
+
+            Text(box, "Port", "ab-section-heading");
+
+            _manualPortToggle = new Toggle("Use Manual Port") { value = MCPSettingsManager.UseManualPort };
+            _manualPortToggle.RegisterValueChangedCallback(OnManualPortToggled);
+            box.Add(_manualPortToggle);
+
+            _portManualGroup = new VisualElement();
+            _portField = new IntegerField("Server Port") { value = MCPSettingsManager.Port };
+            _portField.RegisterValueChangedCallback(OnPortChanged);
+            _portManualGroup.Add(_portField);
+            _portRestartHint = Text(_portManualGroup, "Restart server to apply port change.", "ab-dash__accent-text");
+            box.Add(_portManualGroup);
+
+            _portAutoInfo = Text(box, "", "ab-dash__mini");
+
+            Text(box, "Multiplayer Play Mode (MPPM)", "ab-section-heading");
+
+            _mppmToggle = new Toggle("Start on Virtual Players")
+            {
+                value = MCPSettingsManager.StartOnVirtualPlayers,
+                tooltip = "When off, the MCP bridge does not auto-start on Multiplayer Play Mode " +
+                          "virtual players — only on the main Editor. Manual start still works.",
+            };
+            _mppmToggle.RegisterValueChangedCallback(OnMppmToggled);
+            box.Add(_mppmToggle);
+
+            var resetBtn = new Button(OnResetClicked) { text = "Reset All Settings to Defaults" };
+            resetBtn.style.marginTop = 8;
+            box.Add(resetBtn);
+        }
+
+        private void OnAutoStartToggled(ChangeEvent<bool> evt) => MCPSettingsManager.AutoStart = evt.newValue;
+        private void OnNewsToggled(ChangeEvent<bool> evt) => MCPNewsService.Enabled = evt.newValue;
+        private void OnManualPortToggled(ChangeEvent<bool> evt) => MCPSettingsManager.UseManualPort = evt.newValue;
+        private void OnMppmToggled(ChangeEvent<bool> evt) => MCPSettingsManager.StartOnVirtualPlayers = evt.newValue;
+
+        private void OnPortChanged(ChangeEvent<int> evt)
+        {
+            if (evt.newValue > 1024 && evt.newValue < 65536)
+                MCPSettingsManager.Port = evt.newValue;
+        }
+
+        private void OnResetClicked()
+        {
+            if (EditorUtility.DisplayDialog("Reset Settings", "Reset all MCP settings to defaults?", "Reset", "Cancel"))
+            {
+                MCPSettingsManager.ResetToDefaults();
+                _statusSig = _newsSig = _queueSig = _contextSig = _agentSig = _actionSig = _categorySig = null;
+            }
+        }
+
+        private void RefreshSettings()
+        {
+            _autoStartToggle.SetValueWithoutNotify(MCPSettingsManager.AutoStart);
+            _newsToggle.SetValueWithoutNotify(MCPNewsService.Enabled);
+
+            bool manual = MCPSettingsManager.UseManualPort;
+            _manualPortToggle.SetValueWithoutNotify(manual);
+            _portManualGroup.EnableInClassList("hidden", !manual);
+            _portAutoInfo.EnableInClassList("hidden", manual);
+
+            if (manual)
+            {
+                // Don't clobber the field while the user is typing in it.
+                bool editing = _portField.focusController != null
+                    && _portField.focusController.focusedElement != null
+                    && _portField.Contains(_portField.focusController.focusedElement as VisualElement);
+                if (!editing)
+                    _portField.SetValueWithoutNotify(MCPSettingsManager.Port);
+                bool mismatch = MCPBridgeServer.IsRunning && MCPBridgeServer.ActivePort != MCPSettingsManager.Port;
+                _portRestartHint.EnableInClassList("hidden", !mismatch);
+            }
+            else
+            {
+                _portAutoInfo.text = MCPBridgeServer.IsRunning
+                    ? $"Auto-selected port {MCPBridgeServer.ActivePort} (range: {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd})"
+                    : $"Will auto-select from range {MCPInstanceRegistry.PortRangeStart}-{MCPInstanceRegistry.PortRangeEnd}";
             }
 
-            EditorGUILayout.EndHorizontal();
+            _mppmToggle.SetValueWithoutNotify(MCPSettingsManager.StartOnVirtualPlayers);
+        }
+
+        // ─── Version footer ──────────────────────────────────────────────
+
+        private void BuildVersion(VisualElement parent)
+        {
+            var box = new VisualElement();
+            box.AddToClassList("ab-box");
+            var row = Row(box);
+            Text(row, $"Plugin Version: {MCPUpdateChecker.CurrentVersion}", "ab-dash__mini");
+            Grow(row);
+            row.Add(new Button(OnCheckUpdatesClicked) { text = "Check for Updates" });
+            parent.Add(box);
+        }
+
+        private void OnCheckUpdatesClicked()
+        {
+            MCPUpdateChecker.CheckForUpdates((hasUpdate, latestVersion) =>
+            {
+                EditorUtility.DisplayDialog(
+                    hasUpdate ? "Update Available" : "Up to Date",
+                    hasUpdate
+                        ? $"A new version ({latestVersion}) is available.\nUpdate via Unity Package Manager."
+                        : "You are running the latest version.",
+                    "OK");
+            });
+        }
+
+        // ─── Helpers ─────────────────────────────────────────────────────
+
+        private static string Read(Dictionary<string, object> dict, string key, string fallback) =>
+            dict.TryGetValue(key, out var v) && v != null ? v.ToString() : fallback;
+
+        private static int ReadInt(Dictionary<string, object> dict, string key)
+        {
+            int value = 0;
+            if (dict.TryGetValue(key, out var v) && v != null)
+                int.TryParse(v.ToString(), out value);
+            return value;
         }
     }
 }

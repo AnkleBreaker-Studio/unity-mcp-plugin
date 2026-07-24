@@ -36,6 +36,11 @@ namespace UnityMCP.Editor
                 }
             }
 
+            // Don't silently replace an existing controller (all states/transitions lost).
+            var controllerOverwrite = MCPAssetSafety.OverwriteGuard(path, args);
+            if (controllerOverwrite != null)
+                return controllerOverwrite;
+
             var controller = AnimatorController.CreateAnimatorControllerAtPath(path);
             if (controller == null)
                 return new { error = "Failed to create animator controller" };
@@ -386,6 +391,11 @@ namespace UnityMCP.Editor
                     current = next;
                 }
             }
+
+            // Don't silently wipe an existing clip's curves.
+            var clipOverwrite = MCPAssetSafety.OverwriteGuard(path, args);
+            if (clipOverwrite != null)
+                return clipOverwrite;
 
             var clip = new AnimationClip();
             clip.name = Path.GetFileNameWithoutExtension(path);

@@ -111,9 +111,24 @@ namespace UnityMCP.Editor
             if (resumeIndex >= 0)
             {
                 Debug.Log($"[MCP SelfTest] Domain reload detected mid-run — resuming from index {resumeIndex}");
-                // Delay resume by one frame to let the editor finish initializing
-                EditorApplication.delayCall += () => ResumeFromIndex(resumeIndex);
+                // Resume on the first editor update. delayCall registered during
+                // InitializeOnLoad can be silently dropped by the reload (observed: a
+                // battery interrupted at the asmdef/asset recompile never resumed);
+                // an update subscription always fires.
+                _pendingResumeIndex = resumeIndex;
+                EditorApplication.update += ResumePendingOnce;
             }
+        }
+
+        private static int _pendingResumeIndex = -1;
+
+        private static void ResumePendingOnce()
+        {
+            EditorApplication.update -= ResumePendingOnce;
+            int index = _pendingResumeIndex;
+            _pendingResumeIndex = -1;
+            if (index >= 0)
+                ResumeFromIndex(index);
         }
 
         // ─── Persistence helpers ─────────────────────────────────────
@@ -233,6 +248,7 @@ namespace UnityMCP.Editor
             { "navigation",     TestNavigation },
             { "packagemanager", TestPackageManager },
             { "particle",       TestParticle },
+            { "probuilder",     TestProBuilder },
             { "prefabasset",    TestPrefabAsset },
             { "prefs",          TestPrefs },
             { "projectsettings",TestProjectSettings },
@@ -1165,6 +1181,42 @@ namespace UnityMCP.Editor
             {
                 return $"UI.GetUIInfo threw: {ex.Message}";
             }
+        }
+
+        // --- ProBuilder ---
+        private static string TestProBuilder()
+        {
+#if PROBUILDER_INSTALLED
+            GameObject probe = null;
+            try
+            {
+                var args = new Dictionary<string, object> { { "shape", "cube" }, { "name", "__mcp_selftest_pb" } };
+                var result = MCPProBuilderCommands.CreateShape(args) as Dictionary<string, object>;
+                if (result == null || !result.ContainsKey("success"))
+                    return "ProBuilder.CreateShape returned no success payload";
+                probe = GameObject.Find("__mcp_selftest_pb");
+                if (probe == null)
+                    return "ProBuilder.CreateShape did not create the probe object";
+                if (!result.ContainsKey("faceCount") || Convert.ToInt32(result["faceCount"]) != 6)
+                    return "ProBuilder cube probe has unexpected face count";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"ProBuilder.CreateShape threw: {ex.Message}";
+            }
+            finally
+            {
+                if (probe != null) UnityEngine.Object.DestroyImmediate(probe);
+                else
+                {
+                    var leftover = GameObject.Find("__mcp_selftest_pb");
+                    if (leftover != null) UnityEngine.Object.DestroyImmediate(leftover);
+                }
+            }
+#else
+            return null; // ProBuilder not installed — pass (handler not compiled)
+#endif
         }
 
         // --- UMA ---

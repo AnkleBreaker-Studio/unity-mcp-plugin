@@ -575,6 +575,15 @@ namespace UnityMCP.Editor
             }
         }
 
+        /// <summary>Short human description of a value's shape for error messages.</summary>
+        private static string DescribeValue(object value)
+        {
+            if (value == null) return "null";
+            if (value is string s) return $"string \"{s}\"";
+            if (value is System.Collections.IList) return "an array";
+            return $"{value.GetType().Name} ({value})";
+        }
+
         internal static void SetSerializedValue(SerializedProperty prop, object value)
         {
             switch (prop.propertyType)
@@ -593,36 +602,40 @@ namespace UnityMCP.Editor
                     break;
                 case SerializedPropertyType.Color:
                     var cd = value as Dictionary<string, object>;
-                    if (cd != null)
-                        prop.colorValue = new Color(
-                            Convert.ToSingle(cd.GetValueOrDefault("r", 0f)),
-                            Convert.ToSingle(cd.GetValueOrDefault("g", 0f)),
-                            Convert.ToSingle(cd.GetValueOrDefault("b", 0f)),
-                            Convert.ToSingle(cd.GetValueOrDefault("a", 1f)));
+                    if (cd == null)
+                        throw new ArgumentException($"Color property '{prop.name}' expects an object {{r,g,b,a}}, got {DescribeValue(value)}.");
+                    prop.colorValue = new Color(
+                        Convert.ToSingle(cd.GetValueOrDefault("r", 0f)),
+                        Convert.ToSingle(cd.GetValueOrDefault("g", 0f)),
+                        Convert.ToSingle(cd.GetValueOrDefault("b", 0f)),
+                        Convert.ToSingle(cd.GetValueOrDefault("a", 1f)));
                     break;
                 case SerializedPropertyType.Vector2:
                     var v2d = value as Dictionary<string, object>;
-                    if (v2d != null)
-                        prop.vector2Value = new Vector2(
-                            Convert.ToSingle(v2d.GetValueOrDefault("x", 0f)),
-                            Convert.ToSingle(v2d.GetValueOrDefault("y", 0f)));
+                    if (v2d == null)
+                        throw new ArgumentException($"Vector2 property '{prop.name}' expects an object {{x,y}}, got {DescribeValue(value)}.");
+                    prop.vector2Value = new Vector2(
+                        Convert.ToSingle(v2d.GetValueOrDefault("x", 0f)),
+                        Convert.ToSingle(v2d.GetValueOrDefault("y", 0f)));
                     break;
                 case SerializedPropertyType.Vector3:
                     var vd = value as Dictionary<string, object>;
-                    if (vd != null)
-                        prop.vector3Value = new Vector3(
-                            Convert.ToSingle(vd.GetValueOrDefault("x", 0f)),
-                            Convert.ToSingle(vd.GetValueOrDefault("y", 0f)),
-                            Convert.ToSingle(vd.GetValueOrDefault("z", 0f)));
+                    if (vd == null)
+                        throw new ArgumentException($"Vector3 property '{prop.name}' expects an object {{x,y,z}}, got {DescribeValue(value)}.");
+                    prop.vector3Value = new Vector3(
+                        Convert.ToSingle(vd.GetValueOrDefault("x", 0f)),
+                        Convert.ToSingle(vd.GetValueOrDefault("y", 0f)),
+                        Convert.ToSingle(vd.GetValueOrDefault("z", 0f)));
                     break;
                 case SerializedPropertyType.Vector4:
                     var v4d = value as Dictionary<string, object>;
-                    if (v4d != null)
-                        prop.vector4Value = new Vector4(
-                            Convert.ToSingle(v4d.GetValueOrDefault("x", 0f)),
-                            Convert.ToSingle(v4d.GetValueOrDefault("y", 0f)),
-                            Convert.ToSingle(v4d.GetValueOrDefault("z", 0f)),
-                            Convert.ToSingle(v4d.GetValueOrDefault("w", 0f)));
+                    if (v4d == null)
+                        throw new ArgumentException($"Vector4 property '{prop.name}' expects an object {{x,y,z,w}}, got {DescribeValue(value)}.");
+                    prop.vector4Value = new Vector4(
+                        Convert.ToSingle(v4d.GetValueOrDefault("x", 0f)),
+                        Convert.ToSingle(v4d.GetValueOrDefault("y", 0f)),
+                        Convert.ToSingle(v4d.GetValueOrDefault("z", 0f)),
+                        Convert.ToSingle(v4d.GetValueOrDefault("w", 0f)));
                     break;
                 case SerializedPropertyType.Enum:
                     if (value is string enumName)
@@ -640,12 +653,13 @@ namespace UnityMCP.Editor
                     break;
                 case SerializedPropertyType.Rect:
                     var rd = value as Dictionary<string, object>;
-                    if (rd != null)
-                        prop.rectValue = new Rect(
-                            Convert.ToSingle(rd.GetValueOrDefault("x", 0f)),
-                            Convert.ToSingle(rd.GetValueOrDefault("y", 0f)),
-                            Convert.ToSingle(rd.GetValueOrDefault("width", 0f)),
-                            Convert.ToSingle(rd.GetValueOrDefault("height", 0f)));
+                    if (rd == null)
+                        throw new ArgumentException($"Rect property '{prop.name}' expects an object {{x,y,width,height}}, got {DescribeValue(value)}.");
+                    prop.rectValue = new Rect(
+                        Convert.ToSingle(rd.GetValueOrDefault("x", 0f)),
+                        Convert.ToSingle(rd.GetValueOrDefault("y", 0f)),
+                        Convert.ToSingle(rd.GetValueOrDefault("width", 0f)),
+                        Convert.ToSingle(rd.GetValueOrDefault("height", 0f)));
                     break;
                 case SerializedPropertyType.ObjectReference:
                     prop.objectReferenceValue = ResolveObjectReference(value);

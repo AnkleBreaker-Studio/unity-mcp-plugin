@@ -2,6 +2,127 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.3] - 2026-07-23
+
+### Fixed (Discord ProBuilder report — "shared-mesh hazards + 8 tool traps")
+- **A1 — `unity_gameobject_duplicate` is now ProBuilder-safe.** `Object.Instantiate` of a ProBuilder object made the clone's MeshFilter share the source's *runtime* mesh; deleting either object later ran `ProBuilderMesh.OnDestroy`, which destroys that mesh — blanking every copy at once (the report's "delete 3 chairs → 21 remaining chairs invisible"). Each cloned `ProBuilderMesh` is now given its own independent mesh via ProBuilder's `MakeUnique()`, so the duplicate is a fully independent, still-editable object. Live-verified: source and clone no longer share a mesh, and destroying the source leaves the clone's mesh intact (24 verts). Response reports `proBuilderMeshesIsolated`.
+- **A1 — `unity_gameobject_delete` guards the shared-mesh hazard.** Deleting an object whose runtime (non-asset) mesh is still referenced by MeshFilters outside its subtree (clones) is now refused with `requiresForce`/`sharedWith` instead of silently blanking the others; pass `force:true` to override. The external-sharer scan **includes inactive objects** (`FindObjectsInactive.Include`) — a toggled-off sibling was the one blind spot that would otherwise let the exact hazard through silently. Only runtime meshes are scanned, and only when the target actually has one, so normal asset-mesh deletes stay on the fast path. Live-verified with both active and inactive siblings; `force:true` deletes.
+- **B2 — material lookup is consistent and never fails silently.** `create_shape`'s `material` accepted a bare name but, when it didn't resolve, fell back to the default with `success:true` and no signal; `set_face_material` demanded a full asset path. Both now share one resolver that accepts a full path OR a bare name (exact AssetDatabase match). `create_shape` surfaces `materialWarning` + echoes `appliedMaterial` when a requested material can't be found, so the fallback is never silent. A bare name that matches **more than one** material (common with asset packs / generic names) is resolved deterministically and disclosed — `materialWarning` names the ambiguity and `appliedMaterialPath` echoes exactly which asset was applied — rather than silently picking an arbitrary one. This also resolves **B1** (combine "losing" per-piece materials): with real materials actually applied, `CombineMeshes.Combine` preserves the submeshes — the previous single-submesh result came from every piece silently sharing the default (live-reproduced: two cubes with distinct materials combine to 2 submeshes `[MAT_A, MAT_B]`).
+- **B3 — `bevel_edges` reports no-ops.** Bevel silently does nothing on some configurations (coplanar/interior faces left by a CSG cut); the response now includes `changed` (vertex/face-count delta) and a `note` when nothing moved.
+- **B5 — MeshCollider stays in sync after every rebuild.** A `MeshCollider` on a ProBuilder object kept stale cooked collision after combine/boolean/any edit; the shared rebuild path now re-points it (null-then-set forces a re-cook). Live-verified after an extrude (24→40 verts, collider matches).
+- **B8 — `create_shape` takes `layer`, `addCollider`, and `parent`.** Created objects landed on the Default layer, with no collider, at the scene root — forcing a follow-up call each time. All three are now applied at creation (layer by name or index; a MeshCollider matching the mesh; reparent by path), with `layerWarning`/`parentWarning` on an unknown layer/path. The response echoes `layer` and `hasCollider`.
+
+Inherent ProBuilder behavior, surfaced rather than "fixed": **B6** (a `set_face_material` submesh on a shared mesh doesn't sync sibling renderers — now mitigated by the A1 independent-mesh duplicate) and **B7** (structural ops renumber faces — re-enumerate before the next op). **C** (the five 2026-07-22 battle-test bugs) re-verified still fixed.
+
+## [2.39.2] - 2026-07-23
+
+### Security / Fixed (pre-merge multi-expert audit)
+- **CRITICAL — asmdef commands now confined to the project.** Every `asmdef/*` handler (`create`, `info`, `add-references`, `remove-references`, `set-platforms`, `update-settings`, `create-ref`) took the caller's raw `path` straight into `File.ReadAllText`/`WriteAllText` — the one asset-writing surface the data-safety wave hadn't retrofitted. A `../../` or absolute `path` could read/write outside the project. All seven now resolve through `MCPAssetSafety.TryResolveProjectPath` (traversal + absolute rejected); live-verified that `../../…/hosts` and `C:/Users/Public/evil.asmdef` are refused while a normal `Assets/…​.asmdef` create/info/reference still works.
+- **CRITICAL — legacy synchronous endpoint no longer self-deadlocks on deferred routes.** A direct (non-`queue/submit`) POST to a deferred route (`testing/list-tests`) blocked the editor for the full sync timeout (the main-thread pump can't drain while the same update tick is blocked). Such routes now return a clear 409 directing to `queue/submit`; the orphaned `ExecuteOnMainThreadDeferred` deadlock primitive is removed. The async queue path (what the server uses) is unaffected.
+- **`probuilder/combine` is now fully undoable** — it didn't record the surviving target before merging, so `undo/last`/Ctrl+Z restored the consumed sources but left the target merged (partial undo). Verified: after undo the target returns to its pre-merge face count AND the sources come back.
+- **Deferred tickets no longer open an undo group** — their collapse fires an arbitrary number of frames later and could fold a concurrent agent's undo group into theirs, corrupting per-action undo. Deferred actions (already excluded from history) now never open a group.
+- **`shadergraph/set-node-property` no longer reports success when it changed nothing** — a missing property now returns a clear error instead of `success:true` on an unchanged file; the value is written through a literal `MatchEvaluator` so a `$`/`$1` in the value can't splice in captured regex text.
+- **ProBuilder null-arg hardening** — explicit-JSON `null` for `name`/`material`/a `faceIndices` element now yields a clear validation error instead of a `NullReferenceException`; `execute-code` dictionary results are item-capped like lists; toolbar dot textures are freed before domain reload (no per-recompile native-texture leak); dead local removed from `translate-faces`.
+
+## [2.39.1] - 2026-07-23
+
+### Security (merge-readiness audit of the news feature)
+- **News feed links are now confined to http/https before reaching the OS shell.** `MCPNewsService` parsed the devlog RSS `<link>` and handed it verbatim to `Application.OpenURL` (which routes through the OS shell, i.e. any registered URI-scheme handler, `file://`, UNC paths). A spoofed/compromised feed could have turned one click in the News panel into a file/handler open. Links are now validated (`Uri` absolute + `http`/`https` only) at parse time — a bad-scheme item never becomes a clickable post — with a defense-in-depth re-check in `OpenPost`. Verified live: `file://`, `javascript:`, `steam://`, `ms-msdt:`, UNC and `vscode://` links are all dropped; a crafted `file://` item with a disguised `<color>` title is discarded while legit posts survive.
+- **Feed text can no longer inject UI markup.** Titles/categories are stripped of `<`/`>` (UI Toolkit labels render rich text by default) and `/` (a `GenericMenu` submenu separator) at parse; the dashboard news labels also set `enableRichText = false`. Prevents a compromised feed from styling an entry to impersonate official plugin UI.
+- **Bounded feed ingestion** — responses over 1 MB are rejected and at most 50 posts are parsed, so an oversized/malicious response can't drive unbounded allocation or a giant EditorPrefs write on the main thread.
+- **Seen-set integrity** — `;` (the EditorPrefs delimiter) is stripped from slugs so a crafted slug can't corrupt the read-state store.
+
+### Fixed
+- **Self-test resume after domain reload** — a mid-battery domain reload resumed via `EditorApplication.delayCall`, which can be dropped during `InitializeOnLoad`; it now resumes on the first `EditorApplication.update` (always fires). New **ProBuilder self-test probe** (creates/verifies/destroys a cube when ProBuilder is installed, passes through when absent).
+
+## [2.39.0] - 2026-07-22
+
+### Fixed (Discord battle-test report — "floats silently dropped + 4 more bugs")
+- **BUG 1 (MAJOR): non-integer numeric parameters were silently dropped on decimal-comma locales.** Root cause: handlers read numbers via `value.ToString()` (current culture: `18.8` → `"18,8"` on e.g. fr-FR) then parsed with InvariantCulture — fail → silent fallback to the default. Integers and strings were unaffected, which is why it looked like "floats rejected". New shared `MCPArgs` reads the boxed `double`/`long` MiniJson actually delivers **typed-first** (no string round-trip); ProBuilder's `GetFloat`/`GetInt`/`GetBool` and UMA's `GetOptionalFloat` now delegate to it. Reproduced and verified under a forced `fr-FR` culture; the reporter's exact case (a 1.4 × 0.72 × 0.7 cube) now applies verbatim, and float `translate_faces` genuinely moves vertices.
+- **Design rule from the report — no silent fallback, no silent success:** a parameter that is present but not interpretable now **throws a clear error** (`Parameter 'width' is not a valid number: 'abc'`) instead of defaulting, and `create-shape` echoes the **actually applied** `appliedSize`/`appliedPosition` so a dropped value is visible in the response.
+- **BUG 2 (create-shape "race"): same root cause as BUG 1** — the "lost" positions (12.8 / 15.2) were non-integer and got dropped; the queue serializes writes one per frame and `CreateShape` reads only its own arguments. Verified: 3 concurrent creates with float positions all land exactly where requested.
+- **BUG 3: `probuilder/info` bounds unreliable** — local mesh bounds are now recalculated before reporting (stale after vertex edits), and the response adds **`worldBounds`** (renderer AABB — reflects transform scale/rotation/position, which is what placement logic actually needs). Verified: a 2×-scaled cube reports local 1.4×0.97×0.7 and world 2.8×1.94×1.4.
+- **BUG 4: `probuilder/boolean` left both operands overlapping the result** — sources are now **deleted by default** (Undo-tracked, one undo restores everything); pass `deleteSources:false` to keep them. New `name` parameter for the result; the response reports `sourceInstanceIds` + `sourcesDeleted`.
+
+## [2.38.0] - 2026-07-19
+
+### Added (studio news notifications)
+- **Mobile-style devlog notifications** — the plugin now surfaces new posts from the AnkleBreaker devlog (`anklebreaker-studio.com/devlog`): the MCP toolbar element shows an unseen badge (`MCP ●1`; a real accent-orange badge pill on the pre-6000.3 fallback toolbar), the toolbar dropdown gains an **AnkleBreaker News** section (latest 5 posts, unseen marked, click opens + marks read, Mark All Read, Open Devlog Page), and the dashboard gains a full **News panel** (all posts with category chips + dates, unseen highlighted in the brand accent).
+- `MCPNewsService`: polls the devlog RSS feed at most every 6 hours (plain GET, nothing sent), caches posts across domain reloads, and tracks read state **per user** (global EditorPrefs — reading a post once clears it in every project). First run seeds the backlog as read except the newest post, so a fresh install shows a single gentle "1", not six. Fully opt-out via Settings → News Notifications (toolbar menu or dashboard).
+
+### Changed (dashboard reworked in UI Toolkit, studio branding)
+- **The dashboard (Window → AB Unity MCP) is rebuilt in UI Toolkit** on the AnkleBreaker theme — the deep warm-brown + molten-orange palette of the studio website, shared with the welcome window's brand stylesheet (new `MCPTheme` loads it cross-assembly + `MCPDashboardStyles.uss`). Every capability of the old IMGUI window is preserved: connection status, server controls, request queue with per-agent depth, project context management, active agent sessions, recent actions, feature categories with self-test status/details/toggles, settings (auto-start, manual port, MPPM, reset), version + update check.
+- Dynamic sections refresh on a 750 ms schedule but only rebuild when a content signature changes; each section refreshes in isolation (one failing data source can't blank the others) and self-heals if the layout-restore path stomps its content (first population is deferred one frame past Unity's view-data restore).
+
+## [2.37.1] - 2026-07-19
+
+### Fixed (found by the live ProBuilder level-build test scenario)
+- **ProBuilder shapes were created with a NULL material** — they rendered with the magenta missing-material look and crashed boolean CSG ("Value cannot be null. Parameter name: key", CSG keys a dictionary by material). `create-shape` now always ends with a real material (the explicit `material` arg, else ProBuilder's default), and `boolean` pre-flights both operands, assigning the default to any null slot (Undo-tracked, disclosed as `materialsDefaulted: true` in the result).
+- **`boolean` results were double-offset** — CSG output vertices are in world space, but the result object was also placed at the target's position, pushing the mesh a full offset away (a carved wall landed outside the level). The result now sits at the identity transform, then gets its pivot centered on the geometry so it behaves like a normal object for later transforms.
+- **`graphics/scene-capture` captured a stale camera** — a backgrounded editor never repaints the SceneView, so its camera lagged behind code-driven `LookAt`/focus changes and captures showed the old view. The render camera is now synced to the view's pivot/rotation/size before rendering, so captures always reflect the requested view.
+
+## [2.37.0] - 2026-07-19
+
+### Changed (context efficiency)
+- **`scene/hierarchy` is dense by default** — per-node fields carrying their default value are omitted, and an absent field means the default: `active` (true), `tag` (Untagged), `layer` (Default), `position` (origin; Unity's approximate `Vector3 ==` treats float noise as origin), the universal `Transform` component entry, and `childCount` when a complete `children` array already implies it. Non-default information is always emitted. Measured **43% smaller** on a representative 221-node hierarchy (42.3KB → 24.4KB); scenes with many empty organizer objects cut more. **Behavior change:** consumers that require the old always-present per-node shape pass `verbose:true` (the server companion 2.35.0 declares the parameter).
+
+## [2.36.0] - 2026-07-18
+
+### Added (per-action / per-agent Undo)
+- **`undo/last` — revert the most recent undoable MCP action as a whole.** Each write action now reverts cleanly as one step (a whole create/edit/boolean, not one internal operation). With `agentId`, targets that agent's most recent action. Honest about Unity's LINEAR undo: if newer actions are stacked on top of the target, `undo/last` refuses to cascade and lists exactly which actions would also be reverted unless `force:true` is passed.
+- **`undo/history` is now a real per-agent action log** — returns recent MCP actions (newest first, optional `agentId`/`count` filters) with per-agent attribution, target object, an `undoable` flag, and the current Unity undo group — instead of only the current group name.
+
+### Changed (multi-agent queue — each action is now independently revertable)
+- **The queue wraps every WRITE action in its own named, collapsed Undo group** (`MCPRequestQueue`). Previously the recorded undo group used a `GetCurrentGroup()` before/after diff that missed most real edits (e.g. `RegisterCreatedObjectUndo` doesn't advance the group), so per-action undo was effectively unavailable. Now each agent's action is a clean, named entry in Unity's Undo history and a precise revert target for `undo/last`.
+- **Undoability is detected from the actual undo stack**, not guessed: an action is only marked undoable if it genuinely registered an undo op (measured via the internal `Undo.GetRecords`), so reads that slip past the read classifier — and `execute-code`, whose temp-host churn registers incidental undo — never become misleading `undo/last` targets. Reads, undo/redo ops, empty groups and failures stay non-undoable. Fails open if the internal API is ever unavailable.
+
+## [2.35.0] - 2026-07-18
+
+### Added (ProBuilder integration — `com.unity.probuilder`)
+- **Full ProBuilder command surface** (`MCPProBuilderCommands`, 14 handlers under the `probuilder/*` routes) — create parametric shapes and edit real, still-editable ProBuilder meshes through ProBuilder's public API:
+  - `create-shape` — cube, plane, cylinder, prism, stair, cone, door, pipe, arch, sphere (icosphere), torus, with per-shape parameters (sides, steps, thickness, angle, subdivisions, …).
+  - Geometry edits — `extrude-faces` (face/individual/vertex-normal), `bevel-edges`, `subdivide`, `delete-faces`, `translate-faces`, `flip-normals`.
+  - Materials — `set-face-material` (per-face submesh assignment).
+  - Boolean CSG — `boolean` (union / subtract / intersect); the result is a new editable ProBuilder object.
+  - `combine` (merge ProBuilder meshes), `probuilderize` (convert a plain mesh to ProBuilder), `center-pivot`, `export-mesh` (bake to a `.asset`, guarded by the shared overwrite check).
+- **Tolerated-when-missing integration** — the whole surface is gated on `PROBUILDER_INSTALLED` (asmdef `versionDefines` on `com.unity.probuilder >= 4.0.0`); when ProBuilder is absent every handler returns a clear "not installed" message instead of failing to compile, matching the existing UMA pattern. New `probuilder` capability category in `MCPSettingsManager`.
+- Every mutation registers Undo (`Undo.RegisterCompleteObjectUndo` / `RegisterCreatedObjectUndo`), so ProBuilder edits compose with the multi-agent queue's per-action undo tracking. `export-mesh` uses `outputPath` (distinct from the `path`/`instanceId` used to resolve the source object) and confines writes under `Assets/` via `MCPAssetSafety`.
+
+## [2.34.0] - 2026-07-18
+
+### Fixed (data safety — several handlers could silently destroy user assets)
+- **`script/create` and `script/update` no longer write outside the project or destroy source files** — the project root was computed with `dataPath.Replace("/Assets","")`, which strips **every** `/Assets` occurrence, so a project under a path containing `/Assets` resolved to the wrong root and writes landed outside the project (the import then silently no-oped). Root is now `Path.GetDirectoryName(Application.dataPath)`. `update` with missing **or empty** content used to truncate the target script to zero bytes — empty content is now rejected. `create` no longer silently overwrites an existing script. All paths are canonicalized and confined under `Assets/`/`Packages/` (traversal and absolute-path escapes rejected).
+- **Asset creators no longer silently overwrite existing assets** — `AssetDatabase.CreateAsset` on an existing path destroys the asset and every reference to it (the GUID is reused). ScriptableObject, Terrain (`create`), Animator Controller, Animation Clip, Material, and `asset/import` now refuse to replace an existing asset unless `overwrite: true` is passed. The overwrite check tests the canonical on-disk path **and** the AssetDatabase, so a non-canonical spelling (`Assets//X`, `Assets/./X`) or a not-yet-imported file can't slip past it. New shared `MCPAssetSafety` helper centralizes root resolution, path confinement, and the overwrite guard.
+- **Queue double-execution** — a request whose 30s sync waiter already gave up (`TimedOut`) stayed in the queue and still executed later, so a client retry ran a non-idempotent action (create, package add, import) twice. Timed-out tickets are now dropped before execution (race-safe under the queue lock).
+- **`component/set-property` reported success without applying the value** — Color/Vector2/3/4/Rect branches silently did nothing when the value wasn't an object (e.g. an agent passing `"1,0,0,1"` or an array); they now return a clear error.
+- **`asmdef` remove-references removed the wrong reference** — a substring `Contains` match removed `Unity.InputSystem.ForUI` when asked to remove `Unity.InputSystem` (breaking compilation while reporting success); now an exact name/GUID match, and a no-match is reported rather than churning a recompile.
+
+### Fixed (ShaderGraph — all four asset-corruption bugs in [#18](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/18))
+- ShaderGraph create/add-node/connect/disconnect/remove-node now go through ShaderGraph's real `GraphData` model (new `MCPShaderGraphApi` reflection wrapper over `GraphData` / `MultiJson` / `FileUtilities`) instead of regex/JSON string surgery, so the serialized `.shadergraph` is **always** a valid, importable asset:
+  - `create` built an identical invalid 809-byte graph for every template (no target, dangling `m_OutputNode`, failed import); it now builds a real URP Lit/Unlit graph with its default surface/vertex blocks (or a valid target-less graph for `blank`), and refuses to silently downgrade an explicit URP template to blank when URP isn't installed.
+  - `add-node` produced empty-slot nodes that broke import and dropped the requested position; nodes now get their real slots and the position is honored (`positionX`/`positionY` or `x`/`y`).
+  - `disconnect` matched by output slot only (dropping sibling edges) and blanked surviving multi-line edges to `m_Id:""`; it now removes exactly the tuple-matched edges, survivors untouched.
+  - `remove-node` had the same edge-blanking corruption; it now uses `GraphData.RemoveNode`.
+  - `connect` validates slot compatibility and refuses cycles instead of blindly inserting edge JSON.
+  - Fail-closed: if the ShaderGraph API can't be resolved (version drift), these handlers return a clear error instead of corrupting anything.
+
+### Changed
+- **`overwrite: true` opt-in** on the asset-creator handlers is the escape hatch for the new overwrite guards (see the companion `unity-mcp-server` 2.32.0 schema additions). `editor/state` and `project/info` now report the project path via the corrected root helper.
+
+## [2.33.0] - 2026-07-18
+
+### Fixed
+- **`/api/context` always returned HTTP 500** — `GetContextResponse` reads `EditorPrefs` (main-thread-only) but ran on the HTTP ThreadPool thread, so every Project Context call threw; both context routes now run through `ExecuteOnMainThread` like every other synchronous route. Root cause + fix per PR [#17](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/17) by @rcasaleiro.
+- **`GetRegisteredRoutes` drift** — the hand-maintained route list had drifted to ~150 of 321 routes with several wrong names (e.g. `editor/undo` vs the real `undo/perform`), silently breaking the server's dynamic tool discovery. The list is now **generated from the dispatch switch** into `MCPBridgeServer.Routes.g.cs` by `tools~/generate-routes.mjs`; a CI workflow fails on drift.
+- **`editor/execute-code` returned numbers as strings** — result serialization ToString'd every reflected property and list element (`42` became `"42"`, nested objects flattened to type names). New depth-capped recursive serializer preserves primitive types, recurses dicts/lists/anonymous objects (depth 4, 1000-item cap), and renders `UnityEngine.Object` graphs compactly instead of exploding their property trees.
+- **Action history truncated 64-bit ids** — `MCPActionRecord.TargetInstanceId` was `int` but Unity 6.5 EntityIds are 64-bit opaque strings; the field is now a string end to end (record, persistence DTO, history window, select-target). Old persisted entries lose only this field on first load.
+- **Error responses leaked exception stack traces to the wire** — traces now go to the editor log only.
+- **macOS: ExecuteCode could not find Roslyn** — added `Contents/Resources/Scripting` to the assembly search paths, per PR [#19](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/19) by @JetNik.
+
+### Added
+- **Browser CSRF / DNS-rebinding guard** — the bridge can execute arbitrary editor code but accepted any local HTTP request; requests with a non-loopback `Host` or any non-loopback `Origin` (browser pages always attach one on cross-origin fetches) are now rejected with 403 before touching editor state. Local tools (no Origin header) are unaffected.
+- **Capability handshake (plugin half)** — `/api/ping` advertises a monotonic `protocolVersion` (1) and `pluginVersion` (from PackageInfo); unknown routes return HTTP 404 on the legacy path so servers can distinguish "feature missing" from "call failed" and degrade gracefully across version drift. Pairs with `unity-mcp-server` 2.31.0. Re-implementation of PR [#20](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/pull/20) by @D3vCrow.
+
 ## [2.32.0] - 2026-06-02
 
 ### Added

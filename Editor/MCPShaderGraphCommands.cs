@@ -389,89 +389,46 @@ namespace UnityMCP.Editor
             if (!path.EndsWith(".shadergraph"))
                 path += ".shadergraph";
 
-            if (File.Exists(Path.Combine(Application.dataPath, "..", path)))
-                return new Dictionary<string, object> { { "error", $"File already exists at: {path}" } };
-
             string template = args.ContainsKey("template") ? args["template"].ToString().ToLower() : "urp_lit";
+
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+
+            // Don't silently downgrade an explicit URP template to blank when URP isn't installed.
+            if (MCPShaderGraphApi.IsUnavailablePipelineTemplate(template))
+                return new Dictionary<string, object> { { "error", $"Template '{template}' needs the URP Shader Graph package, which isn't installed. Use template 'blank' for a target-less graph." } };
+
+            // Resolve under the project root; guard against overwriting an existing graph
+            // (OverwriteGuard checks the canonical path + disk, so overwrite:true works).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
+            var overwriteError = MCPAssetSafety.OverwriteGuard(path, args);
+            if (overwriteError != null)
+                return overwriteError;
 
             try
             {
-                // Try using ShaderGraph's internal API to create via menu items
-                // This is the most reliable approach as the JSON format is complex and version-dependent
-
-                // First ensure directory exists
-                string dir = Path.GetDirectoryName(Path.Combine(Application.dataPath, "..", path));
-                if (!Directory.Exists(dir))
+                string dir = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                // Use ProjectWindowUtil for reliable creation
-                bool created = false;
+                // Build the graph through ShaderGraph's real GraphData model so the output is
+                // always a valid, importable asset (the old hand-built JSON produced an
+                // invalid graph with a dangling output node — issue #18 bug 1).
+                Type subTarget = MCPShaderGraphApi.ResolveTemplateSubTarget(template);
+                string createError = MCPShaderGraphApi.CreateGraph(MCPAssetSafety.ToAssetDatabasePath(path), fullPath, subTarget);
+                if (createError != null)
+                    return new Dictionary<string, object> { { "error", createError } };
 
-                // Try menu item approach - create in a temp location then move
-                string menuPath = GetMenuPathForTemplate(template);
-
-                if (!string.IsNullOrEmpty(menuPath))
-                {
-                    // Select the target folder first
-                    string folderPath = Path.GetDirectoryName(path);
-                    var folder = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(folderPath);
-                    if (folder != null)
-                        Selection.activeObject = folder;
-
-                    // Create using internal API via reflection
-                    try
-                    {
-                        // Try to find the shader graph creation type
-                        Type createActionType = null;
-                        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                        {
-                            if (asm.GetName().Name == "Unity.ShaderGraph.Editor")
-                            {
-                                createActionType = asm.GetType("UnityEditor.ShaderGraph.CreateShaderGraph");
-                                break;
-                            }
-                        }
-
-                        if (createActionType != null)
-                        {
-                            // Invoke the creation method
-                            var createMethod = createActionType.GetMethod("CreateGraph",
-                                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                            if (createMethod != null)
-                            {
-                                createMethod.Invoke(null, new object[] { path });
-                                created = true;
-                            }
-                        }
-                    }
-                    catch { }
-                }
-
-                // Fallback: create a minimal .shadergraph file
-                if (!created)
-                {
-                    string graphContent = GetMinimalShaderGraphJson(template, Path.GetFileNameWithoutExtension(path));
-                    string fullPath = Path.Combine(Application.dataPath, "..", path);
-                    File.WriteAllText(fullPath, graphContent);
-                    AssetDatabase.ImportAsset(path);
-                    created = true;
-                }
-
-                if (created)
-                {
-                    AssetDatabase.Refresh();
-                    return new Dictionary<string, object>
-                    {
-                        { "success", true },
-                        { "assetPath", path },
-                        { "template", template },
-                        { "note", "Shader graph created. Open it in the Shader Graph editor to add nodes." },
-                    };
-                }
-
+                bool blank = subTarget == null;
                 return new Dictionary<string, object>
                 {
-                    { "error", "Failed to create shader graph. Try creating it manually via Assets > Create > Shader Graph." },
+                    { "success", true },
+                    { "assetPath", path },
+                    { "template", template },
+                    { "note", blank
+                        ? "Blank shader graph created (no active target). Open it and add a target, or use a 'urp_lit'/'urp_unlit' template."
+                        : "Shader graph created with a URP target and its default blocks. Add nodes with shadergraph/add-node." },
                 };
             }
             catch (Exception ex)
@@ -617,58 +574,9 @@ namespace UnityMCP.Editor
         }
 
         // ─── Helpers ───
-
-        private static string GetMenuPathForTemplate(string template)
-        {
-            switch (template)
-            {
-                case "urp_lit": return "Assets/Create/Shader Graph/URP/Lit Shader Graph";
-                case "urp_unlit": return "Assets/Create/Shader Graph/URP/Unlit Shader Graph";
-                case "urp_sprite_lit": return "Assets/Create/Shader Graph/URP/Sprite Lit Shader Graph";
-                case "urp_sprite_unlit": return "Assets/Create/Shader Graph/URP/Sprite Unlit Shader Graph";
-                case "urp_decal": return "Assets/Create/Shader Graph/URP/Decal Shader Graph";
-                case "hdrp_lit": return "Assets/Create/Shader Graph/HDRP/Lit Shader Graph";
-                case "hdrp_unlit": return "Assets/Create/Shader Graph/HDRP/Unlit Shader Graph";
-                case "blank": return "Assets/Create/Shader Graph/Blank Shader Graph";
-                default: return null;
-            }
-        }
-
-        private static string GetMinimalShaderGraphJson(string template, string name)
-        {
-            // Minimal valid .shadergraph file structure
-            // This creates a basic graph that Unity can parse and open in the editor
-            return $@"{{
-    ""m_SGVersion"": 3,
-    ""m_Type"": ""UnityEditor.ShaderGraph.GraphData"",
-    ""m_ObjectId"": ""{Guid.NewGuid():N}"",
-    ""m_Properties"": [],
-    ""m_Keywords"": [],
-    ""m_Dropdowns"": [],
-    ""m_CategoryData"": [],
-    ""m_Nodes"": [],
-    ""m_GroupDatas"": [],
-    ""m_StickyNoteDatas"": [],
-    ""m_Edges"": [],
-    ""m_VertexContext"": {{
-        ""m_Position"": {{ ""x"": 0.0, ""y"": 0.0 }},
-        ""m_Blocks"": []
-    }},
-    ""m_FragmentContext"": {{
-        ""m_Position"": {{ ""x"": 200.0, ""y"": 0.0 }},
-        ""m_Blocks"": []
-    }},
-    ""m_PreviewData"": {{
-        ""serializedMesh"": {{ ""m_SerializedMesh"": """", ""m_Guid"": """" }}
-    }},
-    ""m_Path"": ""Shader Graphs"",
-    ""m_GraphPrecision"": 1,
-    ""m_PreviewMode"": 2,
-    ""m_OutputNode"": {{
-        ""m_Id"": ""{Guid.NewGuid():N}""
-    }}
-}}";
-        }
+        // (Graph creation and editing now go through MCPShaderGraphApi / the real
+        //  ShaderGraph GraphData model; the old hand-built JSON template and node
+        //  templates were removed — they produced invalid/corrupt graphs, issue #18.)
 
         private static object PackageNotInstalledError(string packageName)
         {
@@ -820,61 +728,29 @@ namespace UnityMCP.Editor
 
             string path = args["path"].ToString();
             string nodeType = args["nodeType"].ToString();
-            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : 0f;
-            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : 0f;
+            // Accept positionX/positionY (canonical) and x/y (common alias).
+            float posX = args.ContainsKey("positionX") ? Convert.ToSingle(args["positionX"]) : args.ContainsKey("x") ? Convert.ToSingle(args["x"]) : 0f;
+            float posY = args.ContainsKey("positionY") ? Convert.ToSingle(args["positionY"]) : args.ContainsKey("y") ? Convert.ToSingle(args["y"]) : 0f;
 
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
+            Type resolvedType = ResolveShaderGraphNodeType(nodeType);
+            if (resolvedType == null)
+                return new Dictionary<string, object> { { "error", $"Unknown node type: {nodeType}. Use 'shadergraph/get-node-types' to list available types." } };
+
             try
             {
-                // Find the node type in ShaderGraph assembly
-                Type resolvedType = ResolveShaderGraphNodeType(nodeType);
-
-                string nodeId = Guid.NewGuid().ToString("N").Substring(0, 24);
-                string nodeJson;
-
-                if (resolvedType != null)
-                {
-                    // Try to serialize via reflection
-                    nodeJson = TrySerializeNodeViaReflection(resolvedType, nodeId, posX, posY);
-                }
-                else
-                {
-                    // Use template-based approach for common types
-                    nodeJson = GetNodeTemplate(nodeType, nodeId, posX, posY);
-                }
-
-                if (string.IsNullOrEmpty(nodeJson))
-                    return new Dictionary<string, object>
-                    {
-                        { "error", $"Unknown node type: {nodeType}. Use 'shadergraph/get-node-types' to list available types." },
-                    };
-
-                // Read the file and insert the node
-                string content = File.ReadAllText(fullPath);
-
-                // Add node reference to the main GraphData block
-                string nodeRef = $"{{\"m_Id\":\"{nodeId}\"}}";
-
-                // Find m_Nodes array in the graph data and add the reference
-                int nodesArrayEnd = FindJsonArrayEnd(content, "m_Nodes");
-                if (nodesArrayEnd < 0)
-                    return new Dictionary<string, object> { { "error", "Could not find m_Nodes array in graph file" } };
-
-                // Insert reference before the closing bracket of m_Nodes
-                string nodesArrayContent = content.Substring(0, nodesArrayEnd);
-                bool hasExistingNodes = nodesArrayContent.TrimEnd().EndsWith("}");
-                string separator = hasExistingNodes ? "," : "";
-                content = content.Insert(nodesArrayEnd, separator + nodeRef);
-
-                // Append the full node JSON as a new block at the end of the file
-                // In MultiJson format, each object is a separate top-level JSON
-                content = content.TrimEnd() + "\n\n" + nodeJson;
-
-                File.WriteAllText(fullPath, content);
-                AssetDatabase.ImportAsset(path);
+                // Load → mutate → save through the real GraphData model. Nodes get their real
+                // slots and the position is honored; the graph is guaranteed valid on save
+                // (old string-surgery produced empty-slot nodes and dropped the position — #18 bugs 3,4).
+                var graph = MCPShaderGraphApi.LoadGraph(fullPath);
+                string nodeId = MCPShaderGraphApi.AddNode(graph, resolvedType, posX, posY);
+                MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
                 {
@@ -883,7 +759,6 @@ namespace UnityMCP.Editor
                     { "nodeId", nodeId },
                     { "nodeType", nodeType },
                     { "position", new Dictionary<string, object> { { "x", posX }, { "y", posY } } },
-                    { "note", "Node added. The graph will update when opened in Shader Graph editor." },
                 };
             }
             catch (Exception ex)
@@ -906,54 +781,30 @@ namespace UnityMCP.Editor
 
             string path = args["path"].ToString();
             string nodeId = args["nodeId"].ToString();
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
 
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
             try
             {
-                string content = File.ReadAllText(fullPath);
-
-                // Remove node reference from m_Nodes array
-                string refPattern = $"{{\"m_Id\":\"{nodeId}\"}}";
-                content = content.Replace("," + refPattern, "");
-                content = content.Replace(refPattern + ",", "");
-                content = content.Replace(refPattern, "");
-
-                // Remove the node's JSON block (MultiJson format)
-                var blocks = ParseMultiJson(content);
-                var newBlocks = new List<string>();
-                int removedEdges = 0;
-
-                foreach (var block in blocks)
-                {
-                    string blockId = ExtractJsonString(block, "m_ObjectId") ?? ExtractJsonString(block, "m_Id");
-
-                    // Skip the node itself
-                    if (blockId == nodeId) continue;
-
-                    // For the main graph block, also remove edges referencing this node
-                    if (block.Contains("\"m_Edges\""))
-                    {
-                        string cleaned = RemoveEdgesForNode(block, nodeId, out removedEdges);
-                        newBlocks.Add(cleaned);
-                    }
-                    else
-                    {
-                        newBlocks.Add(block);
-                    }
-                }
-
-                string newContent = string.Join("\n\n", newBlocks);
-                File.WriteAllText(fullPath, newContent);
-                AssetDatabase.ImportAsset(path);
+                // Real GraphData.RemoveNode also removes the node's connected edges and
+                // leaves every survivor byte-faithful — the old regex path blanked
+                // surviving multi-line edges to m_Id:"" and left a dangling node ref.
+                var graph = MCPShaderGraphApi.LoadGraph(fullPath);
+                var node = MCPShaderGraphApi.GetNodeFromId(graph, nodeId);
+                if (node == null)
+                    return new Dictionary<string, object> { { "error", $"Node not found: {nodeId}" } };
+                MCPShaderGraphApi.RemoveNode(graph, node);
+                MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
                 {
                     { "success", true },
                     { "removedNodeId", nodeId },
-                    { "removedEdges", removedEdges },
                     { "assetPath", path },
                 };
             }
@@ -984,29 +835,27 @@ namespace UnityMCP.Editor
             string inputNodeId = args["inputNodeId"].ToString();
             int inputSlotId = Convert.ToInt32(args["inputSlotId"]);
 
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
             try
             {
-                string content = File.ReadAllText(fullPath);
+                var graph = MCPShaderGraphApi.LoadGraph(fullPath);
+                var outNode = MCPShaderGraphApi.GetNodeFromId(graph, outputNodeId);
+                var inNode = MCPShaderGraphApi.GetNodeFromId(graph, inputNodeId);
+                if (outNode == null) return new Dictionary<string, object> { { "error", $"Output node not found: {outputNodeId}" } };
+                if (inNode == null) return new Dictionary<string, object> { { "error", $"Input node not found: {inputNodeId}" } };
 
-                // Build edge JSON
-                string edgeJson = $"{{\"m_OutputSlot\":{{\"m_Node\":{{\"m_Id\":\"{outputNodeId}\"}},\"m_SlotId\":{outputSlotId}}},\"m_InputSlot\":{{\"m_Node\":{{\"m_Id\":\"{inputNodeId}\"}},\"m_SlotId\":{inputSlotId}}}}}";
-
-                // Find m_Edges array and insert
-                int edgesArrayEnd = FindJsonArrayEnd(content, "m_Edges");
-                if (edgesArrayEnd < 0)
-                    return new Dictionary<string, object> { { "error", "Could not find m_Edges array in graph file" } };
-
-                string beforeEnd = content.Substring(0, edgesArrayEnd).TrimEnd();
-                bool hasExistingEdges = beforeEnd.EndsWith("}");
-                string separator = hasExistingEdges ? "," : "";
-                content = content.Insert(edgesArrayEnd, separator + edgeJson);
-
-                File.WriteAllText(fullPath, content);
-                AssetDatabase.ImportAsset(path);
+                // graph.Connect validates slot compatibility and refuses cycles, so the saved
+                // graph is always valid (unlike the old blind edge-JSON insertion).
+                string connectError = MCPShaderGraphApi.Connect(graph, outNode, outputSlotId, inNode, inputSlotId);
+                if (connectError != null)
+                    return new Dictionary<string, object> { { "error", connectError } };
+                MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
                 {
@@ -1043,64 +892,27 @@ namespace UnityMCP.Editor
             int outputSlotId = args.ContainsKey("outputSlotId") ? Convert.ToInt32(args["outputSlotId"]) : -1;
             int inputSlotId = args.ContainsKey("inputSlotId") ? Convert.ToInt32(args["inputSlotId"]) : -1;
 
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
+            if (!MCPShaderGraphApi.Available)
+                return new Dictionary<string, object> { { "error", "ShaderGraph real-API access unavailable: " + MCPShaderGraphApi.UnavailableReason } };
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
             try
             {
-                string content = File.ReadAllText(fullPath);
-                int removed = 0;
-
-                // Find and remove matching edges
-                var edges = ParseEdgesFromJson(content);
-                var edgesToKeep = new List<string>();
-
-                // Rebuild edges array, skipping the one to remove
-                int edgesStart = content.IndexOf("\"m_Edges\"");
-                if (edgesStart < 0)
-                    return new Dictionary<string, object> { { "error", "Could not find m_Edges in graph file" } };
-
-                int arrayStart = content.IndexOf('[', edgesStart);
-                int arrayEnd = FindMatchingBracket(content, arrayStart);
-
-                string edgesArray = content.Substring(arrayStart, arrayEnd - arrayStart + 1);
-
-                // Remove edges matching criteria
-                foreach (var edge in edges)
-                {
-                    string eOut = edge.ContainsKey("outputNodeId") ? edge["outputNodeId"].ToString() : "";
-                    string eIn = edge.ContainsKey("inputNodeId") ? edge["inputNodeId"].ToString() : "";
-
-                    if (eOut == outputNodeId && eIn == inputNodeId)
-                    {
-                        if (outputSlotId >= 0 && edge.ContainsKey("outputSlotId"))
-                        {
-                            if (Convert.ToInt32(edge["outputSlotId"]) != outputSlotId) continue;
-                        }
-                        if (inputSlotId >= 0 && edge.ContainsKey("inputSlotId"))
-                        {
-                            if (Convert.ToInt32(edge["inputSlotId"]) != inputSlotId) continue;
-                        }
-                        removed++;
-                        continue; // Skip this edge
-                    }
-
-                    // Reconstruct edge JSON
-                    edgesToKeep.Add($"{{\"m_OutputSlot\":{{\"m_Node\":{{\"m_Id\":\"{eOut}\"}},\"m_SlotId\":{edge["outputSlotId"]}}},\"m_InputSlot\":{{\"m_Node\":{{\"m_Id\":\"{eIn}\"}},\"m_SlotId\":{edge["inputSlotId"]}}}}}");
-                }
-
-                string newEdgesArray = "[" + string.Join(",", edgesToKeep) + "]";
-                content = content.Substring(0, arrayStart) + newEdgesArray + content.Substring(arrayEnd + 1);
-
-                File.WriteAllText(fullPath, content);
-                AssetDatabase.ImportAsset(path);
+                // Remove exactly the edges matching the full tuple, via the real edge model —
+                // the old parse-and-rebuild matched by output slot only (dropping sibling edges)
+                // and blanked surviving multi-line edges to m_Id:"" (issue #18 bug 2).
+                var graph = MCPShaderGraphApi.LoadGraph(fullPath);
+                int removed = MCPShaderGraphApi.Disconnect(graph, outputNodeId, outputSlotId, inputNodeId, inputSlotId);
+                MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
                 {
                     { "success", true },
+                    { "assetPath", path },
                     { "removedEdges", removed },
-                    { "remainingEdges", edgesToKeep.Count },
                 };
             }
             catch (Exception ex)
@@ -1125,7 +937,9 @@ namespace UnityMCP.Editor
             string propertyName = args["propertyName"].ToString();
             string value = args.ContainsKey("value") ? args["value"].ToString() : "";
 
-            string fullPath = Path.Combine(Application.dataPath, "..", path);
+            // Confine the write under the project root (traversal/absolute-escape guard).
+            if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out string pathError))
+                return new Dictionary<string, object> { { "error", pathError } };
             if (!File.Exists(fullPath))
                 return new Dictionary<string, object> { { "error", $"File not found: {path}" } };
 
@@ -1142,8 +956,11 @@ namespace UnityMCP.Editor
 
                     if (blockId == nodeId)
                     {
-                        // Replace the property value in this block
+                        // Replace the property value in this block. A null result means the
+                        // property wasn't present — surface that instead of a silent success.
                         string modified = SetJsonProperty(block, propertyName, value);
+                        if (modified == null)
+                            return new Dictionary<string, object> { { "error", $"Property '{propertyName}' not found on node '{nodeId}' (no string/number/boolean field matched). The file was not changed." } };
                         newBlocks.Add(modified);
                         found = true;
                     }
@@ -1158,7 +975,7 @@ namespace UnityMCP.Editor
 
                 string newContent = string.Join("\n\n", newBlocks);
                 File.WriteAllText(fullPath, newContent);
-                AssetDatabase.ImportAsset(path);
+                AssetDatabase.ImportAsset(MCPAssetSafety.ToAssetDatabasePath(path));
 
                 return new Dictionary<string, object>
                 {
@@ -1442,27 +1259,34 @@ namespace UnityMCP.Editor
             return graphBlock.Substring(0, arrayStart) + newArray + graphBlock.Substring(arrayEnd + 1);
         }
 
+        /// <summary>
+        /// Replace <paramref name="propertyName"/>'s value in a MultiJson block. Returns the
+        /// modified block, or <c>null</c> when the property isn't present (so the caller reports
+        /// a real error instead of a silent success). The replacement goes through a
+        /// MatchEvaluator so a '$' in the value is treated literally, not as a regex
+        /// replacement token ("$1"/"$&amp;" would otherwise splice in the captured old value).
+        /// </summary>
         private static string SetJsonProperty(string block, string propertyName, string value)
         {
-            // Try to find and replace a string property
+            // String property
             string strPattern = $"\"{propertyName}\"\\s*:\\s*\"[^\"]*\"";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, strPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, strPattern, $"\"{propertyName}\": \"{value}\"");
+                return System.Text.RegularExpressions.Regex.Replace(block, strPattern, _ => $"\"{propertyName}\": \"{value}\"");
 
-            // Try numeric property
+            // Numeric property
             string numPattern = $"\"{propertyName}\"\\s*:\\s*[\\-0-9.eE]+";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, numPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, numPattern, $"\"{propertyName}\": {value}");
+                return System.Text.RegularExpressions.Regex.Replace(block, numPattern, _ => $"\"{propertyName}\": {value}");
 
-            // Try boolean property
+            // Boolean property
             string boolPattern = $"\"{propertyName}\"\\s*:\\s*(true|false)";
             if (System.Text.RegularExpressions.Regex.IsMatch(block, boolPattern))
-                return System.Text.RegularExpressions.Regex.Replace(block, boolPattern, $"\"{propertyName}\": {value.ToLower()}");
+                return System.Text.RegularExpressions.Regex.Replace(block, boolPattern, _ => $"\"{propertyName}\": {value.ToLower()}");
 
-            return block; // Property not found
+            return null; // property not found — caller must surface this, not report success
         }
 
-        private static Type ResolveShaderGraphNodeType(string typeName)
+        internal static Type ResolveShaderGraphNodeType(string typeName)
         {
             try
             {
@@ -1492,123 +1316,5 @@ namespace UnityMCP.Editor
             return null;
         }
 
-        private static string TrySerializeNodeViaReflection(Type nodeType, string nodeId, float posX, float posY)
-        {
-            try
-            {
-                // Create instance
-                var node = Activator.CreateInstance(nodeType);
-                if (node == null) return null;
-
-                // Use JsonUtility to get a baseline serialization
-                string serialized = JsonUtility.ToJson(node, true);
-
-                // Inject our ID and position
-                if (!serialized.Contains("m_ObjectId"))
-                    serialized = serialized.TrimEnd('}') + $",\"m_ObjectId\":\"{nodeId}\"}}";
-                else
-                    serialized = System.Text.RegularExpressions.Regex.Replace(
-                        serialized, "\"m_ObjectId\"\\s*:\\s*\"[^\"]*\"", $"\"m_ObjectId\":\"{nodeId}\"");
-
-                // Inject type info
-                if (!serialized.Contains("m_Type"))
-                    serialized = serialized.TrimEnd('}') + $",\"m_Type\":\"{nodeType.FullName}\"}}";
-
-                // Add draw state with position
-                if (!serialized.Contains("m_DrawState"))
-                {
-                    string drawState = $"\"m_DrawState\":{{\"m_Expanded\":true,\"m_Position\":{{\"serializedVersion\":\"2\",\"x\":{posX},\"y\":{posY},\"width\":208,\"height\":311}}}}";
-                    serialized = serialized.TrimEnd('}') + "," + drawState + "}";
-                }
-
-                return serialized;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string GetNodeTemplate(string nodeType, string nodeId, float posX, float posY)
-        {
-            string lower = nodeType.ToLowerInvariant();
-
-            // Common node templates
-            string position = $"\"x\":{posX},\"y\":{posY},\"width\":208,\"height\":311";
-            string drawState = $"\"m_DrawState\":{{\"m_Expanded\":true,\"m_Position\":{{\"serializedVersion\":\"2\",{position}}}}}";
-
-            switch (lower)
-            {
-                case "add":
-                case "addnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.AddNode\",\"m_Name\":\"Add\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "multiply":
-                case "multiplynode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.MultiplyNode\",\"m_Name\":\"Multiply\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "subtract":
-                case "subtractnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.SubtractNode\",\"m_Name\":\"Subtract\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "divide":
-                case "dividenode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.DivideNode\",\"m_Name\":\"Divide\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "lerp":
-                case "lerpnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.LerpNode\",\"m_Name\":\"Lerp\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "color":
-                case "colornode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.ColorNode\",\"m_Name\":\"Color\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[],\"m_Color\":{{\"r\":1,\"g\":1,\"b\":1,\"a\":1}}}}";
-                case "float":
-                case "vector1":
-                case "vector1node":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.Vector1Node\",\"m_Name\":\"Float\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[],\"m_Value\":0}}";
-                case "vector2":
-                case "vector2node":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.Vector2Node\",\"m_Name\":\"Vector 2\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "vector3":
-                case "vector3node":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.Vector3Node\",\"m_Name\":\"Vector 3\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "vector4":
-                case "vector4node":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.Vector4Node\",\"m_Name\":\"Vector 4\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "time":
-                case "timenode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.TimeNode\",\"m_Name\":\"Time\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "uv":
-                case "uvnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.UVNode\",\"m_Name\":\"UV\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "position":
-                case "positionnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.PositionNode\",\"m_Name\":\"Position\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "normal":
-                case "normalnode":
-                case "normalvector":
-                case "normalvectornode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.NormalVectorNode\",\"m_Name\":\"Normal Vector\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "sampletexture2d":
-                case "sampletexture2dnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.SampleTexture2DNode\",\"m_Name\":\"Sample Texture 2D\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "fresnel":
-                case "fresneleffect":
-                case "fresneleffectnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.FresnelEffectNode\",\"m_Name\":\"Fresnel Effect\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "saturate":
-                case "saturatenode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.SaturateNode\",\"m_Name\":\"Saturate\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "oneminusx":
-                case "oneminusnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.OneMinusNode\",\"m_Name\":\"One Minus\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "power":
-                case "powernode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.PowerNode\",\"m_Name\":\"Power\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "split":
-                case "splitnode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.SplitNode\",\"m_Name\":\"Split\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                case "combine":
-                case "combinenode":
-                    return $"{{\"m_ObjectId\":\"{nodeId}\",\"m_Type\":\"UnityEditor.ShaderGraph.CombineNode\",\"m_Name\":\"Combine\",{drawState},\"m_Slots\":[],\"m_SerializableSlots\":[]}}";
-                default:
-                    return null;
-            }
-        }
     }
 }

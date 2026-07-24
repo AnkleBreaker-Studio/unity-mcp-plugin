@@ -1,0 +1,33 @@
+name: Checks
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "Editor/**"
+      - "tools~/**"
+      - ".github/workflows/checks.yml"
+  pull_request:
+    paths:
+      - "Editor/**"
+      - "tools~/**"
+      - ".github/workflows/checks.yml"
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route-registry:
+    name: route registry drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify MCPBridgeServer.Routes.g.cs matches the dispatch switch
+        run: node tools~/generate-routes.mjs --check

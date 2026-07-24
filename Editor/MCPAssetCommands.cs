@@ -71,13 +71,24 @@ namespace UnityMCP.Editor
             if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(dest))
                 return new { error = "sourcePath and destinationPath are required" };
 
-            string fullDest = Path.Combine(Application.dataPath.Replace("/Assets", ""), dest);
+            if (!File.Exists(source))
+                return new { error = $"Source file not found: {source}" };
+
+            // Confine the destination under the project (correct root, no traversal escape).
+            if (!MCPAssetSafety.TryResolveProjectPath(dest, out string fullDest, out string pathError))
+                return new { error = pathError };
+
+            // Don't silently overwrite an existing project asset unless asked.
+            var overwriteError = MCPAssetSafety.OverwriteGuard(dest, args);
+            if (overwriteError != null)
+                return overwriteError;
+
             string destDir = Path.GetDirectoryName(fullDest);
             if (!Directory.Exists(destDir))
                 Directory.CreateDirectory(destDir);
 
             File.Copy(source, fullDest, true);
-            AssetDatabase.ImportAsset(dest);
+            AssetDatabase.ImportAsset(MCPAssetSafety.ToAssetDatabasePath(dest));
 
             return new { success = true, importedPath = dest };
         }
@@ -175,6 +186,11 @@ namespace UnityMCP.Editor
 
             var shader = Shader.Find(shaderName);
             if (shader == null) return new { error = $"Shader '{shaderName}' not found" };
+
+            // Don't reset an existing tuned material back to defaults.
+            var materialOverwrite = MCPAssetSafety.OverwriteGuard(path, args);
+            if (materialOverwrite != null)
+                return materialOverwrite;
 
             var material = new Material(shader);
 

@@ -5,7 +5,10 @@
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner",
     "UMA_Core",
-    "UMA_Core_Editor"
+    "UMA_Core_Editor",
+    "Unity.ProBuilder",
+    "Unity.ProBuilder.Editor",
+    "Unity.ProBuilder.Csg"
   ],
   "includePlatforms": [
     "Editor"
@@ -16,6 +19,12 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.probuilder",
+      "expression": "4.0.0",
+      "define": "PROBUILDER_INSTALLED"
+    }
+  ],
   "noEngineReferences": false
 }

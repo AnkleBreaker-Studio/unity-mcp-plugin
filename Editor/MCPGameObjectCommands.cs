@@ -58,9 +58,60 @@ namespace UnityMCP.Editor
             var go = FindGameObject(args);
             if (go == null) return new { error = "GameObject not found" };
 
+            // Shared runtime-mesh guard: a ProBuilderMesh owns a runtime mesh; if the object was
+            // cloned with duplicate/Object.Instantiate, its copies' MeshFilters point at that SAME
+            // mesh. Destroying this object runs ProBuilderMesh.OnDestroy, which destroys the mesh —
+            // and every copy goes invisible at once. Refuse unless force:true, and say how many
+            // objects would be hit. Only runtime (non-asset) meshes are at risk, so deleting
+            // normal asset-mesh objects stays on the fast path (report A1).
+            bool force = args.ContainsKey("force") && Convert.ToBoolean(args["force"]);
+            if (!force)
+            {
+                int sharedWith = CountExternalSharersOfRuntimeMesh(go);
+                if (sharedWith > 0)
+                    return new
+                    {
+                        error = $"Refused: this object's runtime mesh is shared by {sharedWith} other object(s) (e.g. ProBuilder clones made with duplicate/Instantiate). Deleting it would blank their mesh too. Give each copy an independent mesh first (duplicate now does this automatically), or pass force:true to delete anyway.",
+                        requiresForce = true,
+                        sharedWith,
+                    };
+            }
+
             string name = go.name;
             Undo.DestroyObjectImmediate(go);
             return new { success = true, deleted = name };
+        }
+
+        /// <summary>
+        /// Count MeshFilters OUTSIDE the given object's subtree that reference a runtime (non-asset)
+        /// mesh used inside the subtree. Non-zero means deleting the object would destroy a mesh
+        /// still in use elsewhere (the ProBuilder shared-mesh hazard). Fast-paths to 0 when the
+        /// subtree has no runtime meshes (the common case), so normal deletes pay no scan.
+        /// </summary>
+        private static int CountExternalSharersOfRuntimeMesh(GameObject go)
+        {
+            var runtimeMeshes = new HashSet<Mesh>();
+            foreach (var mf in go.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh != null && !AssetDatabase.Contains(mf.sharedMesh))
+                    runtimeMeshes.Add(mf.sharedMesh);
+            if (runtimeMeshes.Count == 0) return 0;
+
+            var inSubtree = new HashSet<Transform>();
+            foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+                inSubtree.Add(tr);
+
+            int count = 0;
+            // Include INACTIVE objects: FindObjectsByType's default excludes them, which would let
+            // an inactive sibling that shares the runtime mesh slip past the guard — the delete
+            // would then blank it silently (the exact hazard this guards). Matches the explicit
+            // opt-in used by FindGameObject above.
+            foreach (var mf in UnityEngine.Object.FindObjectsByType<MeshFilter>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (mf.sharedMesh == null) continue;
+                if (inSubtree.Contains(mf.transform)) continue;
+                if (runtimeMeshes.Contains(mf.sharedMesh)) count++;
+            }
+            return count;
         }
 
         public static object GetInfo(Dictionary<string, object> args)

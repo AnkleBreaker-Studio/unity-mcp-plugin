@@ -208,7 +208,7 @@ namespace UnityMCP.Editor
                         status = r.Status ?? "",
                         executionTimeMs = r.ExecutionTimeMs,
                         errorMessage = r.ErrorMessage ?? "",
-                        targetInstanceId = r.TargetInstanceId,
+                        targetInstanceId = r.TargetInstanceId ?? "",
                         targetPath = r.TargetPath ?? "",
                         targetType = r.TargetType ?? "",
                         undoGroup = r.UndoGroup,
@@ -289,7 +289,7 @@ namespace UnityMCP.Editor
             public string status;
             public long   executionTimeMs;
             public string errorMessage;
-            public int    targetInstanceId;
+            public string targetInstanceId; // string since 64-bit EntityId support. JsonUtility tolerates the old int→string scalar mismatch (parses to ""); LoadFromDisk is try/catch-guarded so a hard failure would drop the whole history file, not one field.
             public string targetPath;
             public string targetType;
             public int    undoGroup;

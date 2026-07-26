@@ -84,7 +84,10 @@ namespace UnityMCP.Editor
             _getActiveBlocks = _graphDataT.GetMethod("GetActiveBlocksForAllActiveTargets", PIF);
             _addRemoveBlocks = _graphDataT.GetMethod("AddRemoveBlocksFromActiveList", PIF);
             _onEnable = _graphDataT.GetMethod("OnEnable", PIF);
-            _addNode = _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT }, null);
+            // AddNode is AddNode(node) on older ShaderGraph and AddNode(node, usePreviewPref)
+            // on 17.x (Unity 6.3) — accept either shape; the call site matches the arity.
+            _addNode = _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT }, null)
+                       ?? _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT, typeof(bool) }, null);
             // GetNodeFromId has both a generic and a non-generic (string) overload, so a
             // typed GetMethod is ambiguous — pick the non-generic one explicitly.
             _getNodeFromId = _graphDataT.GetMethods(PIF).FirstOrDefault(m =>
@@ -209,7 +212,10 @@ namespace UnityMCP.Editor
             var draw = _drawStateProp.GetValue(node);
             _drawPositionProp.SetValue(draw, new Rect(x, y, 208, 300));
             _drawStateProp.SetValue(node, draw); // DrawState is a struct — write back
-            _addNode.Invoke(graph, new object[] { node });
+            // usePreviewPref: true matches the parameter's declared default on 17.x.
+            _addNode.Invoke(graph, _addNode.GetParameters().Length == 2
+                ? new object[] { node, true }
+                : new object[] { node });
             return (string)_objectIdProp.GetValue(node);
         }
 

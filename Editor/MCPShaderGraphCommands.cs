@@ -1166,24 +1166,29 @@ namespace UnityMCP.Editor
                     {
                         string edgeJson = edgesSection.Substring(objStart, i - objStart + 1);
 
+                        // Singleline: edges are written multi-line (one field per line), so
+                        // `.*?` must be able to cross newlines or every id comes back empty.
+                        const System.Text.RegularExpressions.RegexOptions XL =
+                            System.Text.RegularExpressions.RegexOptions.Singleline;
+
                         // Extract output node ID
                         string outNodePattern = "\"m_OutputSlot\".*?\"m_Id\"\\s*:\\s*\"([^\"]*)\"";
-                        var outMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outNodePattern);
+                        var outMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outNodePattern, XL);
                         string outNodeId = outMatch.Success ? outMatch.Groups[1].Value : "";
 
                         // Extract output slot ID
                         string outSlotPattern = "\"m_OutputSlot\".*?\"m_SlotId\"\\s*:\\s*(\\d+)";
-                        var outSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outSlotPattern);
+                        var outSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outSlotPattern, XL);
                         int outSlotId = outSlotMatch.Success ? int.Parse(outSlotMatch.Groups[1].Value) : 0;
 
                         // Extract input node ID
                         string inNodePattern = "\"m_InputSlot\".*?\"m_Id\"\\s*:\\s*\"([^\"]*)\"";
-                        var inMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inNodePattern);
+                        var inMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inNodePattern, XL);
                         string inNodeId = inMatch.Success ? inMatch.Groups[1].Value : "";
 
                         // Extract input slot ID
                         string inSlotPattern = "\"m_InputSlot\".*?\"m_SlotId\"\\s*:\\s*(\\d+)";
-                        var inSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inSlotPattern);
+                        var inSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inSlotPattern, XL);
                         int inSlotId = inSlotMatch.Success ? int.Parse(inSlotMatch.Groups[1].Value) : 0;
 
                         edges.Add(new Dictionary<string, object>

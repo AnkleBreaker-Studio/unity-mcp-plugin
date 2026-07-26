@@ -749,7 +749,10 @@ namespace UnityMCP.Editor
                 // slots and the position is honored; the graph is guaranteed valid on save
                 // (old string-surgery produced empty-slot nodes and dropped the position — #18 bugs 3,4).
                 var graph = MCPShaderGraphApi.LoadGraph(fullPath);
-                string nodeId = MCPShaderGraphApi.AddNode(graph, resolvedType, posX, posY);
+                // propertyId (alias: property) binds a Property node to a blackboard property.
+                string propertyId = args.ContainsKey("propertyId") ? args["propertyId"]?.ToString()
+                    : args.ContainsKey("property") ? args["property"]?.ToString() : null;
+                string nodeId = MCPShaderGraphApi.AddNode(graph, resolvedType, posX, posY, propertyId);
                 MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>

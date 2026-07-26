@@ -30,6 +30,7 @@ namespace UnityMCP.Editor
         private static Type _graphDataT, _targetT, _blockFieldT, _absNodeT, _slotRefT, _materialSlotT, _messageManagerT, _multiJsonT, _fileUtilT, _propertyNodeT;
         private static Type _urpTargetT, _litSubT, _unlitSubT, _spriteLitSubT, _spriteUnlitSubT;
         private static PropertyInfo _messageManagerProp, _objectIdProp, _drawStateProp, _edgesProp, _drawPositionProp;
+        private static PropertyInfo _graphPropertiesProp, _propertyNodePropertyProp, _jsonObjectIdProp;
         private static MethodInfo _addContexts, _initOutputs, _getActiveBlocks, _addRemoveBlocks, _onEnable, _addNode, _getNodeFromId, _connect, _removeEdge, _removeNode, _getNodesGeneric, _getSlotsGeneric, _trySetSubTarget;
         private static MethodInfo _serialize, _deserializeGeneric, _writeToDisk, _writeGraphToDisk;
         private static ConstructorInfo _slotRefCtor;
@@ -78,6 +79,9 @@ namespace UnityMCP.Editor
             _drawStateProp = _absNodeT.GetProperty("drawState", PIF) ?? throw new InvalidOperationException("drawState");
             _edgesProp = _graphDataT.GetProperty("edges", PIF) ?? throw new InvalidOperationException("edges");
             _drawPositionProp = _drawStateProp.PropertyType.GetProperty("position", PIF) ?? throw new InvalidOperationException("drawState.position");
+            _graphPropertiesProp = _graphDataT.GetProperty("properties", PIF) ?? throw new InvalidOperationException("properties");
+            _jsonObjectIdProp = Req(sg, "UnityEditor.ShaderGraph.Serialization.JsonObject").GetProperty("objectId", PIF) ?? throw new InvalidOperationException("JsonObject.objectId");
+            _propertyNodePropertyProp = _propertyNodeT?.GetProperty("property", PIF) ?? throw new InvalidOperationException("PropertyNode.property");
 
             _addContexts = _graphDataT.GetMethod("AddContexts", PIF);
             _initOutputs = _graphDataT.GetMethod("InitializeOutputs", PIF);
@@ -205,8 +209,14 @@ namespace UnityMCP.Editor
             return graph;
         }
 
-        /// <summary>Instantiate a node type, set its position, and add it. Returns its objectId.</summary>
-        internal static string AddNode(object graph, Type nodeType, float x, float y)
+        /// <summary>
+        /// Instantiate a node type, set its position, and add it. Returns its objectId.
+        /// A PropertyNode must be bound to one of the graph's blackboard properties
+        /// (<paramref name="propertyId"/> = that property's objectId); an unbound one
+        /// serializes with no slots and throws in PropertyNode.AddOutputSlot on the next
+        /// import, failing the whole asset — so this fails closed instead (#18 bug 3).
+        /// </summary>
+        internal static string AddNode(object graph, Type nodeType, float x, float y, string propertyId = null)
         {
             var node = Activator.CreateInstance(nodeType);
             var draw = _drawStateProp.GetValue(node);
@@ -216,7 +226,27 @@ namespace UnityMCP.Editor
             _addNode.Invoke(graph, _addNode.GetParameters().Length == 2
                 ? new object[] { node, true }
                 : new object[] { node });
+
+            if (_propertyNodeT.IsInstanceOfType(node))
+            {
+                if (string.IsNullOrEmpty(propertyId))
+                    throw new InvalidOperationException(
+                        "A Property node needs 'propertyId' — the objectId of a blackboard property on this graph (see shadergraph/get-nodes).");
+                var property = FindProperty(graph, propertyId)
+                    ?? throw new InvalidOperationException($"No blackboard property with objectId '{propertyId}' on this graph.");
+                // The setter rebuilds the node's output slot from the property's type.
+                _propertyNodePropertyProp.SetValue(node, property);
+            }
+
             return (string)_objectIdProp.GetValue(node);
+        }
+
+        private static object FindProperty(object graph, string propertyId)
+        {
+            foreach (var property in (IEnumerable)_graphPropertiesProp.GetValue(graph))
+                if ((string)_jsonObjectIdProp.GetValue(property) == propertyId)
+                    return property;
+            return null;
         }
 
         internal static object GetNodeFromId(object graph, string nodeId) => _getNodeFromId.Invoke(graph, new object[] { nodeId });

@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
 {
     public static partial class MCPBridgeServer
     {
-        /// <summary>Every route the bridge can dispatch (337 routes).</summary>
+        /// <summary>Every route the bridge can dispatch (338 routes).</summary>
         internal static readonly string[] GeneratedRoutes = new string[]
         {
             "_meta/routes",
@@ -62,6 +62,7 @@ namespace UnityMCP.Editor
             "animation/remove-transition",
             "animation/set-clip-curve",
             "animation/set-clip-settings",
+            "animation/set-object-reference-curve",
             "asmdef/add-references",
             "asmdef/create",
             "asmdef/create-ref",

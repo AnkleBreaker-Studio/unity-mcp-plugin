@@ -832,6 +832,8 @@ namespace UnityMCP.Editor
                     return MCPAnimationCommands.GetClipInfo(ParseJson(body));
                 case "animation/set-clip-curve":
                     return MCPAnimationCommands.SetClipCurve(ParseJson(body));
+                case "animation/set-object-reference-curve":
+                    return MCPAnimationCommands.SetObjectReferenceCurve(ParseJson(body));
                 case "animation/add-layer":
                     return MCPAnimationCommands.AddLayer(ParseJson(body));
                 case "animation/assign-controller":

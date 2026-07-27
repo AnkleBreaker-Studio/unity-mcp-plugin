@@ -2,6 +2,24 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.5] - 2026-07-27
+
+Community-reported fixes. Each claim was verified against the shipped Unity assemblies before being acted on — two held up, one did not (documented below).
+
+### Fixed (ShaderGraph — community PR #23 by @mrooney)
+- **`get_edges` reported every edge with blank ids.** The `m_OutputSlot`/`m_InputSlot` patterns used `.*?` **without** `RegexOptions.Singleline`, so `.` could not cross the newline between the key and the nested `m_Id` — and a `.shadergraph` writes one field per line. Every id came back `""` and every slot `0`, while the on-disk edges were perfectly correct (read-only path, nothing was ever corrupted). Verified live: `connect` → `get_edges` now returns the real objectId and slot.
+- **Property nodes were still added unbound (issue #18 bug 3).** The `GraphData` rewrite fixed the other three bugs but added Property nodes type-only, so they serialized with an empty `m_Property` and no slots and the next import threw in `PropertyNode.AddOutputSlot`, failing the whole asset. `add_node` now accepts `propertyId` (alias `property`) and binds through `PropertyNode.property`, which rebuilds the output slot from the property's concrete type. An unbound or unknown Property node is now **refused before anything is written** — verified live, target graph intact.
+- **The version-mismatch guard now names names.** It reported "One or more ShaderGraph API methods not found", which made any report against this path unfalsifiable in both directions. It now lists exactly which members are missing and asks for the Unity + ShaderGraph versions.
+- **`AddNode` accepts either arity.** PR #23's premise was that ShaderGraph 17.3.0 only exposes `AddNode(node, bool)`, disabling the whole suite on Unity 6.3. Reflecting the shipped `Unity.ShaderGraph.Editor` on 17.3.0 shows the opposite — only the 1-arg `AddNode(AbstractMaterialNode)` exists — so we could not reproduce it. Accepting both shapes costs nothing and removes the question. Property-binding members are resolved **optionally**, so a build lacking `PropertyNode` can never disable the entire ShaderGraph surface (the all-or-nothing brittleness the PR would otherwise have introduced).
+
+### Fixed (community PR #19 by @JetNik)
+- **`execute_code` still failed on macOS.** Unity 6000.3+ re-roots the scripting assemblies under `Contents/Resources/Scripting`, and probing only that bare folder missed the nested `MonoBleedingEdge/…` and `DotNetSdkRoslyn` layout inside it. Each Roslyn subpath is now mirrored there. Inert off macOS — the existing `Directory.Exists` guard skips absent paths — and `execute_code` verified still resolving Roslyn on Windows.
+
+### Added (issue #30 by @VM233 — 2D sprite animation)
+- **`animation/set-object-reference-curve`** — object-reference (PPtr) curves, the type Unity uses for `SpriteRenderer.m_Sprite`. `clip.SetCurve`/`AnimationCurve` can only express **float** curves, so sprite-frame animation had no route through the MCP at all and had to be hand-written as `.anim` YAML (version-fragile, and it produced `curve type is invalid` import errors). Routes through `AnimationUtility.SetObjectReferenceCurve` + `EditorCurveBinding.PPtrCurve` so Unity writes the binding itself. Keyframes take an asset path plus an optional sub-asset `name` to select one sprite from a sliced sheet, and the call **fails closed** if any keyframe is unresolvable rather than leaving a clip animating to the wrong frames.
+- **`animation/clip-info` now reports object-reference curves.** `GetCurveBindings` returns only float bindings, so a correct sprite clip reported `curveCount: 0` and looked empty — the reporter had no way to verify their own work. Adds `objectReferenceCurves` with binding path, property, type, and each keyframe's time + resolved asset path.
+- Verified end to end: a 3-frame sprite clip built through the real MCP tool, read back correctly, and re-imported by Unity with **0 console errors** and all references resolved. Route registry 337 → 338.
+
 ## [2.39.4] - 2026-07-24
 
 Findings from a 33-dimension + 10-blind-spot audit (127 + 40 agents, every CRITICAL/HIGH adversarially verified). The recurring pattern: a correct pattern existed but was never propagated, and guards failed OPEN.

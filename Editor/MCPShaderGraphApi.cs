@@ -30,6 +30,8 @@ namespace UnityMCP.Editor
         private static Type _graphDataT, _targetT, _blockFieldT, _absNodeT, _slotRefT, _materialSlotT, _messageManagerT, _multiJsonT, _fileUtilT, _propertyNodeT;
         private static Type _urpTargetT, _litSubT, _unlitSubT, _spriteLitSubT, _spriteUnlitSubT;
         private static PropertyInfo _messageManagerProp, _objectIdProp, _drawStateProp, _edgesProp, _drawPositionProp;
+        // Optional — only required to bind a Property node (see Initialize).
+        private static PropertyInfo _graphPropertiesProp, _propertyNodePropertyProp, _jsonObjectIdProp;
         private static MethodInfo _addContexts, _initOutputs, _getActiveBlocks, _addRemoveBlocks, _onEnable, _addNode, _getNodeFromId, _connect, _removeEdge, _removeNode, _getNodesGeneric, _getSlotsGeneric, _trySetSubTarget;
         private static MethodInfo _serialize, _deserializeGeneric, _writeToDisk, _writeGraphToDisk;
         private static ConstructorInfo _slotRefCtor;
@@ -79,12 +81,29 @@ namespace UnityMCP.Editor
             _edgesProp = _graphDataT.GetProperty("edges", PIF) ?? throw new InvalidOperationException("edges");
             _drawPositionProp = _drawStateProp.PropertyType.GetProperty("position", PIF) ?? throw new InvalidOperationException("drawState.position");
 
+            // Property-node binding members are resolved OPTIONALLY: they are needed only when
+            // someone adds a Property node. Hard-requiring them (as PR #23 proposed) would mark
+            // the ENTIRE ShaderGraph surface unavailable on any build where PropertyNode or its
+            // 'property' setter is renamed — reintroducing exactly the all-or-nothing brittleness
+            // this guard exists to avoid. AddNode raises a precise error if they're absent.
+            _graphPropertiesProp = _graphDataT.GetProperty("properties", PIF);
+            _propertyNodePropertyProp = _propertyNodeT?.GetProperty("property", PIF);
+            var jsonObjectT = FindType(sg, "JsonObject");
+            _jsonObjectIdProp = jsonObjectT?.GetProperty("objectId", PIF);
+
             _addContexts = _graphDataT.GetMethod("AddContexts", PIF);
             _initOutputs = _graphDataT.GetMethod("InitializeOutputs", PIF);
             _getActiveBlocks = _graphDataT.GetMethod("GetActiveBlocksForAllActiveTargets", PIF);
             _addRemoveBlocks = _graphDataT.GetMethod("AddRemoveBlocksFromActiveList", PIF);
             _onEnable = _graphDataT.GetMethod("OnEnable", PIF);
-            _addNode = _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT }, null);
+            // Defensive arity tolerance. On com.unity.shadergraph 17.3.0 (verified by reflecting
+            // the shipped Unity.ShaderGraph.Editor assembly) the ONLY instance overload is the
+            // 1-arg AddNode(AbstractMaterialNode) — the 2-arg form does not exist there. A
+            // community report (PR #23) described the opposite on their build, which we could not
+            // reproduce; accepting either shape costs nothing and removes the whole question.
+            // If neither exists the named guard below reports exactly that.
+            _addNode = _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT }, null)
+                       ?? _graphDataT.GetMethod("AddNode", PIF, null, new[] { _absNodeT, typeof(bool) }, null);
             // GetNodeFromId has both a generic and a non-generic (string) overload, so a
             // typed GetMethod is ambiguous — pick the non-generic one explicitly.
             _getNodeFromId = _graphDataT.GetMethods(PIF).FirstOrDefault(m =>
@@ -107,11 +126,30 @@ namespace UnityMCP.Editor
             _writeToDisk = _fileUtilT.GetMethod("WriteToDisk", SF);
             _writeGraphToDisk = _fileUtilT.GetMethod("WriteShaderGraphToDisk", SF);
 
-            if (_addContexts == null || _initOutputs == null || _getActiveBlocks == null || _addRemoveBlocks == null ||
-                _onEnable == null || _addNode == null || _getNodeFromId == null || _connect == null || _removeEdge == null ||
-                _removeNode == null || _getNodesGeneric == null || _serialize == null || _deserializeGeneric == null ||
-                _writeToDisk == null || _writeGraphToDisk == null)
-                throw new InvalidOperationException("One or more ShaderGraph API methods not found (version mismatch)");
+            // Name the members that are actually missing. The old message ("One or more
+            // ShaderGraph API methods not found") gave a user on an unexpected ShaderGraph
+            // build no way to say WHICH member broke, and no way for us to reproduce it —
+            // a bug report against this path was previously unfalsifiable in both directions.
+            var missing = new List<string>();
+            if (_addContexts == null) missing.Add("GraphData.AddContexts");
+            if (_initOutputs == null) missing.Add("GraphData.InitializeOutputs");
+            if (_getActiveBlocks == null) missing.Add("GraphData.GetActiveBlocksForAllActiveTargets");
+            if (_addRemoveBlocks == null) missing.Add("GraphData.AddRemoveBlocksFromActiveList");
+            if (_onEnable == null) missing.Add("GraphData.OnEnable");
+            if (_addNode == null) missing.Add("GraphData.AddNode(AbstractMaterialNode[, bool])");
+            if (_getNodeFromId == null) missing.Add("GraphData.GetNodeFromId(string)");
+            if (_connect == null) missing.Add("GraphData.Connect");
+            if (_removeEdge == null) missing.Add("GraphData.RemoveEdge");
+            if (_removeNode == null) missing.Add("GraphData.RemoveNode");
+            if (_getNodesGeneric == null) missing.Add("GraphData.GetNodes<T>");
+            if (_serialize == null) missing.Add("MultiJson.Serialize");
+            if (_deserializeGeneric == null) missing.Add("MultiJson.Deserialize<T>(4-arg)");
+            if (_writeToDisk == null) missing.Add("FileUtilities.WriteToDisk");
+            if (_writeGraphToDisk == null) missing.Add("FileUtilities.WriteShaderGraphToDisk");
+            if (missing.Count > 0)
+                throw new InvalidOperationException(
+                    $"ShaderGraph API version mismatch — {missing.Count} member(s) not found on this ShaderGraph build: {string.Join(", ", missing)}. " +
+                    "Please report this list with your Unity and com.unity.shadergraph versions.");
         }
 
         private static MethodInfo _urpTargetTryResolve(Assembly urp)
@@ -202,15 +240,56 @@ namespace UnityMCP.Editor
             return graph;
         }
 
-        /// <summary>Instantiate a node type, set its position, and add it. Returns its objectId.</summary>
-        internal static string AddNode(object graph, Type nodeType, float x, float y)
+        /// <summary>
+        /// Instantiate a node type, set its position, and add it. Returns its objectId.
+        ///
+        /// A PropertyNode MUST be bound to one of the graph's blackboard properties
+        /// (<paramref name="propertyId"/> = that property's objectId). An unbound one
+        /// serializes with an empty m_Property and no slots, and the next import throws inside
+        /// PropertyNode.AddOutputSlot — which fails the whole asset. That is issue #18 bug 3;
+        /// the GraphData rewrite fixed the other three but left this one, because it added the
+        /// node type-only. We now bind it, or refuse before anything is written to disk.
+        /// </summary>
+        internal static string AddNode(object graph, Type nodeType, float x, float y, string propertyId = null)
         {
             var node = Activator.CreateInstance(nodeType);
             var draw = _drawStateProp.GetValue(node);
             _drawPositionProp.SetValue(draw, new Rect(x, y, 208, 300));
             _drawStateProp.SetValue(node, draw); // DrawState is a struct — write back
-            _addNode.Invoke(graph, new object[] { node });
+            // Both the 1-arg and 2-arg AddNode shapes are accepted (see Initialize); pass the
+            // preview-preference default when the resolved overload takes it.
+            _addNode.Invoke(graph, _addNode.GetParameters().Length == 2
+                ? new object[] { node, true }
+                : new object[] { node });
+
+            if (_propertyNodeT != null && _propertyNodeT.IsInstanceOfType(node))
+            {
+                if (_propertyNodePropertyProp == null || _graphPropertiesProp == null || _jsonObjectIdProp == null)
+                    throw new InvalidOperationException(
+                        "This ShaderGraph build does not expose the members needed to bind a Property node " +
+                        "(PropertyNode.property / GraphData.properties / JsonObject.objectId). Other node types still work.");
+                if (string.IsNullOrEmpty(propertyId))
+                    throw new InvalidOperationException(
+                        "A Property node must be bound to a blackboard property: pass 'propertyId' (the property's objectId). " +
+                        "An unbound Property node makes the .shadergraph fail to import.");
+                var property = FindProperty(graph, propertyId)
+                    ?? throw new InvalidOperationException($"No blackboard property with objectId '{propertyId}' exists on this graph.");
+                // The setter rebuilds the node's output slot from the property's concrete type.
+                _propertyNodePropertyProp.SetValue(node, property);
+            }
+
             return (string)_objectIdProp.GetValue(node);
+        }
+
+        /// <summary>Find a blackboard property on the graph by its objectId, or null.</summary>
+        private static object FindProperty(object graph, string propertyId)
+        {
+            var properties = _graphPropertiesProp.GetValue(graph) as IEnumerable;
+            if (properties == null) return null;
+            foreach (var property in properties)
+                if ((string)_jsonObjectIdProp.GetValue(property) == propertyId)
+                    return property;
+            return null;
         }
 
         internal static object GetNodeFromId(object graph, string nodeId) => _getNodeFromId.Invoke(graph, new object[] { nodeId });

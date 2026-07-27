@@ -749,7 +749,14 @@ namespace UnityMCP.Editor
                 // slots and the position is honored; the graph is guaranteed valid on save
                 // (old string-surgery produced empty-slot nodes and dropped the position — #18 bugs 3,4).
                 var graph = MCPShaderGraphApi.LoadGraph(fullPath);
-                string nodeId = MCPShaderGraphApi.AddNode(graph, resolvedType, posX, posY);
+                // propertyId (alias: property) binds a Property node to a blackboard property —
+                // required for that node type, ignored for every other (see AddNode).
+                string propertyId = args.ContainsKey("propertyId") && args["propertyId"] != null
+                    ? args["propertyId"].ToString()
+                    : args.ContainsKey("property") && args["property"] != null
+                        ? args["property"].ToString()
+                        : null;
+                string nodeId = MCPShaderGraphApi.AddNode(graph, resolvedType, posX, posY, propertyId);
                 MCPShaderGraphApi.SaveGraph(MCPAssetSafety.ToAssetDatabasePath(path), graph);
 
                 return new Dictionary<string, object>
@@ -1166,24 +1173,34 @@ namespace UnityMCP.Editor
                     {
                         string edgeJson = edgesSection.Substring(objStart, i - objStart + 1);
 
+                        // Singleline is REQUIRED: a .shadergraph writes one field per line, so
+                        // without it `.` cannot cross the newline between "m_OutputSlot" and the
+                        // nested "m_Id" — every match failed and get_edges reported each edge as
+                        // {outputNodeId:"", outputSlotId:0, inputNodeId:"", inputSlotId:0} even
+                        // though the on-disk edges were perfectly correct. Read-only path, so
+                        // nothing was ever corrupted, but the reported ids were useless.
+                        // (Reported in PR #23; reproduced against real multi-line edge JSON.)
+                        const System.Text.RegularExpressions.RegexOptions CrossLine =
+                            System.Text.RegularExpressions.RegexOptions.Singleline;
+
                         // Extract output node ID
                         string outNodePattern = "\"m_OutputSlot\".*?\"m_Id\"\\s*:\\s*\"([^\"]*)\"";
-                        var outMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outNodePattern);
+                        var outMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outNodePattern, CrossLine);
                         string outNodeId = outMatch.Success ? outMatch.Groups[1].Value : "";
 
                         // Extract output slot ID
                         string outSlotPattern = "\"m_OutputSlot\".*?\"m_SlotId\"\\s*:\\s*(\\d+)";
-                        var outSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outSlotPattern);
+                        var outSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, outSlotPattern, CrossLine);
                         int outSlotId = outSlotMatch.Success ? int.Parse(outSlotMatch.Groups[1].Value) : 0;
 
                         // Extract input node ID
                         string inNodePattern = "\"m_InputSlot\".*?\"m_Id\"\\s*:\\s*\"([^\"]*)\"";
-                        var inMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inNodePattern);
+                        var inMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inNodePattern, CrossLine);
                         string inNodeId = inMatch.Success ? inMatch.Groups[1].Value : "";
 
                         // Extract input slot ID
                         string inSlotPattern = "\"m_InputSlot\".*?\"m_SlotId\"\\s*:\\s*(\\d+)";
-                        var inSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inSlotPattern);
+                        var inSlotMatch = System.Text.RegularExpressions.Regex.Match(edgeJson, inSlotPattern, CrossLine);
                         int inSlotId = inSlotMatch.Success ? int.Parse(inSlotMatch.Groups[1].Value) : 0;
 
                         edges.Add(new Dictionary<string, object>

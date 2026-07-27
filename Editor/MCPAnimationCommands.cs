@@ -445,6 +445,31 @@ namespace UnityMCP.Editor
                 });
             }
 
+            // Object-reference (PPtr) curves are a SEPARATE binding set — GetCurveBindings only
+            // returns float curves, so a sprite-frame animation previously reported curveCount:0
+            // and looked empty through the MCP even when the clip was correct (issue #30).
+            var objectCurves = new List<Dictionary<string, object>>();
+            foreach (var binding in AnimationUtility.GetObjectReferenceCurveBindings(clip))
+            {
+                var frames = AnimationUtility.GetObjectReferenceCurve(clip, binding);
+                var keys = new List<Dictionary<string, object>>();
+                foreach (var f in frames)
+                    keys.Add(new Dictionary<string, object>
+                    {
+                        { "time", f.time },
+                        { "value", f.value != null ? f.value.name : null },
+                        { "assetPath", f.value != null ? AssetDatabase.GetAssetPath(f.value) : null },
+                    });
+                objectCurves.Add(new Dictionary<string, object>
+                {
+                    { "path", binding.path },
+                    { "propertyName", binding.propertyName },
+                    { "type", binding.type.Name },
+                    { "keyframeCount", frames.Length },
+                    { "keyframes", keys },
+                });
+            }
+
             var settings = AnimationUtility.GetAnimationClipSettings(clip);
 
             return new Dictionary<string, object>
@@ -457,9 +482,107 @@ namespace UnityMCP.Editor
                 { "wrapMode", clip.wrapMode.ToString() },
                 { "curveCount", curves.Count },
                 { "curves", curves },
+                { "objectReferenceCurveCount", objectCurves.Count },
+                { "objectReferenceCurves", objectCurves },
                 { "events", clip.events.Length },
                 { "isHumanMotion", clip.humanMotion },
             };
+        }
+
+        /// <summary>
+        /// Set an object-reference (PPtr) curve — the curve type Unity uses for sprite-frame
+        /// animation (SpriteRenderer.m_Sprite) and any other UnityEngine.Object-valued property.
+        /// clip.SetCurve/AnimationCurve can only express FLOAT curves, so this whole class of
+        /// clip was previously impossible through the MCP and had to be hand-written as .anim
+        /// YAML — which is version-fragile and produced "curve type is invalid" import errors
+        /// (issue #30). Routes through AnimationUtility.SetObjectReferenceCurve so Unity itself
+        /// writes the binding.
+        /// </summary>
+        public static object SetObjectReferenceCurve(Dictionary<string, object> args)
+        {
+            string path = args.ContainsKey("clipPath") ? args["clipPath"].ToString() : "";
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            if (clip == null)
+                return new { error = $"Animation clip not found at '{path}'" };
+
+            string relativePath = args.ContainsKey("relativePath") ? args["relativePath"].ToString() : "";
+            string propertyName = args.ContainsKey("propertyName") ? args["propertyName"].ToString() : "m_Sprite";
+            string typeName = args.ContainsKey("type") ? args["type"].ToString() : "SpriteRenderer";
+
+            var type = ResolveComponentType(typeName);
+            if (type == null)
+                return new { error = $"Component type '{typeName}' not found. Use a UnityEngine type name such as 'SpriteRenderer' or 'MeshRenderer'." };
+
+            if (!args.ContainsKey("keyframes") || !(args["keyframes"] is List<object> kfList) || kfList.Count == 0)
+                return new { error = "keyframes is required: an array of { time, assetPath } (assetPath may target a sub-asset, e.g. a sliced sprite)." };
+
+            var frames = new List<ObjectReferenceKeyframe>();
+            var unresolved = new List<string>();
+            foreach (var kfObj in kfList)
+            {
+                if (!(kfObj is Dictionary<string, object> kf)) continue;
+                float time = kf.ContainsKey("time") ? Convert.ToSingle(kf["time"]) : 0f;
+                string assetPath = kf.ContainsKey("assetPath") && kf["assetPath"] != null ? kf["assetPath"].ToString() : null;
+                string subName = kf.ContainsKey("name") && kf["name"] != null ? kf["name"].ToString() : null;
+                if (string.IsNullOrEmpty(assetPath)) { unresolved.Add($"t={time}: missing assetPath"); continue; }
+
+                // A sliced sprite sheet holds many Sprite sub-assets under ONE path, so load them
+                // all and pick by name when the caller names one; otherwise take the first.
+                UnityEngine.Object value = null;
+                foreach (var sub in AssetDatabase.LoadAllAssetsAtPath(assetPath))
+                {
+                    if (sub == null || !typeof(Sprite).IsAssignableFrom(sub.GetType())) continue;
+                    if (subName == null) { value = sub; break; }
+                    if (sub.name == subName) { value = sub; break; }
+                }
+                if (value == null) value = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+                if (value == null) { unresolved.Add($"t={time}: '{assetPath}'" + (subName != null ? $" (sprite '{subName}')" : "")); continue; }
+
+                frames.Add(new ObjectReferenceKeyframe { time = time, value = value });
+            }
+
+            // Fail closed: a partially-resolved curve would silently animate to the wrong frames.
+            if (unresolved.Count > 0)
+                return new
+                {
+                    error = $"{unresolved.Count} keyframe(s) could not be resolved: {string.Join("; ", unresolved)}",
+                    unresolvedKeyframes = unresolved,
+                };
+
+            var binding = EditorCurveBinding.PPtrCurve(relativePath, type, propertyName);
+            Undo.RecordObject(clip, "Set Object Reference Curve");
+            AnimationUtility.SetObjectReferenceCurve(clip, binding, frames.ToArray());
+            EditorUtility.SetDirty(clip);
+            AssetDatabase.SaveAssets();
+
+            return new Dictionary<string, object>
+            {
+                { "success", true },
+                { "clipPath", path },
+                { "relativePath", relativePath },
+                { "propertyName", propertyName },
+                { "type", type.Name },
+                { "keyframeCount", frames.Count },
+                { "clipLength", clip.length },
+            };
+        }
+
+        /// <summary>Resolve a UnityEngine component type by short name across the split modules.</summary>
+        private static Type ResolveComponentType(string typeName)
+        {
+            var direct = Type.GetType($"UnityEngine.{typeName}, UnityEngine")
+                      ?? Type.GetType($"UnityEngine.{typeName}, UnityEngine.CoreModule")
+                      ?? Type.GetType(typeName);
+            if (direct != null) return direct;
+            // UnityEngine is split into modules (SpriteRenderer lives in UnityEngine.SpriteShapeModule
+            // / CoreModule depending on version) — scan rather than hardcode the module list.
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (!asm.GetName().Name.StartsWith("UnityEngine")) continue;
+                var t = asm.GetType($"UnityEngine.{typeName}");
+                if (t != null) return t;
+            }
+            return null;
         }
 
         public static object SetClipCurve(Dictionary<string, object> args)

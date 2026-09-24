@@ -1,5 +1,6 @@
 using System;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 namespace UnityMCP.Editor.Welcome
@@ -81,7 +82,16 @@ namespace UnityMCP.Editor.Welcome
 
         private static void TryAutoOpen()
         {
-            if (SessionState.GetBool(SESSION_KEY_OPENED, false)) return;
+            if (SessionState.GetBool(SESSION_KEY_OPENED, false) || Application.isBatchMode) return;
+
+            // Creating a window brings the editor to the front, even unfocused. An editor started
+            // in the background (by an agent, a script) waits until the user comes back to it.
+            if (!InternalEditorUtility.isApplicationActive)
+            {
+                EditorApplication.focusChanged -= OnFocusChanged;
+                EditorApplication.focusChanged += OnFocusChanged;
+                return;
+            }
 
             if (EditorApplication.isCompiling
                 || EditorApplication.isUpdating
@@ -94,6 +104,14 @@ namespace UnityMCP.Editor.Welcome
 
             if (!HasOpenedOnce) { OpenAndMark(); return; }
             if (!DontShowAgain) OpenAndMark();
+        }
+
+        private static void OnFocusChanged(bool focused)
+        {
+            if (!focused) return;
+            EditorApplication.focusChanged -= OnFocusChanged;
+            s_deferralTicks = 0;
+            EditorApplication.delayCall += TryAutoOpen;
         }
 
         private static void OpenAndMark()

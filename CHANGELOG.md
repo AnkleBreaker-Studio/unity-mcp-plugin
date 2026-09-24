@@ -2,6 +2,11 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.7] - 2026-09-24
+
+### Fixed
+- **The dashboard had no working menu entry.** It was registered at `Window/AB Unity MCP`, the same path as the `Welcome` and `Action History` submenu, so Unity turned the path into a submenu and hid the leaf: the dashboard could not be opened from the menu, and `EditorApplication.ExecuteMenuItem("Window/AB Unity MCP")` failed with a console error. It now lives at **`Window/AB Unity MCP/Dashboard`**, first in that submenu. The toolbar button is unchanged, and the "Enable it in Window > AB Unity MCP" messages now name the Dashboard entry.
+
 ## [2.39.6] - 2026-09-24
 
 ### Fixed

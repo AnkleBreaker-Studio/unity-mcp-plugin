@@ -210,7 +210,7 @@ namespace UnityMCP.Editor
                 return new Dictionary<string, object>
                 {
                     { "enabled", false },
-                    { "message", "Project context is disabled. Enable it in Window > AB Unity MCP." },
+                    { "message", "Project context is disabled. Enable it in Window > AB Unity MCP > Dashboard." },
                 };
             }
 

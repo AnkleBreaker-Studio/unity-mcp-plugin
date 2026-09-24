@@ -2,6 +2,12 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.39.6] - 2026-09-24
+
+### Fixed
+- **The welcome window pulled a background editor to the front.** It opens on the first Unity start of a project, and on every start until "Don't show again" is ticked. When Unity was launched in the background (by an agent, a script, a CI helper), the first thing that drained the editor's `delayCall` queue (an MCP request, typically) opened it, and creating a window brings the editor to the front even when it is not asked for focus. The auto-open now runs only while Unity is the active application; otherwise it waits for `EditorApplication.focusChanged` and opens when the user comes back to Unity. It never opens in batch mode. Opening it from the menu is unchanged.
+- Verified on Unity 6000.0.68f1 with Unity launched in the background: after the queue drains, including through a real MCP call, no window opens and nothing comes to the front. Opening on return was confirmed by hand on the AnkleBreaker package welcome window, which uses the same code. Compiles with 0 errors and 0 warnings against Unity 2022.3.
+
 ## [2.39.5] - 2026-07-27
 
 Community-reported fixes. Each claim was verified against the shipped Unity assemblies before being acted on — two held up, one did not (documented below).

@@ -9,7 +9,7 @@ namespace UnityMCP.Editor
     /// <summary>
     /// Editor window providing an overview of AB Unity MCP status, feature categories,
     /// server controls, queue monitoring, studio news, settings, and active agent
-    /// sessions. Accessible via Window > AB Unity MCP.
+    /// sessions. Accessible via Window > AB Unity MCP > Dashboard.
     ///
     /// UI Toolkit, themed to the AnkleBreaker studio palette (shared brand sheet via
     /// <see cref="MCPTheme"/>). Dynamic sections refresh on a schedule and only rebuild
@@ -19,7 +19,9 @@ namespace UnityMCP.Editor
     {
         private const int RefreshIntervalMs = 750;
 
-        [MenuItem("Window/AB Unity MCP")]
+        // A leaf of its own: a leaf at "Window/AB Unity MCP" shared the path of the Welcome and
+        // Action History submenu, so Unity hid it and ExecuteMenuItem could not reach it.
+        [MenuItem("Window/AB Unity MCP/Dashboard", false, -10)]
         public static void ShowWindow()
         {
             var window = GetWindow<MCPDashboardWindow>("AB Unity MCP");

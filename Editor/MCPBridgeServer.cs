@@ -695,7 +695,7 @@ namespace UnityMCP.Editor
             if (category != "ping" && category != "agents" && category != "queue"
                 && !MCPSettingsManager.IsCategoryEnabled(category))
             {
-                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP." };
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
             }
 
             switch (path)

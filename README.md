@@ -93,7 +93,7 @@ This package runs a lightweight HTTP bridge inside the Unity Editor on `localhos
 - **Registry Heartbeat** — The plugin sends a heartbeat every 30 seconds to the shared instance registry (`lastSeen` timestamp), enabling the MCP server to distinguish between compiling editors (fresh entry) and crashed editors (stale entry >5 minutes)
 - **Multi-Agent Support** — Multiple AI agents can connect simultaneously with session tracking, action logging, and queued execution
 - **Play Mode Resilience** — MCP bridge survives domain reloads during Play Mode via SessionState persistence
-- **Dashboard** — Built-in Editor window (`Window > MCP Dashboard`) showing server status, category toggles, agent sessions, and update checker
+- **Dashboard** — Built-in Editor window (`Window > AB Unity MCP > Dashboard`) showing server status, category toggles, agent sessions, and update checker
 - **Project Context** — Auto-inject project-specific documentation and guidelines for AI agents (via `Assets/MCP/Context/`)
 - **Settings** — Configurable port, auto-start, and per-category enable/disable via EditorPrefs
 - **Update Checker** — Automatic GitHub release checking with in-dashboard notification
@@ -127,7 +127,7 @@ This plugin is one half of the system. You also need the **Node.js MCP Server** 
 
 ## Dashboard
 
-Open **Window > MCP Dashboard** to access:
+Open **Window > AB Unity MCP > Dashboard** to access:
 
 - Server status with live indicator (green = running, red = stopped)
 - Start / Stop / Restart controls
@@ -156,7 +156,7 @@ Some features activate automatically when their corresponding packages are detec
 
 ## Configuration
 
-Configuration is managed through the MCP Dashboard (`Window > MCP Dashboard > Settings`):
+Configuration is managed through the MCP Dashboard (`Window > AB Unity MCP > Dashboard`, Settings section):
 
 - **Port** — HTTP server port (default: `7890`)
 - **Auto-Start** — Automatically start the bridge when Unity opens (default: `true`)

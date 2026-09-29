@@ -1,0 +1,262 @@
+/* AnkleBreaker CLICKME hub. Stamped from clickme-inspector/Template: edit the template.
+
+   Loaded after the package's Welcome stylesheet, whose variables and classes (.abw, bands,
+   buttons, hero, eyebrow, pill) it reuses: every colour here is a Welcome variable, so the
+   accent and the light skin (.abw--light) follow without a line of their own.
+
+   Same floor as the Welcome, UI Toolkit 2022.3: no gap (rows use the negative margin trick),
+   no :first-child, no gradients, no shadows, no text-transform. */
+
+.abc { flex-grow: 0; }
+.abc-empty { padding: 14px; }
+
+.abw .abc-tile *,
+.abw .abc-disc *,
+.abw .abc-free *,
+.abw .abc-star *,
+.abw .abc-cta *,
+.abw .abc-review__close *,
+.abw .abc-badge * {
+    cursor: link;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.abc-header {
+    flex-direction: row;
+    align-items: center;
+    padding: 16px 14px 14px 14px;
+    background-color: var(--abw-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--abw-edge);
+}
+.abc-header__icon { width: 56px; height: 56px; min-width: 56px; margin-right: 13px; border-radius: 9px; }
+.abc-header__text { flex-grow: 1; flex-shrink: 1; }
+.abw .abc-header__title { font-size: 19px; -unity-font-style: bold; color: var(--abw-accent); }
+.abw .abc-header__tagline { font-size: 12px; color: var(--abw-text-dim); margin-top: 2px; }
+.abc-badge { align-self: flex-start; margin-top: 7px; margin-bottom: 0; }
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.abc-body { padding: 14px 14px 2px 14px; }
+.abc .abw-band { margin-bottom: 12px; }
+.abc .abw-band__actions { margin-top: 9px; }
+.abc-section { margin-bottom: 14px; }
+
+/* The Welcome hero grows to fill its row; here it sits in a column and must not. */
+.abc-guide { flex-grow: 0; margin-bottom: 16px; }
+.abc-guide:focus { border-width: 1px; border-color: var(--abw-text-strong); }
+.abc-guide--quiet { background-color: var(--abw-surface); border-width: 1px; border-color: var(--abw-line-strong); }
+.abc-guide--quiet:hover { background-color: var(--abw-surface-hover); }
+.abw .abc-guide--quiet .abw-hero__glyph { color: var(--abw-accent); }
+.abw .abc-guide--quiet .abw-hero__title { color: var(--abw-text-strong); }
+.abw .abc-guide--quiet .abw-hero__detail { color: var(--abw-text-dim); opacity: 1; }
+
+/* Two per row. The right margin of each cell is taken back by the row, so both columns share
+   one right edge with the band above. */
+.abc-pair { flex-direction: row; margin-right: -8px; }
+.abc-tile,
+.abc-disc,
+.abc-blank { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; margin: 0 8px 8px 0; }
+
+/* ── Quick actions ──────────────────────────────────────────────────────── */
+.abc-tile {
+    padding: 11px 12px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    cursor: link;
+}
+.abc-tile:hover { background-color: var(--abw-surface-hover); border-color: var(--abw-line-strong); }
+.abc-tile:focus { border-color: var(--abw-accent); }
+.abc-tile:disabled { opacity: 0.45; }
+.abc-tile__icon { width: 18px; height: 18px; margin-bottom: 7px; }
+.abw .abc-tile__title { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abc-tile__detail { font-size: 11px; color: var(--abw-text-muted); margin-top: 2px; }
+/* Muted text drops under 4.5:1 on the hover surface (dark skin): hovered cells lift it to dim. */
+.abw .abc-tile:hover .abc-tile__detail,
+.abw .abc-disc:hover .abc-disc__detail,
+.abw .abc-free:hover .abc-free__blurb { color: var(--abw-text-dim); }
+
+/* Resources: chips for what did not earn a tile. */
+.abc-links { flex-direction: row; flex-wrap: wrap; align-items: center; margin: -4px 0 14px 0; }
+.abw .abc-links__title { font-size: 10px; -unity-font-style: bold; letter-spacing: 1px; color: var(--abw-text-muted); margin-right: 8px; }
+.abc-chip {
+    padding: 3px 9px;
+    margin: 2px 6px 2px 0;
+    border-radius: 11px;
+    border-width: 1px;
+    border-color: var(--abw-line-strong);
+    cursor: link;
+}
+.abc-chip:hover { border-color: var(--abw-accent); background-color: var(--abw-surface-hover); }
+.abc-chip:focus { border-color: var(--abw-accent); }
+.abw .abc-chip Label { font-size: 11px; color: var(--abw-text-dim); white-space: nowrap; cursor: link; }
+.abw .abc-chip:hover Label { color: var(--abw-text-strong); }
+
+/* ── Discover ───────────────────────────────────────────────────────────── */
+.abc-disc {
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    overflow: hidden;
+    cursor: link;
+}
+.abc-disc:hover { border-color: var(--abw-accent-line); background-color: var(--abw-surface-hover); }
+.abc-disc:focus { border-color: var(--abw-accent); }
+.abc-disc__stage {
+    height: 112px;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--abw-panel);
+    overflow: hidden;
+}
+.abc-disc__cover { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+
+/* Three store Cards fanned out across the whole stage, 3:2 like the Cards themselves: the outer
+   two are pinned to the stage's edges and the front one is centred, so a wider tile spreads the
+   fan instead of leaving it small in the middle. Narrow tiles overlap them more. */
+.abc-fan { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.abc-stack { position: absolute; width: 132px; height: 88px; border-radius: 4px; }
+.abc-stack--left { left: 5%; top: 18px; rotate: -6deg; opacity: 0.85; }
+.abc-stack--right { right: 5%; top: 19px; rotate: 7deg; opacity: 0.75; }
+.abc-stack--front { left: 50%; top: 11px; translate: -50% 0; border-width: 1px; border-color: var(--abw-edge); }
+
+.abc-tag { position: absolute; top: 7px; padding: 1px 6px; border-radius: 3px; }
+.abc-tag--right { right: 7px; }
+.abc-tag--left { left: 7px; }
+.abw .abc-tag Label { font-size: 9px; -unity-font-style: bold; white-space: nowrap; }
+.abc-tag--sale { background-color: var(--abw-sale); }
+.abw .abc-tag--sale Label { color: var(--abw-sale-text); }
+.abc-tag--accent { background-color: var(--abw-pill); }
+.abw .abc-tag--accent Label { color: var(--abw-pill-text); }
+
+.abc-disc__caption { padding: 9px 11px 10px 11px; }
+.abw .abc-disc__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abc-disc__detail { font-size: 11px; color: var(--abw-text-muted); margin-top: 1px; }
+
+.abc-free {
+    flex-direction: row;
+    align-items: center;
+    padding: 7px 10px 7px 7px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    cursor: link;
+}
+.abc-free:hover { background-color: var(--abw-surface-hover); }
+.abc-free:focus { border-color: var(--abw-accent); }
+.abc-free__card { width: 60px; height: 40px; min-width: 60px; border-radius: 3px; margin-right: 10px; }
+.abc-free__text { flex-grow: 1; flex-shrink: 1; }
+.abc-free__title { flex-direction: row; align-items: center; }
+.abc-free__title > .abw-pill { margin-left: 6px; }
+.abw .abc-free__name { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abc-free__blurb { font-size: 11px; color: var(--abw-text-muted); margin-top: 1px; }
+.abw .abc-free__link { font-size: 11px; -unity-font-style: bold; color: var(--abw-accent); margin-left: 8px; white-space: nowrap; }
+
+/* ── Art profile ────────────────────────────────────────────────────────── */
+.abc-quiet-row { flex-direction: row; margin: -8px -8px 16px 0; }
+.abc-quiet { flex-grow: 1; flex-basis: 0; margin-right: 8px; padding: 8px 10px; }
+.abw .abc-pack__summary { font-size: 12px; color: var(--abw-text); margin-top: 2px; }
+.abc-strip {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 10px 8px 8px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-panel);
+    cursor: link;
+}
+.abc-strip:hover { border-color: var(--abw-accent-line); background-color: var(--abw-surface-hover); }
+.abc-strip:focus { border-color: var(--abw-accent); }
+.abc-strip__cover { width: 72px; height: 44px; min-width: 72px; border-radius: 4px; margin-right: 10px; }
+.abc-strip__text { flex-grow: 1; flex-shrink: 1; }
+.abc-tag--inline { position: relative; top: 0; }
+.abc-tie {
+    flex-direction: row;
+    align-items: center;
+    padding: 7px 10px 7px 7px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-accent-line);
+    background-color: var(--abw-accent-bg);
+    cursor: link;
+}
+.abc-tie:hover { background-color: var(--abw-accent-bg-hover); }
+.abc-tie:focus { border-color: var(--abw-accent); }
+.abw .abc-tie *,
+.abw .abc-strip * { cursor: link; }
+
+/* ── Review ─────────────────────────────────────────────────────────────── */
+.abc-review {
+    padding: 14px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: var(--abw-accent-line);
+    background-color: var(--abw-accent-bg);
+}
+.abc-review__top { flex-direction: row; align-items: flex-start; }
+.abw .abc-review__title { flex-grow: 1; flex-shrink: 1; font-size: 14px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abc-review__close { padding: 0 4px; margin: -3px -4px 0 6px; cursor: link; }
+.abw .abc-review__close Label { font-size: 16px; color: var(--abw-text-dim); }
+.abw .abc-review__close:hover Label { color: var(--abw-text-strong); }
+.abw .abc-review__body { font-size: 12px; color: var(--abw-text); margin-top: 4px; }
+
+.abc-stars { flex-direction: row; align-self: flex-start; margin: 8px 0 8px -2px; }
+.abc-star { padding: 0 2px; cursor: link; }
+.abw .abc-star Label { font-size: 26px; color: var(--abw-line-strong); }
+.abw .abc-star--on Label { color: var(--abw-star); }
+
+.abc-review__actions { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.abc-cta {
+    padding: 7px 14px;
+    margin-right: 10px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: var(--abw-accent-fill);
+    background-color: var(--abw-accent-fill);
+    cursor: link;
+}
+.abc-cta:hover { background-color: var(--abw-accent-fill-hover); }
+.abc-cta:focus { border-color: var(--abw-text-strong); }
+.abw .abc-cta Label { font-size: 12px; -unity-font-style: bold; color: var(--abw-on-accent); white-space: nowrap; }
+.abw .abc-review__rating { font-size: 11px; color: var(--abw-text-dim); }
+.abc-review__aside { flex-direction: row; flex-wrap: wrap; margin-top: 10px; }
+.abw .abc-review__note { font-size: 11px; color: var(--abw-text-dim); margin-right: 4px; }
+
+.abc-thanks {
+    flex-direction: row;
+    align-items: center;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: var(--abw-ok-line);
+    background-color: var(--abw-ok-bg);
+}
+.abw .abc-thanks__mark { font-size: 16px; -unity-font-style: bold; color: var(--abw-ok); margin-right: 11px; }
+.abc-thanks__text { flex-shrink: 1; }
+.abw .abc-thanks__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abc-thanks__body { font-size: 11px; color: var(--abw-ok-text); margin-top: 1px; cursor: link; }
+
+/* ── Links and footer ───────────────────────────────────────────────────── */
+.abw .abc-link { font-size: 11px; color: var(--abw-accent); cursor: link; }
+.abw .abc-link:hover { color: var(--abw-text-strong); }
+.abw .abc-link--quiet { color: var(--abw-text-dim); }
+
+.abc-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 11px 14px;
+    background-color: var(--abw-footer);
+    border-top-width: 1px;
+    border-top-color: var(--abw-edge);
+}
+.abc-footer .abw-discord { margin-right: 10px; padding: 7px 14px; }
+.abw .abc-footer__note { flex-grow: 1; flex-shrink: 1; font-size: 11px; color: var(--abw-text-muted); }
+.abc-footer .abc-link { margin-left: 8px; }

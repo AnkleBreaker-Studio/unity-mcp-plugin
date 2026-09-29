@@ -1,0 +1,1000 @@
+{
+  "schema": 1,
+  "_generated": "by welcome.py catalog from products.json + the store; do not edit",
+  "updated": "2026-09-24",
+  "publisherUrl": "https://assetstore.unity.com/publishers/101837",
+  "discordUrl": "https://discord.gg/2D36VUmsYN",
+  "devlogFeed": "https://anklebreaker-studio.com/devlog/feed.xml",
+  "careersUrl": "https://anklebreaker-studio.com/careers",
+  "consultingUrl": "https://anklebreaker-consulting.com",
+  "families": [
+    {
+      "id": "tavern",
+      "name": "Tavern & Workshop",
+      "pitch": "Same hand, same scale, same material budget: a room built from all of them reads as one set instead of separate purchases."
+    }
+  ],
+  "showcases": [
+    {
+      "eyebrow": "ANKLEBREAKER STUDIO",
+      "title": "Build the rest of your game",
+      "blurb": "More tools from AnkleBreaker Studio.",
+      "shelf": [
+        {
+          "id": "InventoryMaster"
+        },
+        {
+          "id": "HotbarMaster"
+        },
+        {
+          "id": "FluidVolumesAndPotions"
+        },
+        {
+          "id": "Engraver"
+        }
+      ],
+      "seeAll": "See all {n} assets",
+      "id": "Changeling"
+    },
+    {
+      "eyebrow": "",
+      "title": "Build the rest of your game",
+      "blurb": "More tools from AnkleBreaker Studio.",
+      "seeAll": "See all {n} assets",
+      "id": "Cauldron"
+    }
+  ],
+  "games": [
+    {
+      "id": "kickdom",
+      "name": "Kickdom",
+      "tagline": "REAL-TIME PVP FOOTBALL",
+      "summary": "Build your team. Turn the match around with game-changing items.",
+      "cover": "kickdom-hero.jpg",
+      "logo": "kickdom-logo.png",
+      "websiteUrl": "https://www.kickdom.gg/",
+      "steamUrl": "",
+      "steamLabel": "",
+      "products": [
+        {
+          "id": "Changeling",
+          "role": "game"
+        },
+        {
+          "id": "TweenInInspector",
+          "role": "game"
+        },
+        {
+          "id": "ManagersLoader",
+          "role": "game"
+        },
+        {
+          "id": "ManagersLoaderFishNet",
+          "role": "game"
+        },
+        {
+          "id": "Tombstack",
+          "role": "development"
+        },
+        {
+          "id": "MCPForUnity",
+          "role": "development"
+        }
+      ]
+    },
+    {
+      "id": "mithrall",
+      "name": "Mithrall",
+      "tagline": "SANDBOX SURVIVAL & CONQUEST",
+      "summary": "Explore a dwarven realm. Build, trade and fight to shape its future.",
+      "cover": "mithrall-hero.jpg",
+      "logo": "mithrall-logo.png",
+      "websiteUrl": "https://mithrall.com/",
+      "steamUrl": "https://store.steampowered.com/app/2838890/Mithrall/",
+      "steamLabel": "Wishlist on Steam",
+      "products": [
+        {
+          "id": "MCPForUnity",
+          "role": "development"
+        },
+        {
+          "id": "Tombstack",
+          "role": "development"
+        },
+        {
+          "id": "Changeling",
+          "role": "game"
+        },
+        {
+          "id": "Gatling",
+          "role": "game"
+        },
+        {
+          "id": "Engraver",
+          "role": "game"
+        },
+        {
+          "id": "RadialMenu",
+          "role": "game"
+        },
+        {
+          "id": "PopupMaster",
+          "role": "game"
+        },
+        {
+          "id": "MapGUIPro",
+          "role": "game"
+        },
+        {
+          "id": "Cartograph",
+          "role": "game"
+        },
+        {
+          "id": "CinematicCameraController",
+          "role": "game"
+        },
+        {
+          "id": "ManagersLoader",
+          "role": "game"
+        },
+        {
+          "id": "ManagersLoaderFishNet",
+          "role": "game"
+        },
+        {
+          "id": "EnvironmentRocks",
+          "role": "game"
+        }
+      ]
+    }
+  ],
+  "products": [
+    {
+      "id": "MCPForUnity",
+      "cardFile": "MCPForUnity.jpg",
+      "name": "Unity MCP",
+      "storeName": "AnkleBreaker MCP Plugin for Unity",
+      "status": "published",
+      "releasedAt": "2026-09-01T10:55:16Z",
+      "url": "https://assetstore.unity.com/packages/tools/ai-ml-integration/anklebreaker-mcp-plugin-for-unity-395602",
+      "category": "Tools / AI-ML Integration",
+      "free": true,
+      "pinned": true,
+      "family": "",
+      "blurb": "Let your AI agent work inside the Unity Editor.",
+      "detect": [
+        "folder:Assets/AB/MCPForUnity",
+        "package:com.anklebreaker.unity-mcp",
+        "welcome:MCPForUnity",
+        "asm:AnkleBreaker.MCPForUnity.Editor"
+      ],
+      "window": "Window/AB Unity MCP/Dashboard",
+      "card": "MCPForUnity.jpg"
+    },
+    {
+      "id": "Tombstack",
+      "cardFile": "Tombstack.jpg",
+      "name": "Tombstack",
+      "storeName": "Tombstack - Analytics System",
+      "status": "published",
+      "releasedAt": "2026-09-01T10:55:09Z",
+      "url": "https://assetstore.unity.com/packages/tools/utilities/tombstack-analytics-system-395594",
+      "category": "Tools / Utilities",
+      "free": true,
+      "pinned": true,
+      "family": "",
+      "blurb": "Track crashes, exceptions and play sessions.",
+      "detect": [
+        "folder:Assets/AB/TombstackForUnity",
+        "folder:Assets/AB/Tombstack",
+        "welcome:Tombstack",
+        "asm:AnkleBreaker.TombstackForUnity.Installer.Editor"
+      ],
+      "window": "",
+      "card": "Tombstack.jpg"
+    },
+    {
+      "id": "Changeling",
+      "cardFile": "Changeling.jpg",
+      "name": "Changeling",
+      "storeName": "Changeling - AAA Character Customisation",
+      "status": "published",
+      "releasedAt": "2026-09-17T11:29:09Z",
+      "url": "https://assetstore.unity.com/packages/tools/modeling/changeling-aaa-character-customisation-400438",
+      "category": "Tools / Modeling",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Dressable characters, merged into one mesh at runtime.",
+      "detect": [
+        "asm:AnkleBreaker.Changeling",
+        "folder:Assets/AB/Changeling",
+        "welcome:Changeling"
+      ],
+      "window": "Tools/AnkleBreaker/Changeling/Welcome",
+      "card": "Changeling.jpg"
+    },
+    {
+      "id": "Gatling",
+      "cardFile": "Gatling.jpg",
+      "name": "Gatling",
+      "storeName": "Gatling - Projectile & Ballistics System",
+      "status": "published",
+      "releasedAt": "2026-08-14T12:06:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/physics/gatling-projectile-ballistics-system-393206",
+      "category": "Tools / Physics",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Thousands of live projectiles, hitscan and travel time.",
+      "detect": [
+        "folder:Assets/AB/Gatling",
+        "welcome:Gatling",
+        "asm:AnkleBreaker.Gatling.Runtime"
+      ],
+      "window": "",
+      "card": "Gatling.jpg"
+    },
+    {
+      "id": "Engraver",
+      "cardFile": "Engraver.jpg",
+      "name": "Engraver",
+      "storeName": "Engraver - Saving System",
+      "status": "published",
+      "releasedAt": "2026-08-10T13:00:15Z",
+      "url": "https://assetstore.unity.com/packages/tools/game-toolkits/engraver-saving-system-393208",
+      "category": "Tools / Game Toolkits",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Crash-safe save and load, with history and migration.",
+      "detect": [
+        "folder:Assets/AB/Engraver",
+        "welcome:Engraver",
+        "asm:AnkleBreaker.Engraver"
+      ],
+      "window": "",
+      "card": "Engraver.jpg"
+    },
+    {
+      "id": "RadialMenu",
+      "cardFile": "RadialMenu.jpg",
+      "name": "Radial Menu Toolkit",
+      "storeName": "Radial Menu Toolkit",
+      "status": "published",
+      "releasedAt": "2026-06-10T16:52:18Z",
+      "url": "https://assetstore.unity.com/packages/tools/gui/radial-menu-toolkit-287336",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Radial menus from 10 presets, editable at runtime.",
+      "detect": [
+        "folder:Assets/AB/RadialMenu",
+        "welcome:RadialMenu",
+        "asm:AnkleBreaker.RadialMenu"
+      ],
+      "window": "Tools/AnkleBreaker/Radial Menu/Welcome",
+      "card": "RadialMenu.jpg"
+    },
+    {
+      "id": "PopupMaster",
+      "cardFile": "PopupMaster.jpg",
+      "name": "Popup Master",
+      "storeName": "Popup Master - Toast, Banner, Modal window and more",
+      "status": "published",
+      "releasedAt": "2026-08-26T12:52:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/gui/popup-master-toast-banner-modal-window-and-more-387192",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Toasts, banners, modals and combat text in UI Toolkit.",
+      "detect": [
+        "folder:Assets/AB/PopupMaster",
+        "welcome:PopupMaster",
+        "asm:AnkleBreaker.PopupMaster"
+      ],
+      "window": "",
+      "card": "PopupMaster.jpg"
+    },
+    {
+      "id": "TweenInInspector",
+      "cardFile": "TweenInInspector.jpg",
+      "name": "Tween In Inspector",
+      "storeName": "Tween In Inspector - Animate UI in few clicks",
+      "status": "published",
+      "releasedAt": "2026-08-17T07:40:13Z",
+      "url": "https://assetstore.unity.com/packages/tools/gui/tween-in-inspector-animate-ui-in-few-clicks-371488",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Tweens authored in the Inspector, with a timeline.",
+      "detect": [
+        "folder:Assets/AB/TweenInInspector",
+        "welcome:TweenInInspector",
+        "asm:AnkleBreaker.TweenInInspector"
+      ],
+      "window": "",
+      "card": "TweenInInspector.jpg"
+    },
+    {
+      "id": "MapGUIPro",
+      "cardFile": "MapGUIPro.jpg",
+      "name": "Map GUI Pro",
+      "storeName": "Map GUI Pro - Minimap, Map & Compass",
+      "status": "published",
+      "releasedAt": "2026-08-10T12:43:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/gui/map-gui-pro-minimap-map-compass-385920",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Minimap, compass and fullscreen map, in UI Toolkit.",
+      "detect": [
+        "welcome:MapGUIPro",
+        "asm:AnkleBreaker.MapGuiPro.Core",
+        "folder:Assets/AB/MapGuiPro"
+      ],
+      "window": "",
+      "card": "MapGUIPro.jpg"
+    },
+    {
+      "id": "Cartograph",
+      "cardFile": "Cartograph.jpg",
+      "name": "Cartograph",
+      "storeName": "CARTOGRAPH - Map Texture Drawer",
+      "status": "published",
+      "releasedAt": "2026-06-23T16:31:09Z",
+      "url": "https://assetstore.unity.com/packages/tools/gui/cartograph-map-texture-drawer-377364",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Minimap textures drawn from any Unity scene.",
+      "detect": [
+        "welcome:Cartograph",
+        "asm:AnkleBreaker.Cartograph.Shared.Editor",
+        "folder:Assets/AB/Cartograph"
+      ],
+      "window": "",
+      "card": "Cartograph.jpg"
+    },
+    {
+      "id": "CinematicCameraController",
+      "cardFile": "CinematicCameraController.jpg",
+      "name": "Cinematic Camera Controller",
+      "storeName": "Cinematic Camera Controller",
+      "status": "published",
+      "releasedAt": "2026-04-24T14:07:09Z",
+      "url": "https://assetstore.unity.com/packages/tools/camera/cinematic-camera-controller-372344",
+      "category": "Tools / Camera",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Waypoint camera paths, with Timeline and Cinemachine 3.",
+      "detect": [
+        "welcome:CinematicCameraController",
+        "asm:AnkleBreaker.CinematicCameraController.Runtime",
+        "folder:Assets/AB/CinematicCameraController"
+      ],
+      "window": "",
+      "card": "CinematicCameraController.jpg"
+    },
+    {
+      "id": "ManagersLoader",
+      "cardFile": "ManagersLoader.jpg",
+      "name": "Managers Loader System",
+      "storeName": "Managers Loader System",
+      "status": "published",
+      "releasedAt": "2026-05-04T14:48:11Z",
+      "url": "https://assetstore.unity.com/packages/tools/integration/managers-loader-system-367210",
+      "category": "Tools / Integration",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Scene-driven manager start-up with dependency resolution.",
+      "detect": [
+        "welcome:ManagersLoader",
+        "asm:AnkleBreaker.ManagersLoader",
+        "folder:Assets/AB/Managers-Loader"
+      ],
+      "window": "",
+      "card": "ManagersLoader.jpg"
+    },
+    {
+      "id": "ManagersLoaderFishNet",
+      "cardFile": "ManagersLoaderFishNet.jpg",
+      "name": "FishNet Add-on for Managers Loader",
+      "storeName": "Fishnet Addon For Managers Loader System",
+      "status": "published",
+      "releasedAt": "2026-06-30T13:48:11Z",
+      "url": "https://assetstore.unity.com/packages/tools/network/fishnet-addon-for-managers-loader-system-368412",
+      "category": "Tools / Network",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Networked, server-only and client-only managers.",
+      "detect": [
+        "welcome:ManagersLoaderFishNet",
+        "asm:AnkleBreaker.ManagersLoader.Fishnet",
+        "folder:Assets/AB/FishNet-Managers-Loader"
+      ],
+      "window": "",
+      "card": "ManagersLoaderFishNet.jpg"
+    },
+    {
+      "id": "FluidVolumesAndPotions",
+      "cardFile": "PotionLiquidMaster.jpg",
+      "name": "Potion & Liquid Master",
+      "storeName": "Potion & Liquid Master - AAA Quality",
+      "status": "published",
+      "releasedAt": "2026-09-23T20:01:10Z",
+      "url": "https://assetstore.unity.com/packages/vfx/shaders/potion-liquid-master-aaa-quality-400448",
+      "category": "VFX / Shaders",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Real liquid in any closed mesh. Tip it, shake it, drink it.",
+      "detect": [
+        "folder:Assets/AB/FluidVolumesAndPotions",
+        "welcome:FluidVolumesAndPotions",
+        "asm:AnkleBreaker.FluidVolumesAndPotions"
+      ],
+      "window": "Tools/AnkleBreaker/Fluid Volumes and Potions/Welcome",
+      "card": ""
+    },
+    {
+      "id": "GatlingFishNet",
+      "cardFile": "GatlingFishNet.jpg",
+      "name": "Gatling for FishNet",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/400232",
+      "category": "Tools / Network",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Gatling's multiplayer add-on, with lag compensation.",
+      "detect": [
+        "folder:Assets/AB/GatlingFishNet",
+        "welcome:GatlingFishNet",
+        "asm:AnkleBreaker.Gatling.FishNet"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "InventoryMaster",
+      "cardFile": "InventoryMaster.jpg",
+      "name": "Inventory Master",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/393212",
+      "category": "Tools / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [
+        "folder:Assets/AB/InventoryMaster"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "HotbarMaster",
+      "cardFile": "HotbarMaster.jpg",
+      "name": "Hotbar Master",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/393210",
+      "category": "2D / GUI",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [
+        "folder:Assets/AB/HotbarMaster"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "BeautifulSky",
+      "cardFile": "BeautifulSky.jpg",
+      "name": "Beautiful Sky",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/395604",
+      "category": "Tools / Integration",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [
+        "folder:Assets/AB/BeautifulSky"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Cauldron",
+      "cardFile": "Cauldron.jpg",
+      "name": "Stylized Cauldron",
+      "storeName": "Stylized Cauldron - 3 Tiers - AAA quality",
+      "status": "published",
+      "releasedAt": "2026-09-11T17:06:11Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-cauldron-3-tiers-aaa-quality-400446",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "tavern",
+      "blurb": "A cauldron station in three tiers, with an animated bellows.",
+      "detect": [
+        "welcome:Cauldron",
+        "folder:Assets/AB_Stylized/1_Props/Furnitures/Cauldron"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "CashRegister",
+      "cardFile": "CashRegister.jpg",
+      "name": "Stylized Cash Register",
+      "storeName": "Stylized Cash Register & Icons - 3 Tiers - AAA Quality",
+      "status": "published",
+      "releasedAt": "2026-09-09T10:52:11Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-cash-register-icons-3-tiers-aaa-quality-400440",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "tavern",
+      "blurb": "A cash register in three tiers, with a working drawer.",
+      "detect": [
+        "welcome:CashRegister",
+        "folder:Assets/AB_Stylized/1_Props/Furnitures/CashRegister"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Counters",
+      "cardFile": "Counters.jpg",
+      "name": "Stylized Counters",
+      "storeName": "Stylized Counters & Icons - 3 Tiers - AAA Quality",
+      "status": "published",
+      "releasedAt": "2026-09-09T10:52:19Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-counters-icons-3-tiers-aaa-quality-400444",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "tavern",
+      "blurb": "Modular counters on a 1 m grid: runs, L-shapes and islands.",
+      "detect": [
+        "welcome:Counters",
+        "folder:Assets/AB_Stylized/1_Props/Furnitures/Counters"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "LeatherWorkbench2",
+      "cardFile": "LeatherWorkbench2.jpg",
+      "name": "Leather Workbench #2",
+      "storeName": "Stylized Leather Workbench #2 - 3 Tiers- AAA quality",
+      "status": "published",
+      "releasedAt": "2026-09-15T18:44:11Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-leather-workbench-2-3-tiers-aaa-quality-400452",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "tavern",
+      "blurb": "A leatherworking bench in three tiers, dressed with tools.",
+      "detect": [
+        "welcome:LeatherWorkbench2",
+        "folder:Assets/AB_Stylized/1_Props/Furnitures/LeatherWorkbench2"
+      ],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "EnvironmentRocks",
+      "cardFile": "EnvironmentRocks.jpg",
+      "name": "Stylized Environment Rocks",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/400450",
+      "category": "3D / Environments / Landscapes",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "46 rocks for cliffs, canyons and passes, in four colors.",
+      "detect": [
+        "welcome:EnvironmentRocks"
+      ],
+      "window": "",
+      "card": "EnvironmentRocks.jpg"
+    },
+    {
+      "id": "Stylized322748",
+      "cardFile": "StylizedBlacksmithWorkbenches.jpg",
+      "name": "Stylized Blacksmith Workbenches",
+      "storeName": "Stylized Blacksmith Workbenches & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-10T00:40:18Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-blacksmith-workbenches-icons-322748",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized326495",
+      "cardFile": "StylizedBrewingStation.jpg",
+      "name": "Stylized Brewing Station",
+      "storeName": "Stylized Brewing Station & Icons",
+      "status": "published",
+      "releasedAt": "2025-07-21T10:31:12Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-brewing-station-icons-326495",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized324147",
+      "cardFile": "StylizedCookingWorkbenchesItems.jpg",
+      "name": "Stylized Cooking Workbenches, Items",
+      "storeName": "Stylized Cooking Workbenches, Items & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-30T08:53:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-cooking-workbenches-items-icons-324147",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized324059",
+      "cardFile": "StylizedEngineerWorkbenches.jpg",
+      "name": "Stylized Engineer Workbenches",
+      "storeName": "Stylized Engineer Workbenches & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-30T08:52:20Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-engineer-workbenches-icons-324059",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319673",
+      "cardFile": "StylizedFantasyGreatSwords.jpg",
+      "name": "Stylized Fantasy GreatSwords",
+      "storeName": "Stylized Fantasy GreatSwords & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:48:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-fantasy-greatswords-icons-319673",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319676",
+      "cardFile": "StylizedFantasyResourcesMinerals.jpg",
+      "name": "Stylized Fantasy Resources - Minerals",
+      "storeName": "Stylized Fantasy Resources & Icons - Minerals",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:48:14Z",
+      "url": "https://assetstore.unity.com/packages/3d/environments/stylized-fantasy-resources-icons-minerals-319676",
+      "category": "3D / Environments",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319675",
+      "cardFile": "StylizedFantasyResourcesRocks.jpg",
+      "name": "Stylized Fantasy Resources - Rocks",
+      "storeName": "Stylized Fantasy Resources & Icons - Rocks",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:48:20Z",
+      "url": "https://assetstore.unity.com/packages/3d/environments/stylized-fantasy-resources-icons-rocks-319675",
+      "category": "3D / Environments",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319674",
+      "cardFile": "StylizedFantasyRoundedShields.jpg",
+      "name": "Stylized Fantasy Rounded Shields",
+      "storeName": "Stylized Fantasy Rounded Shields & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:44:18Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-fantasy-rounded-shields-icons-319674",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized322140",
+      "cardFile": "StylizedFantasySpears.jpg",
+      "name": "Stylized Fantasy Spears",
+      "storeName": "Stylized Fantasy Spears & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-06T05:27:15Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-fantasy-spears-icons-322140",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319672",
+      "cardFile": "StylizedFantasySwords.jpg",
+      "name": "Stylized Fantasy Swords",
+      "storeName": "Stylized Fantasy Swords & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:44:12Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-fantasy-swords-icons-319672",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized319677",
+      "cardFile": "StylizedFantasyTools.jpg",
+      "name": "Stylized Fantasy Tools",
+      "storeName": "Stylized Fantasy Tools & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-20T14:44:14Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/tools/stylized-fantasy-tools-icons-319677",
+      "category": "3D / Props / Tools",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized320457",
+      "cardFile": "StylizedFantasyTowershields.jpg",
+      "name": "Stylized Fantasy Towershields",
+      "storeName": "Stylized Fantasy Towershields & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-28T18:53:15Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-fantasy-towershields-icons-320457",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized323863",
+      "cardFile": "StylizedFurnaces.jpg",
+      "name": "Stylized Furnaces",
+      "storeName": "Stylized Furnaces & Icons",
+      "status": "published",
+      "releasedAt": "2025-07-03T13:34:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-furnaces-icons-323863",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized325259",
+      "cardFile": "StylizedGoblinsArcherWarrior.jpg",
+      "name": "Stylized Goblins Archer & Warrior",
+      "storeName": "Stylized Goblins Archer & Warrior",
+      "status": "published",
+      "releasedAt": "2025-07-13T21:25:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/characters/humanoids/fantasy/stylized-goblins-archer-warrior-325259",
+      "category": "3D / Characters / Humanoids / Fantasy",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized322830",
+      "cardFile": "StylizedGrinderWorkbenches.jpg",
+      "name": "Stylized Grinder Workbenches",
+      "storeName": "Stylized Grinder Workbenches & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-10T00:41:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-grinder-workbenches-icons-322830",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized321828",
+      "cardFile": "StylizedIbex.jpg",
+      "name": "Stylized Ibex",
+      "storeName": "Stylized Ibex | Animations & Icons",
+      "status": "published",
+      "releasedAt": "2025-05-28T18:53:11Z",
+      "url": "https://assetstore.unity.com/packages/3d/characters/animals/mammals/stylized-ibex-animations-icons-321828",
+      "category": "3D / Characters / Animals / Mammals",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized323982",
+      "cardFile": "StylizedLeatherWorkbenches.jpg",
+      "name": "Stylized Leather Workbenches",
+      "storeName": "Stylized Leather Workbenches & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-30T08:52:12Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-leather-workbenches-icons-323982",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized323273",
+      "cardFile": "StylizedMeleeWeaponsShieldsMegapack1.jpg",
+      "name": "Stylized Melee Weapons & Shields",
+      "storeName": "Stylized Melee Weapons & Shields | MEGAPACK#1",
+      "status": "published",
+      "releasedAt": "2025-06-30T08:22:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-melee-weapons-shields-megapack-1-323273",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized327229",
+      "cardFile": "StylizedRangedWeapons.jpg",
+      "name": "Stylized Ranged Weapons",
+      "storeName": "Stylized Ranged Weapons & Icons",
+      "status": "published",
+      "releasedAt": "2025-08-06T14:14:13Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/weapons/stylized-ranged-weapons-icons-327229",
+      "category": "3D / Props / Weapons",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized322866",
+      "cardFile": "StylizedTailorWorkbench.jpg",
+      "name": "Stylized Tailor Workbench",
+      "storeName": "Stylized Tailor Workbench & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-10T00:41:12Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-tailor-workbench-icons-322866",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized322652",
+      "cardFile": "StylizedWoodWorkbench.jpg",
+      "name": "Stylized Wood Workbench",
+      "storeName": "Stylized Wood Workbench & Icons",
+      "status": "published",
+      "releasedAt": "2025-06-10T00:41:19Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-wood-workbench-icons-322652",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    },
+    {
+      "id": "Stylized327038",
+      "cardFile": "StylizedWorkbenchesMegapack2.jpg",
+      "name": "Stylized Workbenches",
+      "storeName": "Stylized Workbenches | MEGAPACK#2",
+      "status": "published",
+      "releasedAt": "2025-08-06T14:11:20Z",
+      "url": "https://assetstore.unity.com/packages/3d/props/furniture/stylized-workbenches-megapack-2-327038",
+      "category": "3D / Props / Furniture",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "",
+      "detect": [],
+      "window": "",
+      "card": ""
+    }
+  ]
+}

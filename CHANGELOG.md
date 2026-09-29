@@ -2,6 +2,16 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.40.0] - 2026-09-29
+
+### Changed
+- **The AnkleBreaker Welcome window is the studio's canonical one, and now lives here.** The plugin's own welcome window (`1-Scripts/Editor/WelcomeWindow/`, menu `Window/AB Unity MCP/Welcome`) is replaced by the Welcome every AnkleBreaker package uses: getting started (install the MCP server, connect your AI client, check the bridge in the Dashboard), the AnkleBreaker catalogue, and the studio tab. Menu **`Tools/AnkleBreaker/Unity MCP/Welcome`**; it opens by itself once per project, never in batch mode, and waits for Unity to be the active application. Its own assembly `UnityMCP.Editor.Welcome` references nothing, so it draws whatever the plugin's main assembly does. The version it shows is read from this package's `package.json`.
+- The free Asset Store package *MCP For Unity* no longer ships a Welcome of its own: it installs this plugin, and its `CLICKME.asset` draws the hub stamped here (`UnityMcpWelcome.ClickMe.cs`, `MCPForUnity.clickme.json`). Before the plugin is installed, `CLICKME` says what to install instead. One Welcome for everyone, GitHub users included.
+- The Dashboard's brand sheet moved out of the old welcome folder: `Editor/MCPBrandTheme.uss` (content unchanged), loaded by `MCPTheme`.
+
+### Removed
+- `Window/AB Unity MCP/Welcome` and its "Don't show again" preference, with the old welcome's GitHub Sponsors and review sections.
+
 ## [2.39.7] - 2026-09-24
 
 ### Fixed

@@ -1,0 +1,130 @@
+{
+  "stamp": {
+    "packageRoot": "Packages/com.anklebreaker.unity-mcp",
+    "dest": "1-Scripts/Editor/Welcome",
+    "mode": "sibling",
+    "namespace": "UnityMCP.Editor.Welcome",
+    "prefix": "UnityMcp",
+    "menu": "Tools/AnkleBreaker/Unity MCP/Welcome",
+    "prefs": "AB.MCPForUnity.CanonicalWelcome",
+    "accent": "#e8a33d",
+    "cards": "showcase",
+    "_why": "The one Welcome of MCP For Unity lives in the public plugin (AnkleBreaker-Studio/unity-mcp-plugin), so GitHub users see it too; the Asset Store package installs the plugin and keeps only CLICKME, whose inspector draws this package's hub (clickme.py host). Its own asmdef UnityMCP.Editor.Welcome references nothing, so it compiles whatever the plugin's main assembly does. Prefs keep the Asset Store package's CanonicalWelcome prefix: whoever saw that Welcome is not shown this one again. Menu under the Welcome's own name (Unity MCP), never the Asset Store package's, whose earlier Welcome registered .../MCP For Unity/Welcome until its cleanup runs."
+  },
+  "schema": 1,
+  "profile": "tool",
+  "id": "MCPForUnity",
+  "name": "Unity MCP",
+  "tagline": "Let your AI agent work inside the Unity Editor — by AnkleBreaker Studio",
+  "version": "",
+  "storeVersion": false,
+  "_whyVersion": "Empty: the Welcome shows the plugin's own package.json version, so it follows every release without a restamp. storeVersion false: the catalogue's MCPForUnity version is the Asset Store package's (1.x), unrelated to the plugin's (2.x).",
+  "ownAssembly": "AnkleBreaker.UnityMCP.Editor",
+  "requires": [],
+  "pipelines": [],
+  "hero": {
+    "label": "Open the MCP Dashboard",
+    "detail": "Bridge status, port, connected agents",
+    "kind": "menu",
+    "target": "Window/AB Unity MCP/Dashboard"
+  },
+  "heroAlt": {
+    "label": "Read the setup guide",
+    "kind": "url",
+    "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-server#quick-start"
+  },
+  "steps": [
+    {
+      "id": "server",
+      "title": "Install the MCP server",
+      "doneVerb": "Opened",
+      "body": "The Node.js side of the bridge: clone it and run npm install. Needs Node.js 18 or later",
+      "action": {
+        "label": "Open",
+        "kind": "url",
+        "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-server#2-install-this-mcp-server"
+      }
+    },
+    {
+      "id": "connect",
+      "title": "Connect your AI client",
+      "doneVerb": "Opened",
+      "body": "Add the server to Claude, Cursor or any MCP client: its guide has the config to paste",
+      "action": {
+        "label": "Read",
+        "kind": "url",
+        "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-server#3-add-to-claude-desktop"
+      }
+    },
+    {
+      "id": "verify",
+      "title": "Check the bridge",
+      "doneVerb": "Opened",
+      "body": "The Dashboard shows whether the bridge runs, on which port, and the agents connected to it",
+      "action": {
+        "label": "Open Dashboard",
+        "kind": "menu",
+        "target": "Window/AB Unity MCP/Dashboard"
+      }
+    }
+  ],
+  "shortcuts": [
+    {
+      "label": "MCP Dashboard",
+      "detail": "Status, settings, agents",
+      "kind": "menu",
+      "target": "Window/AB Unity MCP/Dashboard"
+    },
+    {
+      "label": "Action History",
+      "detail": "What your agents did",
+      "kind": "menu",
+      "target": "Window/AB Unity MCP/Action History"
+    },
+    {
+      "label": "Plugin on GitHub",
+      "detail": "Source, releases, issues",
+      "kind": "url",
+      "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-plugin"
+    },
+    {
+      "label": "MCP server",
+      "detail": "The Node.js side of the bridge",
+      "kind": "url",
+      "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-server"
+    }
+  ],
+  "stats": [
+    {
+      "label": "Runtime assemblies",
+      "value": "0",
+      "_source": "Every asmdef of the plugin (Editor/, 1-Scripts/Editor/Welcome/) is includePlatforms Editor only"
+    },
+    {
+      "label": "Oldest Unity supported",
+      "value": "2021.3",
+      "_source": "package.json unity 2021.3"
+    }
+  ],
+  "help": {
+    "docs": {
+      "label": "Setup guide",
+      "kind": "url",
+      "target": "https://github.com/AnkleBreaker-Studio/unity-mcp-plugin#readme"
+    },
+    "bugUrl": "discord",
+    "featureUrl": "discord"
+  },
+  "usage": {
+    "reviewUrl": "store"
+  },
+  "showcase": {
+    "eyebrow": "ANKLEBREAKER STUDIO",
+    "title": "Build the rest of your game",
+    "blurb": "More tools from AnkleBreaker Studio.",
+    "seeAll": "See all {n} assets"
+  },
+  "studioTab": true,
+  "root": "../../..",
+  "icon": "Media/Icon.png"
+}

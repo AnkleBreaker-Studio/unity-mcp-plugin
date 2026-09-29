@@ -1,0 +1,47 @@
+{
+  "id": "MCPForUnity",
+  "status": "AnkleBreaker.MCPForUnity.Installer.Editor.MCPForUnityClickMe.StatusLine",
+  "actions": [
+    {
+      "label": "Open the plugin setup",
+      "detail": "Install, update, live checks",
+      "kind": "menu",
+      "target": "Tools/AnkleBreaker/Dependencies Installer/MCP For Unity",
+      "icon": "Settings"
+    },
+    {
+      "label": "MCP Dashboard",
+      "detail": "Agents, queue, logs",
+      "kind": "menu",
+      "target": "Tools/AnkleBreaker/MCP For Unity/Dashboard",
+      "unavailable": "Needs the MCP plugin",
+      "icon": "UnityEditor.ConsoleWindow"
+    },
+    {
+      "label": "Documentation",
+      "detail": "16 pages, in-editor",
+      "kind": "menu",
+      "target": "Tools/AnkleBreaker/MCP For Unity/Documentation",
+      "icon": "_Help"
+    },
+    {
+      "label": "Report a bug",
+      "detail": "Usually answered the same day",
+      "kind": "discord",
+      "target": "discord",
+      "icon": "console.warnicon.sml"
+    }
+  ],
+  "links": [
+    {
+      "label": "README",
+      "kind": "file",
+      "target": "host:README.md"
+    },
+    {
+      "label": "Agent guide (SKILL.md)",
+      "kind": "file",
+      "target": "host:SKILL.md"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+param(
+    [Parameter(Mandatory = $true)][string]$EditorPath,
+    [Parameter(Mandatory = $true)][string]$ProjectPath
+)
+$ErrorActionPreference = 'Stop'
+if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
+$pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.Replace('\', '/')
+$projectRoot = [System.IO.Path]::GetFullPath($ProjectPath)
+if (Test-Path -LiteralPath (Join-Path $projectRoot 'Assets')) {
+    if (!(Test-Path -LiteralPath (Join-Path $projectRoot '.unity-mcp-validation'))) {
+        throw 'Use a new validation directory; an existing user project must not be overwritten.'
+    }
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'Assets/Editor'), (Join-Path $projectRoot 'Packages'), (Join-Path $projectRoot 'ProjectSettings') | Out-Null
+Set-Content -LiteralPath (Join-Path $projectRoot '.unity-mcp-validation') -Value $pluginRoot
+$manifest = @{ dependencies = @{ 'com.anklebreaker.unity-mcp' = "file:$pluginRoot" } } | ConvertTo-Json
+[System.IO.File]::WriteAllText((Join-Path $projectRoot 'Packages/manifest.json'), $manifest)
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'ValidationRunner.cs') -Destination (Join-Path $projectRoot 'Assets/Editor/ValidationRunner.cs')
+$logPath = Join-Path $projectRoot 'validation.log'
+$reportPath = Join-Path $projectRoot 'Library/UnityMcpValidation.json'
+if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath }
+$arguments = @('-batchmode', '-nographics', '-projectPath', ('"{0}"' -f $projectRoot), '-executeMethod', 'UnityMcpValidation.Run', '-logFile', ('"{0}"' -f $logPath))
+$editorProcess = Start-Process -FilePath $EditorPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+Write-Output "Unity validation PID: $($editorProcess.Id), log: $logPath"
+while (!$editorProcess.WaitForExit(10000)) {
+    Write-Output "Unity validation running (PID $($editorProcess.Id))"
+}
+if ($editorProcess.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath)) {
+    Get-Content -LiteralPath $logPath -Tail 40
+    throw "Unity validation failed (exit $($editorProcess.ExitCode))"
+}
+$report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+if (!$report.passed) { throw $report.error }
+Get-Content -LiteralPath $reportPath

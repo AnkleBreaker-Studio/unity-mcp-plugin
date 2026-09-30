@@ -48,7 +48,20 @@ namespace UnityMCP.Editor
             // Timing
             public DateTime  SubmittedAt   { get; set; }
             public DateTime? CompletedAt   { get; set; }
+            public DateTime? StartedAt     { get; internal set; }
             public int       QueuePosition { get; set; }
+
+            internal long SubmittedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            internal long? StartedTimestamp;
+            internal long? CompletedTimestamp;
+
+            public double QueueWaitMs => ElapsedMs(SubmittedTimestamp,
+                StartedTimestamp ?? CompletedTimestamp ?? System.Diagnostics.Stopwatch.GetTimestamp());
+            public double ProcessingTimeMs => StartedTimestamp.HasValue
+                ? ElapsedMs(StartedTimestamp.Value, CompletedTimestamp ?? System.Diagnostics.Stopwatch.GetTimestamp()) : 0;
+
+            private static double ElapsedMs(long from, long to) =>
+                (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
             public long ExecutionTimeMs =>
                 CompletedAt.HasValue
@@ -78,6 +91,10 @@ namespace UnityMCP.Editor
         // In-flight tickets (dequeued, currently executing on main thread)
         // Prevents 404 race condition when polling during slow executions (e.g. execute_code)
         private static readonly Dictionary<long, RequestTicket> _executingTickets
+            = new Dictionary<long, RequestTicket>();
+
+        // Polling must not scan every agent's FIFO while the editor is busy.
+        private static readonly Dictionary<long, RequestTicket> _pendingTickets
             = new Dictionary<long, RequestTicket>();
 
         // Synchronous waiters (backward compat)
@@ -132,6 +149,7 @@ namespace UnityMCP.Editor
 
                 ticket.QueuePosition = _agentQueues[agentId].Count;
                 _agentQueues[agentId].Enqueue(ticket);
+                _pendingTickets[ticket.TicketId] = ticket;
 
                 // Session bookkeeping
                 EnsureSession(agentId).LogAction(actionName);
@@ -170,6 +188,7 @@ namespace UnityMCP.Editor
 
                 ticket.QueuePosition = _agentQueues[agentId].Count;
                 _agentQueues[agentId].Enqueue(ticket);
+                _pendingTickets[ticket.TicketId] = ticket;
 
                 EnsureSession(agentId).LogAction(actionName);
                 _sessions[agentId].IncrementQueuedRequest();
@@ -184,10 +203,14 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object ExecuteWithTracking(string agentId, string actionName, Func<object> action)
         {
-            var ticket = SubmitRequest(agentId, actionName, action);
-
             var waiter = new ManualResetEventSlim(false);
-            lock (_queueLock) { _waiters[ticket.TicketId] = waiter; }
+            RequestTicket ticket;
+            lock (_queueLock)
+            {
+                // Register before the main thread can complete and signal this ticket.
+                ticket = SubmitRequest(agentId, actionName, action);
+                _waiters[ticket.TicketId] = waiter;
+            }
 
             try
             {
@@ -199,6 +222,7 @@ namespace UnityMCP.Editor
                         ticket.Status       = RequestStatus.TimedOut;
                         ticket.ErrorMessage = $"Timed out after {SyncTimeoutMs / 1000}s waiting for main thread";
                         ticket.CompletedAt  = DateTime.UtcNow;
+                        ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                         _completedTickets[ticket.TicketId] = ticket;
                     }
                     return new Dictionary<string, object>
@@ -226,8 +250,11 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                waiter.Dispose();
-                lock (_queueLock) { _waiters.Remove(ticket.TicketId); }
+                lock (_queueLock)
+                {
+                    _waiters.Remove(ticket.TicketId);
+                    waiter.Dispose();
+                }
             }
         }
 
@@ -255,6 +282,7 @@ namespace UnityMCP.Editor
             {
                 batch = DequeueNextBatch();
                 if (batch == null || batch.Count == 0) return;
+                foreach (var ticket in batch) _pendingTickets.Remove(ticket.TicketId);
 
                 // Drop tickets whose sync waiter already gave up (TimedOut). The client was
                 // told the call failed and may have retried; executing the abandoned ticket
@@ -282,6 +310,11 @@ namespace UnityMCP.Editor
             // --- Execute OUTSIDE lock (main thread) ---
             foreach (var ticket in batch)
             {
+                lock (_queueLock)
+                {
+                    ticket.StartedAt = DateTime.UtcNow;
+                    ticket.StartedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                }
                 // Give each WRITE action its own named, collapsed Undo group so it can be
                 // reverted independently (per-action / per-agent undo via undo/last) and shows
                 // up named in Unity's Undo history. Reads and undo/redo ops don't open a group,
@@ -318,6 +351,7 @@ namespace UnityMCP.Editor
                             deferredTicket.Result      = result;
                             deferredTicket.Status      = RequestStatus.Completed;
                             deferredTicket.CompletedAt = DateTime.UtcNow;
+                            deferredTicket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                             deferredTicket.DeferredAction = null;
 
                             lock (_queueLock)
@@ -336,6 +370,7 @@ namespace UnityMCP.Editor
                         deferredTicket.Status       = RequestStatus.Failed;
                         deferredTicket.ErrorMessage  = ex.Message;
                         deferredTicket.CompletedAt   = DateTime.UtcNow;
+                        deferredTicket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                         deferredTicket.DeferredAction = null;
                         Debug.LogError($"[Unity MCP Queue] Deferred ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
 
@@ -362,6 +397,7 @@ namespace UnityMCP.Editor
                     Debug.LogError($"[Unity MCP Queue] Ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
                 }
                 ticket.CompletedAt = DateTime.UtcNow;
+                ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 ticket.Action      = null; // Free the closure
 
                 // Fold everything this action registered into its single named group so one
@@ -454,11 +490,8 @@ namespace UnityMCP.Editor
                 if (_executingTickets.TryGetValue(ticketId, out var executing))
                     return TicketToDict(executing);
 
-                // Check active queues
-                foreach (var q in _agentQueues.Values)
-                    foreach (var t in q)
-                        if (t.TicketId == ticketId)
-                            return TicketToDict(t);
+                if (_pendingTickets.TryGetValue(ticketId, out var pending))
+                    return TicketToDict(pending);
             }
             return null;
         }
@@ -749,11 +782,15 @@ namespace UnityMCP.Editor
                 { "queuePosition",   t.QueuePosition },
                 { "submittedAt",     t.SubmittedAt.ToString("O") },
                 { "executionTimeMs", t.ExecutionTimeMs },
+                { "queueWaitMs",     t.QueueWaitMs },
+                { "processingTimeMs", t.ProcessingTimeMs },
                 { "errorMessage",    t.ErrorMessage ?? "" },
             };
 
             if (t.CompletedAt.HasValue)
                 dict["completedAt"] = t.CompletedAt.Value.ToString("O");
+            if (t.StartedAt.HasValue)
+                dict["startedAt"] = t.StartedAt.Value.ToString("O");
 
             // Include result for completed tickets
             if (t.Status == RequestStatus.Completed || t.Status == RequestStatus.Failed)

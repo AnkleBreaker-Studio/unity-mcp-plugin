@@ -52,6 +52,8 @@ namespace UnityMCP.Editor
 
             int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 1920;
             int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 1080;
+            if (width < 1 || height < 1 || width > 8192 || height > 8192 || (long)width * height > 33554432)
+                return new { error = "Scene screenshot dimensions must be 1-8192 pixels, with at most 33554432 pixels in total" };
 
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
@@ -63,23 +65,31 @@ namespace UnityMCP.Editor
                 Directory.CreateDirectory(dir);
 
             var camera = sceneView.camera;
-            var rt = new RenderTexture(width, height, 24);
-            camera.targetTexture = rt;
-            camera.Render();
-
-            RenderTexture.active = rt;
-            var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-            tex.Apply();
-
-            camera.targetTexture = null;
-            RenderTexture.active = null;
-
-            byte[] bytes = tex.EncodeToPNG();
-            File.WriteAllBytes(path, bytes);
-
-            UnityEngine.Object.DestroyImmediate(tex);
-            UnityEngine.Object.DestroyImmediate(rt);
+            var previousTarget = camera.targetTexture;
+            var previousActive = RenderTexture.active;
+            RenderTexture rt = null;
+            Texture2D tex = null;
+            byte[] bytes;
+            try
+            {
+                rt = new RenderTexture(width, height, 24);
+                camera.targetTexture = rt;
+                camera.Render();
+                RenderTexture.active = rt;
+                tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                tex.Apply();
+                bytes = tex.EncodeToPNG();
+                File.WriteAllBytes(path, bytes);
+            }
+            finally
+            {
+                // A render or filesystem failure must not retain GPU resources or replace the editor's render targets.
+                camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+                if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
+            }
 
             AssetDatabase.Refresh();
 

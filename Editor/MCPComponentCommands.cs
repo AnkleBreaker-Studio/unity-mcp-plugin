@@ -74,14 +74,21 @@ namespace UnityMCP.Editor
             {
                 do
                 {
-                    properties.Add(new Dictionary<string, object>
+                    var info = new Dictionary<string, object>
                     {
                         { "name", iterator.name },
                         { "displayName", iterator.displayName },
                         { "type", iterator.propertyType.ToString() },
                         { "value", GetSerializedValue(iterator) },
                         { "editable", iterator.editable },
-                    });
+                    };
+                    if (iterator.propertyType == SerializedPropertyType.Enum)
+                    {
+                        info["enumValue"] = iterator.intValue;
+                        info["enumIndex"] = iterator.enumValueIndex;
+                        info["enumNames"] = iterator.enumNames;
+                    }
+                    properties.Add(info);
                 } while (iterator.NextVisible(false));
             }
 
@@ -532,7 +539,10 @@ namespace UnityMCP.Editor
                     var v4 = prop.vector4Value;
                     return new Dictionary<string, object> { { "x", v4.x }, { "y", v4.y }, { "z", v4.z }, { "w", v4.w } };
                 case SerializedPropertyType.Enum:
-                    return prop.enumNames.Length > prop.enumValueIndex ? prop.enumNames[prop.enumValueIndex] : prop.enumValueIndex.ToString();
+                    // Combined flags and unknown serialized values have no named index, but remain valid stored values.
+                    int enumIndex = prop.enumValueIndex;
+                    return enumIndex >= 0 && enumIndex < prop.enumNames.Length
+                        ? (object)prop.enumNames[enumIndex] : prop.intValue;
                 case SerializedPropertyType.ObjectReference:
                     if (prop.objectReferenceValue != null)
                     {
@@ -638,14 +648,22 @@ namespace UnityMCP.Editor
                         Convert.ToSingle(v4d.GetValueOrDefault("w", 0f)));
                     break;
                 case SerializedPropertyType.Enum:
-                    if (value is string enumName)
+                    if (value is Dictionary<string, object> enumValue && enumValue.TryGetValue("enumValue", out var rawValue))
+                    {
+                        prop.intValue = ReadEnumInteger(rawValue, prop.name);
+                    }
+                    else if (value is string enumName)
                     {
                         int index = Array.IndexOf(prop.enumNames, enumName);
-                        if (index >= 0) prop.enumValueIndex = index;
+                        if (index < 0) throw new ArgumentException($"Unknown enum name '{enumName}' for '{prop.name}'. Expected: {string.Join(", ", prop.enumNames)}.");
+                        prop.enumValueIndex = index;
                     }
                     else
                     {
-                        prop.enumValueIndex = Convert.ToInt32(value);
+                        int index = ReadEnumInteger(value, prop.name);
+                        if (index < 0 || index >= prop.enumNames.Length)
+                            throw new ArgumentOutOfRangeException(prop.name, $"Enum index must be between 0 and {prop.enumNames.Length - 1}. Use {{enumValue:...}} for a stored value or combined flags.");
+                        prop.enumValueIndex = index;
                     }
                     break;
                 case SerializedPropertyType.LayerMask:
@@ -667,6 +685,17 @@ namespace UnityMCP.Editor
                 default:
                     throw new NotSupportedException($"Cannot set property type: {prop.propertyType}");
             }
+        }
+
+        private static int ReadEnumInteger(object value, string property)
+        {
+            if (value == null || value is bool || value is string)
+                throw new ArgumentException($"Enum property '{property}' expects an integer value.");
+            double number = Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
+            if (double.IsNaN(number) || double.IsInfinity(number) || number != Math.Truncate(number)
+                || number < int.MinValue || number > int.MaxValue)
+                throw new ArgumentException($"Enum property '{property}' expects a 32-bit integer value.");
+            return (int)number;
         }
 
         /// <summary>

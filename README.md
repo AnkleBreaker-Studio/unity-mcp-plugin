@@ -26,7 +26,7 @@ The default port is 7890; multiple editors can claim different ports. Discover t
 
 ### Requirements
 
-- Unity **2021.3 or newer** is the declared compatibility floor.
+- Unity **2021.3.18f1 or newer** is the declared compatibility floor.
 - uGUI and Unity Test Framework are declared UPM dependencies because editor command classes compile against their APIs. The manifest uses minimum versions compatible with older supported editors; Unity 6.6 resolves its built-in versions.
 - The companion Node server and an MCP client are needed for AI-driven operations.
 
@@ -88,6 +88,8 @@ Each editor has its own listener, queue and project identity. The server handles
 The bridge binds to loopback and checks incoming browser/host metadata. It is intended for the companion server on the same machine. Local code-execution tools have the authority of the editor process, so use trusted MCP clients. Queueing orders requests; it does not resolve conflicting edits by different agents. Undo applies to commands that register supported Unity undo operations, not every possible command or filesystem change.
 
 ## Compatibility and validation
+
+Live Unity 6.6 checks cover scene reopening, enum and flags properties, object references, material/prefab assets and Scene captures, including rejected-write preservation and capture cleanup after filesystem errors. A separate 2021.3.18f1 compiler check passes after correcting the Dashboard's older `IntegerField` namespace; it does not certify editor execution or package import. Actual older-editor execution is deferred. [Workflow contracts and reproduction →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md)
 
 Current modernization work has passed a focused batch run on **Unity 6000.6.2f1**: package compilation, object identity round-trips, agent ordering, read batching, duplicate/late deferred callbacks, result retention, 50 synchronous requests, real 30-second timeout races, dashboard state and polling at queue depths up to 10,000. Dashboard checks inspect its UI Toolkit labels in batch mode; they do not certify visual layout. Old Unity versions and other optional integrations remain part of the wider validation work.
 

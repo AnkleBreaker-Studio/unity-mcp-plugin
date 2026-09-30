@@ -144,5 +144,29 @@ namespace UnityMCP.Editor
                 { "structuredActionCount", _structuredLog.Count },
             };
         }
+
+        internal struct DashboardSnapshot
+        {
+            internal string AgentId, LatestAction;
+            internal int Outstanding, Completed, CommandErrors, Exceptions, Timeouts;
+            internal double AverageWaitMs, AverageProcessingMs;
+
+            internal bool Matches(DashboardSnapshot other) => AgentId == other.AgentId && LatestAction == other.LatestAction
+                && Outstanding == other.Outstanding && Completed == other.Completed && CommandErrors == other.CommandErrors
+                && Exceptions == other.Exceptions && Timeouts == other.Timeouts
+                && AverageWaitMs == other.AverageWaitMs && AverageProcessingMs == other.AverageProcessingMs;
+        }
+
+        internal DashboardSnapshot GetDashboardSnapshot()
+        {
+            // The dashboard needs displayed values, not the transport dictionaries and timestamp strings.
+            return new DashboardSnapshot {
+                AgentId = AgentId, LatestAction = CurrentAction ?? "idle", Outstanding = _queuedRequests,
+                Completed = _completedRequests, CommandErrors = _commandErrors, Exceptions = _failedRequests,
+                Timeouts = _timedOutRequests,
+                AverageWaitMs = _completedRequests == 0 ? 0 : Math.Round(_totalQueueWaitMs / _completedRequests, 2),
+                AverageProcessingMs = _completedRequests == 0 ? 0 : Math.Round(_totalProcessingTimeMs / _completedRequests, 2)
+            };
+        }
     }
 }

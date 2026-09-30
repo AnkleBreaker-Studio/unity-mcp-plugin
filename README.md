@@ -63,6 +63,8 @@ Other existing demonstrations: [brick breaker](docs/unity-mcp-showcase-brickbrea
 
 Open **Window → AB Unity MCP → Dashboard** for bridge state, start/stop controls, category switches, auto-start and port settings, agent sessions and update information.
 
+The header identifies the project and Unity version. Queue activity, agent cards and recent actions come first; news starts collapsed. Sections remember their open/closed state per project path. Agent cards update in place, with long names and requests available in tooltips. **Latest request** is the most recently submitted request, which can be queued or finished. [Layout behavior and measured refresh costs →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/dashboard.md)
+
 From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agent_log` to inspect work. Action history records attribution and supported undo groups. New ticket fields separate monotonic `queueWaitMs` from `processingTimeMs`; existing `executionTimeMs` keeps its original total-response-time meaning.
 
 The dashboard distinguishes pending and running requests. Agent sessions separate returned command errors (`commandErrors`), exceptions (`failedRequests`) and deadlines (`timedOutRequests`), alongside average wait and processing times. `completedRequests` counts all terminal tickets; `queuedRequests` counts outstanding queued and executing tickets. Timing stops when a ticket finishes or expires.
@@ -112,6 +114,8 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 Add `-Suite Health` to validate session retention, read/write scheduling and idle queue allocations. This writes `Library/UnityMcpQueueHealthValidation.json`. The measured empty queue loop has zero allocation events after warmup; this is not a zero-allocation claim for the whole plugin or editor.
 
 Add `-Suite Monitoring` to verify command-result classification, callback history, old/new persistence, history-buffer capacity, dashboard state and a real create/undo cycle. This writes `Library/UnityMcpMonitoringValidation.json`. Batch-mode UI checks do not certify the interactive layout.
+
+Add `-Suite Dashboard` to measure refresh allocations and verify agent-card reuse, visibility, empty states, interface reconstruction and saved section preferences. This writes `Library/UnityMcpDashboardValidation.json`. The measured changing-agent workload records 83% fewer allocation events; panel layout and rendering are excluded. Separate live Unity 6.6 checks cover 360 px geometry and section persistence through script reload.
 
 The route list is generated from the dispatcher:
 

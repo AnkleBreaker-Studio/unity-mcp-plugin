@@ -51,16 +51,36 @@ namespace UnityMCP.Editor
         private Label _portRestartHint;
         private Toggle _mppmToggle;
 
-        private string _statusSig, _newsSig, _queueSig, _contextSig, _agentSig, _actionSig, _categorySig;
+        private string _statusSig, _newsSig, _queueSig, _contextSig, _actionSig, _categorySig;
         private string _expandedTestCategory;
+        private IVisualElementScheduledItem _refreshSchedule;
+        private readonly List<MCPAgentSession.DashboardSnapshot> _agentSnapshots = new List<MCPAgentSession.DashboardSnapshot>();
+        private readonly Dictionary<string, AgentView> _agentViews = new Dictionary<string, AgentView>();
+        private readonly HashSet<string> _visibleAgentIds = new HashSet<string>();
+        private readonly List<string> _removedAgentIds = new List<string>();
+
+        private sealed class AgentView
+        {
+            internal VisualElement Root, Dot;
+            internal Label Latest, Stats, Timing;
+            internal MCPAgentSession.DashboardSnapshot Snapshot;
+            internal bool HasSnapshot;
+        }
 
         private void OnDisable()
         {
+            _refreshSchedule?.Pause();
+            _refreshSchedule = null;
             MCPNewsService.Changed -= OnNewsChanged;
         }
 
         public void CreateGUI()
         {
+            // Unity can recreate a window's visual tree without creating a new window instance.
+            _refreshSchedule?.Pause();
+            MCPNewsService.Changed -= OnNewsChanged;
+            rootVisualElement.Clear();
+            _agentViews.Clear();
             MCPTheme.Apply(rootVisualElement);
             MCPNewsService.Changed += OnNewsChanged;
 
@@ -71,19 +91,18 @@ namespace UnityMCP.Editor
             BuildHeader(scroll);
             BuildStatus(scroll);
             BuildControls(scroll);
-            BuildNews(scroll);
             BuildFoldout(scroll, "Request Queue", true, out _queueRows);
-            BuildContext(scroll);
             BuildFoldout(scroll, "Active Agent Sessions", true, out _agentRows);
             BuildActions(scroll);
+            BuildContext(scroll);
             BuildCategories(scroll);
+            BuildNews(scroll);
             BuildSettings(scroll);
             BuildVersion(scroll);
 
             // First population is deferred one frame: on layout-restored windows Unity applies
             // saved view-data AFTER CreateGUI, which can stomp children added synchronously here.
-            rootVisualElement.schedule.Execute(RefreshAll);
-            rootVisualElement.schedule.Execute(RefreshAll).Every(RefreshIntervalMs);
+            _refreshSchedule = rootVisualElement.schedule.Execute(RefreshAll).Every(RefreshIntervalMs);
         }
 
         private void OnNewsChanged() => RefreshNews();
@@ -98,7 +117,7 @@ namespace UnityMCP.Editor
             Guarded(RefreshNews, () => _newsSig = null);
             Guarded(RefreshQueue, () => _queueSig = null);
             Guarded(RefreshContext, () => _contextSig = null);
-            Guarded(RefreshAgents, () => _agentSig = null);
+            Guarded(RefreshAgents, InvalidateAgentViews);
             Guarded(RefreshActions, () => _actionSig = null);
             Guarded(RefreshCategories, () => _categorySig = null);
             Guarded(RefreshSettings, null);
@@ -149,7 +168,13 @@ namespace UnityMCP.Editor
 
         private Foldout BuildFoldout(VisualElement parent, string title, bool open, out VisualElement rows)
         {
-            var foldout = new Foldout { text = title, value = open };
+            string preferenceKey = "UnityMCP_Dashboard_" + Application.dataPath + "_" + title;
+            var foldout = new Foldout { text = title, value = EditorPrefs.GetBool(preferenceKey, open) };
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                // Nested toggles also bubble boolean changes through their section.
+                if (evt.target == foldout) EditorPrefs.SetBool(preferenceKey, evt.newValue);
+            });
             foldout.AddToClassList("ab-dash__section");
             parent.Add(foldout);
 
@@ -168,8 +193,10 @@ namespace UnityMCP.Editor
             title.AddToClassList("ab-title");
             parent.Add(title);
 
-            var subtitle = new Label("Multi-agent MCP bridge for the Unity Editor");
+            string project = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(Application.dataPath));
+            var subtitle = new Label($"{project} · Unity {Application.unityVersion}") { tooltip = MCPAssetSafety.ProjectRoot };
             subtitle.AddToClassList("ab-subtitle");
+            subtitle.style.whiteSpace = WhiteSpace.Normal;
             parent.Add(subtitle);
         }
 
@@ -263,7 +290,7 @@ namespace UnityMCP.Editor
 
         private void BuildNews(VisualElement parent)
         {
-            BuildFoldout(parent, "AnkleBreaker News", true, out _newsRows);
+            BuildFoldout(parent, "AnkleBreaker News", false, out _newsRows);
         }
 
         private void RefreshNews()
@@ -389,7 +416,10 @@ namespace UnityMCP.Editor
                     int.TryParse(kvp.Value.ToString(), out depth);
                     var row = Row(_queueRows);
                     Dot(row, depth > 0 ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
-                    Text(row, kvp.Key, "ab-dash__label");
+                    var name = Text(row, kvp.Key, "ab-dash__label");
+                    name.AddToClassList("ab-dash__ellipsis");
+                    name.style.minWidth = 0;
+                    name.tooltip = kvp.Key;
                     Grow(row);
                     Text(row, $"{depth} pending", "ab-dash__mini");
                 }
@@ -421,9 +451,9 @@ namespace UnityMCP.Editor
             var toggle = new Toggle("Enable Context") { value = enabled };
             toggle.RegisterValueChangedCallback(OnContextToggled);
             header.Add(toggle);
-            Grow(header);
-            header.Add(new Button(OnCreateTemplatesClicked) { text = "Create Templates" });
-            header.Add(new Button(OnOpenContextFolderClicked) { text = "Open Folder" });
+            var actions = Row(_contextRows);
+            actions.Add(new Button(OnCreateTemplatesClicked) { text = "Create Templates" });
+            actions.Add(new Button(OnOpenContextFolderClicked) { text = "Open Folder" });
 
             if (!enabled)
             {
@@ -480,54 +510,68 @@ namespace UnityMCP.Editor
 
         // ─── Agent sessions ──────────────────────────────────────────────
 
-        private void RefreshAgents()
+        private void InvalidateAgentViews()
         {
-            var sessions = MCPRequestQueue.GetActiveSessions();
-
-            var sb = new StringBuilder();
-            foreach (var s in sessions)
-                foreach (var kvp in s) sb.Append(kvp.Key).Append(':').Append(kvp.Value).Append('|');
-            string sig = sb.ToString();
-            if (sig == _agentSig && _agentRows.childCount > 0) return;
-            _agentSig = sig;
-
-            _agentRows.Clear();
-
-            if (sessions.Count == 0)
-            {
-                Text(_agentRows, "No active agent sessions.", "ab-dash__mini");
-                return;
-            }
-
-            foreach (var session in sessions)
-            {
-                var row = Row(_agentRows);
-                Dot(row, "ab-dash__dot--green");
-                Text(row, Read(session, "agentId", "?"), "ab-dash__bold");
-                var action = Text(row, Read(session, "currentAction", "idle"), "ab-dash__mini");
-                action.AddToClassList("ab-dash__ellipsis");
-                action.style.marginLeft = 8;
-                Grow(row);
-                string commandErrors = Read(session, "commandErrors", "0");
-                string exceptions = Read(session, "failedRequests", "0");
-                string stats = $"{Read(session, "completedRequests", "0")} finished · " +
-                               $"{Read(session, "queuedRequests", "0")} outstanding · " +
-                               $"{commandErrors} command error{(commandErrors == "1" ? "" : "s")} · " +
-                               $"{exceptions} exception{(exceptions == "1" ? "" : "s")} · " +
-                               $"{Read(session, "timedOutRequests", "0")} timed out";
-                var statsLabel = Text(_agentRows, stats, "ab-dash__mini");
-                statsLabel.style.whiteSpace = WhiteSpace.Normal;
-                statsLabel.tooltip = "Finished includes all terminal requests. Command errors are returned by handlers; exceptions escape the handler. Outstanding includes queued and running requests.";
-                string timing = $"Average: {Read(session, "averageQueueWaitMs", "0")} ms waiting · " +
-                                $"{Read(session, "averageProcessingTimeMs", "0")} ms processing";
-                var timingLabel = Text(_agentRows, timing, "ab-dash__mini");
-                timingLabel.style.whiteSpace = WhiteSpace.Normal;
-                timingLabel.tooltip = "Measured until each ticket finishes or times out. A timeout cannot stop an operation that already started.";
-                timingLabel.style.marginBottom = 6;
-            }
+            foreach (var view in _agentViews.Values) view.HasSnapshot = false;
         }
 
-        // ─── Recent actions ──────────────────────────────────────────────
+        private AgentView BuildAgentView(MCPAgentSession.DashboardSnapshot snapshot)
+        {
+            if (_agentViews.Count == 0) _agentRows.Clear();
+            var root = new VisualElement();
+            root.AddToClassList("ab-dash__agent");
+            _agentRows.Add(root);
+            var row = Row(root);
+            var dot = Dot(row, "ab-dash__dot--green");
+            var name = Text(row, snapshot.AgentId, "ab-dash__bold");
+            name.AddToClassList("ab-dash__ellipsis");
+            name.AddToClassList("ab-dash__grow");
+            name.style.minWidth = 0;
+            name.tooltip = snapshot.AgentId;
+            var latest = Text(root, "", "ab-dash__mini");
+            latest.AddToClassList("ab-dash__ellipsis");
+            var stats = Text(root, "", "ab-dash__mini");
+            stats.style.whiteSpace = WhiteSpace.Normal;
+            stats.tooltip = "Finished includes all terminal requests. Command errors are returned by handlers; exceptions escape the handler. Outstanding includes queued and running requests.";
+            var timing = Text(root, "", "ab-dash__mini");
+            timing.style.whiteSpace = WhiteSpace.Normal;
+            timing.tooltip = "Measured until each ticket finishes or times out. A timeout cannot stop an operation that already started.";
+            var view = new AgentView { Root = root, Dot = dot, Latest = latest, Stats = stats, Timing = timing };
+            _agentViews.Add(snapshot.AgentId, view);
+            return view;
+        }
+
+        private void RefreshAgents()
+        {
+            MCPRequestQueue.CopyDashboardSessions(_agentSnapshots);
+            _visibleAgentIds.Clear();
+            foreach (var snapshot in _agentSnapshots)
+            {
+                _visibleAgentIds.Add(snapshot.AgentId);
+                if (!_agentViews.TryGetValue(snapshot.AgentId, out var view)) view = BuildAgentView(snapshot);
+                if (view.HasSnapshot && view.Snapshot.Matches(snapshot)) continue;
+                view.Snapshot = snapshot;
+                view.HasSnapshot = true;
+                view.Dot.EnableInClassList("ab-dash__dot--green", snapshot.Outstanding == 0);
+                view.Dot.EnableInClassList("ab-dash__dot--yellow", snapshot.Outstanding > 0);
+                view.Latest.text = "Latest request: " + snapshot.LatestAction;
+                view.Latest.tooltip = "Most recently submitted request, which may be queued or already finished: " + snapshot.LatestAction;
+                view.Stats.text = $"{snapshot.Completed} finished · {snapshot.Outstanding} outstanding · " +
+                    $"{snapshot.CommandErrors} command error{(snapshot.CommandErrors == 1 ? "" : "s")} · " +
+                    $"{snapshot.Exceptions} exception{(snapshot.Exceptions == 1 ? "" : "s")} · {snapshot.Timeouts} timed out";
+                view.Timing.text = $"Average: {snapshot.AverageWaitMs} ms waiting · {snapshot.AverageProcessingMs} ms processing";
+            }
+            _removedAgentIds.Clear();
+            foreach (var id in _agentViews.Keys)
+                if (!_visibleAgentIds.Contains(id)) _removedAgentIds.Add(id);
+            foreach (var id in _removedAgentIds)
+            {
+                _agentViews[id].Root.RemoveFromHierarchy();
+                _agentViews.Remove(id);
+            }
+            if (_agentViews.Count == 0 && _agentRows.childCount == 0)
+                Text(_agentRows, "No active agent sessions.", "ab-dash__mini");
+        }
 
         private void BuildActions(VisualElement parent)
         {
@@ -790,7 +834,8 @@ namespace UnityMCP.Editor
             if (EditorUtility.DisplayDialog("Reset Settings", "Reset all MCP settings to defaults?", "Reset", "Cancel"))
             {
                 MCPSettingsManager.ResetToDefaults();
-                _statusSig = _newsSig = _queueSig = _contextSig = _agentSig = _actionSig = _categorySig = null;
+                _statusSig = _newsSig = _queueSig = _contextSig = _actionSig = _categorySig = null;
+                InvalidateAgentViews();
             }
         }
 

@@ -504,6 +504,17 @@ namespace UnityMCP.Editor
             return new List<string>();
         }
 
+        internal static void CopyDashboardSessions(List<MCPAgentSession.DashboardSnapshot> destination)
+        {
+            destination.Clear();
+            lock (_queueLock)
+            {
+                long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                foreach (var session in _sessions.Values)
+                    if (!session.IsInactiveAt(now)) destination.Add(session.GetDashboardSnapshot());
+            }
+        }
+
         public static int TotalSessionCount
         {
             get { lock (_queueLock) return _sessions.Count; }

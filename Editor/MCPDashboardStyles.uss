@@ -83,6 +83,11 @@
     margin-bottom: 10px;
 }
 
+.ab-dash__agent {
+    margin-bottom: 8px;
+    min-width: 0;
+}
+
 /* ---- Badges / pills ------------------------------------------------------- */
 
 .ab-badge {

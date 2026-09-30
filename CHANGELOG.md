@@ -4,6 +4,14 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Dashboard
+- Reuse agent cards and typed display snapshots instead of rebuilding the entire agent section and transport dictionaries on every metric change. A local 100-refresh workload with one changing agent among twenty records 34,800 allocation events, down from 210,000; layout/rendering costs are excluded.
+- Fix duplicate controls and refresh schedules when Unity recreates the interface. Replace the prior news subscription and pause the old schedule.
+- Fix context actions overflowing the 360 px minimum width. Truncate long agent/request text with full-value tooltips and wrap statistics.
+- Remember section choices per project path, ignoring bubbled events from nested toggles. Put operational monitoring first, identify the project/version and initially collapse news.
+- Label the latest submitted request accurately instead of implying that it is currently executing. Preserve public session fields and queue behavior.
+- Add `-Suite Dashboard` for measured refreshes, agent lifecycle, interface reconstruction and saved preferences. Attached-window geometry and actual script-reload checks pass on Unity 6.6, alongside monitoring regressions and compiler-only Unity 2021.3.18f1 compatibility.
+
 ### Code execution
 - Reuse unchanged Roslyn metadata references with file timestamp/size invalidation and bounds of 512 entries / 128 MiB of source images. A local twenty-call workload drops from 15.85 s to 1.01 s; project workloads vary.
 - Emit generated code in memory, fixing DLL leftovers after compilation errors and user exceptions. Report source lines relative to the submitted snippet.

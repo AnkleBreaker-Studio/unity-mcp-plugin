@@ -127,11 +127,21 @@ namespace UnityMCP.Editor
             = new Dictionary<long, ManualResetEventSlim>();
 
         // Session tracking
-        private static readonly Dictionary<string, MCPAgentSession> _sessions
+        private static Dictionary<string, MCPAgentSession> _sessions
             = new Dictionary<string, MCPAgentSession>();
+        private static int _sessionHighWater;
+        private const int SessionRetentionSeconds = 1800;
+        private const int MaxInactiveSessions = 256;
+        private static long _evictedSessions;
+        private static readonly List<MCPAgentSession> _inactiveSessions = new List<MCPAgentSession>();
+        private static readonly Comparison<MCPAgentSession> _oldestSessionFirst =
+            (left, right) => left.LastActivityTimestamp.CompareTo(right.LastActivityTimestamp);
 
         // Single lock for all mutable state
         private static readonly object _queueLock = new object();
+        private static readonly List<long> _expiredTicketIds = new List<long>();
+        private static readonly List<long> _staleExecutingIds = new List<long>();
+        private static readonly List<string> _expiredSubmissionKeys = new List<string>();
 
         // Cleanup cadence
         private static int _frameTick;
@@ -495,6 +505,9 @@ namespace UnityMCP.Editor
                     { "completedCacheSize",   _completedTickets.Count },
                     { "perAgentQueued",        perAgent },
                     { "totalSessionsTracked", _sessions.Count },
+                    { "evictedSessions", _evictedSessions },
+                    { "sessionRetentionSeconds", SessionRetentionSeconds },
+                    { "maxInactiveSessions", MaxInactiveSessions },
                     { "protocolVersion", ProtocolVersion },
                     { "queueSessionId", SessionId },
                     { "queueSessionTimeMs", SessionTimeMs },
@@ -625,35 +638,7 @@ namespace UnityMCP.Editor
             return batch;
         }
 
-        private static bool IsReadOperation(string actionName)
-        {
-            if (string.IsNullOrEmpty(actionName)) return false;
-
-            // Match API path patterns that are read-only
-            string lower = actionName.ToLower();
-            return lower == "ping"
-                || lower.EndsWith("/info")
-                || lower.EndsWith("/list")
-                || lower.EndsWith("/log")
-                || lower.EndsWith("/stats")
-                || lower.EndsWith("/get")
-                || lower.StartsWith("search/")
-                || lower.StartsWith("agents/")
-                || lower.StartsWith("queue/")
-                || lower == "scene/info"
-                || lower == "scene/hierarchy"
-                || lower == "editor/state"
-                || lower == "project/info"
-                || lower == "console/log"
-                || lower.StartsWith("profiler/")
-                || lower.StartsWith("debugger/")
-                || lower.StartsWith("selection/get")
-                || lower.StartsWith("selection/find")
-                || lower.Contains("/info")
-                || lower.Contains("/list")
-                || lower.Contains("/get-")
-                || lower.Contains("/status");
-        }
+        private static bool IsReadOperation(string actionName) => MCPCommandPolicy.IsReadOnly(actionName);
 
         // Cached reflection for UnityEditor.Undo.GetRecords(List<string>, List<string>) — the
         // internal API the Undo History window uses. Lets us tell whether an action actually
@@ -761,7 +746,8 @@ namespace UnityMCP.Editor
             {
                 long now = System.Diagnostics.Stopwatch.GetTimestamp();
                 CleanupSubmissions(SessionTimeMs);
-                var kill = new List<long>();
+                CleanupSessions(now);
+                _expiredTicketIds.Clear();
 
                 foreach (var kvp in _completedTickets)
                 {
@@ -770,26 +756,57 @@ namespace UnityMCP.Editor
 
                     double age = (now - t.CompletedTimestamp.Value) / (double)System.Diagnostics.Stopwatch.Frequency;
                     if (t.Status == RequestStatus.TimedOut && age > TimedOutCacheLifetimeSec)
-                        kill.Add(t.TicketId);
+                        _expiredTicketIds.Add(t.TicketId);
                     else if (age > CompletedCacheLifetimeSec)
-                        kill.Add(t.TicketId);
+                        _expiredTicketIds.Add(t.TicketId);
                 }
 
-                foreach (var id in kill)
+                foreach (var id in _expiredTicketIds)
                     _completedTickets.Remove(id);
+                _expiredTicketIds.Clear();
 
                 // Queue wait does not consume an asynchronous operation's execution deadline.
-                var staleExecuting = new List<long>();
+                _staleExecutingIds.Clear();
                 foreach (var kvp in _executingTickets)
                 {
                     if (!kvp.Value.StartedTimestamp.HasValue) continue;
                     double age = (now - kvp.Value.StartedTimestamp.Value) / (double)System.Diagnostics.Stopwatch.Frequency;
                     if (age > 120)
-                        staleExecuting.Add(kvp.Key);
+                        _staleExecutingIds.Add(kvp.Key);
                 }
-                foreach (var id in staleExecuting)
+                foreach (var id in _staleExecutingIds)
                     TryCompleteTicket(_executingTickets[id], RequestStatus.TimedOut, null,
                         "Timed out after 120s of execution; the operation may already have made changes");
+                _staleExecutingIds.Clear();
+            }
+        }
+
+        private static void CleanupSessions(long now)
+        {
+            _sessionHighWater = Math.Max(_sessionHighWater, _sessions.Count);
+            _inactiveSessions.Clear();
+            foreach (var session in _sessions.Values)
+                if (session.IsInactiveAt(now)) _inactiveSessions.Add(session);
+
+            int excess = Math.Max(0, _inactiveSessions.Count - MaxInactiveSessions);
+            if (excess > 0) _inactiveSessions.Sort(_oldestSessionFirst);
+            for (int i = 0; i < _inactiveSessions.Count; i++)
+            {
+                var session = _inactiveSessions[i];
+                if (i < excess || now - session.LastActivityTimestamp >= SessionRetentionSeconds * (long)System.Diagnostics.Stopwatch.Frequency)
+                {
+                    _sessions.Remove(session.AgentId);
+                    _evictedSessions++;
+                }
+            }
+            // Scratch storage must not keep evicted sessions and their logs alive.
+            _inactiveSessions.Clear();
+            if (_inactiveSessions.Capacity > 4096) _inactiveSessions.Capacity = MaxInactiveSessions;
+            // Long-lived editors must also release capacity left by a burst of agent identities.
+            if (_sessionHighWater >= 1024 && _sessions.Count <= _sessionHighWater / 2)
+            {
+                _sessions = new Dictionary<string, MCPAgentSession>(_sessions);
+                _sessionHighWater = _sessions.Count;
             }
         }
 
@@ -876,10 +893,11 @@ namespace UnityMCP.Editor
 
         private static void CleanupSubmissions(long now)
         {
-            var expired = new List<string>();
+            _expiredSubmissionKeys.Clear();
             foreach (var entry in _submissions)
-                if (entry.Value.ExpiresAtMs <= now) expired.Add(entry.Key);
-            foreach (var key in expired) _submissions.Remove(key);
+                if (entry.Value.ExpiresAtMs <= now) _expiredSubmissionKeys.Add(entry.Key);
+            foreach (var key in _expiredSubmissionKeys) _submissions.Remove(key);
+            _expiredSubmissionKeys.Clear();
         }
     }
 }

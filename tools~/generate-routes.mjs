@@ -63,6 +63,17 @@ if (routes.size < 200) {
   throw new Error(`Only ${routes.size} routes extracted — parser likely broke; refusing to emit a shrunken registry.`);
 }
 
+// Renamed or duplicate read entries silently change batching; check them against the dispatcher.
+const policy = readFileSync(join(ROOT, "Editor", "MCPCommandPolicy.cs"), "utf8");
+const readBlock = policy.match(/ReadOnlyRoutes[^\{]*\{([\s\S]*?)\};/);
+if (!readBlock) throw new Error("ReadOnlyRoutes initializer not found");
+const readRoutes = [...readBlock[1].matchAll(/"([^"\r\n]+)"/g)].map(match => match[1]);
+if (!readRoutes.length || new Set(readRoutes).size !== readRoutes.length)
+  throw new Error("ReadOnlyRoutes is empty or contains duplicate routes");
+for (const route of readRoutes) {
+  if (!routes.has(route)) throw new Error(`Read-only policy names an unknown route: ${route}`);
+}
+
 const sorted = [...routes].sort();
 const lines = sorted.map((r) => `            "${r}",`).join("\n");
 

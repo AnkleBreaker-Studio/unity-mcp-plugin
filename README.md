@@ -63,6 +63,8 @@ From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agen
 
 The dashboard distinguishes pending and running requests. Agent sessions report `failedRequests`, `timedOutRequests`, `averageQueueWaitMs` and `averageProcessingTimeMs`. `completedRequests` counts all terminal tickets, including failures and timeouts; `queuedRequests` counts outstanding queued and executing tickets. Failure counts reflect queue exceptions, not errors returned inside a command's result object. Timing stops when a ticket finishes or expires.
 
+Sessions with outstanding work stay visible even after five minutes. Sessions without work expire after 30 minutes of inactivity; at most 256 inactive sessions are retained, oldest first. Active/busy sessions are preserved. `unity_queue_info` reports the retention policy and eviction count. Returning after eviction starts fresh session statistics; the separate action history keeps its own limits. [Scheduling and measured retention behavior →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-monitoring.md)
+
 Ticket completion is atomic: duplicate or late callbacks cannot replace a terminal result or count it twice. Legacy calls expire after 30 seconds; work still waiting is removed. Deferred execution expires after 120 seconds of processing when the editor runs cleanup. A timeout cannot cancel work that already started and does not prove that no changes occurred. Results remain available for polling for 60 seconds, or 30 seconds after timeout, until periodic cleanup.
 
 The editor registry receives a heartbeat approximately every 30 seconds while the editor update loop runs. A long compile can pause that loop. The server uses a staleness allowance and live identity checks during discovery; the heartbeat is a signal, not proof that an operation completed.
@@ -71,7 +73,7 @@ The editor registry receives a heartbeat approximately every 30 seconds while th
 
 1. The MCP server sends a command with agent identity to the local bridge.
 2. The bridge returns a queue ticket. Legacy calls wait on a ticket internally.
-3. `EditorApplication.update` processes one write or up to five reads, visiting agent queues fairly.
+3. `EditorApplication.update` processes one write or up to five explicitly classified reads, visiting agent queues fairly. Unknown routes use the write path.
 4. Commands execute on Unity's main thread; deferred Unity APIs complete through callbacks.
 5. The MCP server polls the original ticket and returns text or images to the client.
 
@@ -96,6 +98,8 @@ To reproduce on Windows with an installed editor and a disposable project direct
 ```
 
 The runner launches Unity hidden in batch mode, refuses an unmarked existing project and writes `Library/UnityMcpValidation.json` plus `validation.log`. Development tooling under `tools~` is ignored by Unity's package importer.
+
+Add `-Suite Health` to validate session retention, read/write scheduling and idle queue allocations. This writes `Library/UnityMcpQueueHealthValidation.json`. The measured empty queue loop has zero allocation events after warmup; this is not a zero-allocation claim for the whole plugin or editor.
 
 The route list is generated from the dispatcher:
 

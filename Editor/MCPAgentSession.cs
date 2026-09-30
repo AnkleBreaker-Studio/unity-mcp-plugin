@@ -22,14 +22,24 @@ namespace UnityMCP.Editor
         private int _timedOutRequests;
         private double _totalQueueWaitMs;
         private double _totalProcessingTimeMs;
+        internal long LastActivityTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
 
         private readonly List<string> _actionLog = new List<string>();
         private readonly List<MCPActionRecord> _structuredLog = new List<MCPActionRecord>();
 
         private const int MaxLogEntries = 100;
 
-        /// <summary>Session is considered active if last activity was within 5 minutes.</summary>
-        public bool IsActive => (DateTime.UtcNow - LastActivityAt).TotalSeconds < 300;
+        /// <summary>Queued work remains visible even when its wait exceeds the recent-activity window.</summary>
+        public bool IsActive => !IsInactiveAt(System.Diagnostics.Stopwatch.GetTimestamp());
+
+        internal bool IsInactiveAt(long timestamp) => _queuedRequests == 0
+            && timestamp - LastActivityTimestamp >= 300L * System.Diagnostics.Stopwatch.Frequency;
+
+        private void Touch()
+        {
+            LastActivityAt = DateTime.UtcNow;
+            LastActivityTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
 
         /// <summary>Number of requests currently queued for this agent.</summary>
         public int QueuedRequests
@@ -57,7 +67,7 @@ namespace UnityMCP.Editor
         public void LogAction(string action)
         {
             CurrentAction = action;
-            LastActivityAt = DateTime.UtcNow;
+            Touch();
             TotalActions++;
 
             _actionLog.Add($"[{DateTime.UtcNow:HH:mm:ss}] {action}");
@@ -104,7 +114,7 @@ namespace UnityMCP.Editor
         internal void RecordCompletion(MCPRequestQueue.RequestTicket ticket)
         {
             IncrementCompletedRequest(ticket.ExecutionTimeMs);
-            LastActivityAt = DateTime.UtcNow;
+            Touch();
             if (ticket.Status == MCPRequestQueue.RequestStatus.Failed) _failedRequests++;
             if (ticket.Status == MCPRequestQueue.RequestStatus.TimedOut) _timedOutRequests++;
             _totalQueueWaitMs += ticket.QueueWaitMs;

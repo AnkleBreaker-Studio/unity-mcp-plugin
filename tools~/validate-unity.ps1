@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
-    [Parameter(Mandatory = $true)][string]$ProjectPath
+    [Parameter(Mandatory = $true)][string]$ProjectPath,
+    [ValidateSet('Queue', 'Health')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -15,11 +16,13 @@ New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'Assets/Editor
 Set-Content -LiteralPath (Join-Path $projectRoot '.unity-mcp-validation') -Value $pluginRoot
 $manifest = @{ dependencies = @{ 'com.anklebreaker.unity-mcp' = "file:$pluginRoot" } } | ConvertTo-Json
 [System.IO.File]::WriteAllText((Join-Path $projectRoot 'Packages/manifest.json'), $manifest)
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'ValidationRunner.cs') -Destination (Join-Path $projectRoot 'Assets/Editor/ValidationRunner.cs')
+$runnerFile = if ($Suite -eq 'Health') { 'QueueHealthValidation.cs' } else { 'ValidationRunner.cs' }
+$runnerClass = if ($Suite -eq 'Health') { 'UnityMcpQueueHealthValidation' } else { 'UnityMcpValidation' }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
-$reportPath = Join-Path $projectRoot 'Library/UnityMcpValidation.json'
+$reportPath = Join-Path $projectRoot "Library/$runnerClass.json"
 if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath }
-$arguments = @('-batchmode', '-nographics', '-projectPath', ('"{0}"' -f $projectRoot), '-executeMethod', 'UnityMcpValidation.Run', '-logFile', ('"{0}"' -f $logPath))
+$arguments = @('-batchmode', '-nographics', '-projectPath', ('"{0}"' -f $projectRoot), '-executeMethod', "$runnerClass.Run", '-logFile', ('"{0}"' -f $logPath))
 $editorProcess = Start-Process -FilePath $EditorPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 Write-Output "Unity validation PID: $($editorProcess.Id), log: $logPath"
 while (!$editorProcess.WaitForExit(10000)) {

@@ -263,6 +263,82 @@ namespace UnityMCP.Editor.Welcome
         public UnityMcpFamily[] families = new UnityMcpFamily[0];
         public UnityMcpProduct[] products = new UnityMcpProduct[0];
         public UnityMcpGame[] games;
+
+        /// <summary>Order, visibility and texts of the Studio tab. Absent: the built-in order.</summary>
+        public UnityMcpStudioLayout studio;
+
+        /// <summary>The studio's other products, each shown as a Studio block named by its id.</summary>
+        public UnityMcpVenture[] ventures;
+    }
+
+    /// <summary>
+    /// What the catalogue says about the Studio tab. <c>blocks</c> lists the blocks in order:
+    /// <c>devlog</c>, <c>games</c>, <c>about</c>, <c>careers</c>, <c>consulting</c> or a venture id.
+    /// A block left out or marked hidden is not drawn; an id this window does not know is skipped,
+    /// so a later block type never breaks an older package.
+    /// </summary>
+    [Serializable]
+    internal sealed class UnityMcpStudioLayout
+    {
+        public UnityMcpStudioBlock[] blocks;
+        public string title;
+        public string body;
+        public UnityMcpStudioCard careers;
+        public UnityMcpStudioCard consulting;
+    }
+
+    [Serializable]
+    internal sealed class UnityMcpStudioBlock
+    {
+        public string id;
+        public bool hidden;
+
+        /// <summary><c>tool</c> and/or <c>art</c>. Empty: every profile.</summary>
+        public string[] profiles;
+    }
+
+    [Serializable]
+    internal sealed class UnityMcpStudioCard
+    {
+        public string title;
+        public string body;
+        public string link;
+    }
+
+    /// <summary>A studio product that is not an Asset Store package, drawn like a game card.</summary>
+    [Serializable]
+    internal sealed class UnityMcpVenture
+    {
+        public string id;
+        public string eyebrow;
+        public string heading;
+        public string intro;
+        public string tagline;
+        public string title;
+        public string summary;
+        public string cover;
+        public string logo;
+        public string coverUrl;
+        public string logoUrl;
+        public string featuresTitle;
+        public string footnote;
+        public UnityMcpVentureLink[] links;
+        public UnityMcpVentureFeature[] features;
+    }
+
+    [Serializable]
+    internal sealed class UnityMcpVentureLink
+    {
+        public string label;
+        public string url;
+        public bool primary;
+    }
+
+    [Serializable]
+    internal sealed class UnityMcpVentureFeature
+    {
+        public string title;
+        public string body;
     }
 
     [Serializable]
@@ -279,6 +355,9 @@ namespace UnityMCP.Editor.Welcome
         public string websiteUrl;
         public string steamUrl;
         public string steamLabel;
+
+        /// <summary>Kept in the feed but drawn nowhere: no card, no "Used in" badge.</summary>
+        public bool hidden;
         public UnityMcpGameProduct[] products = new UnityMcpGameProduct[0];
     }
 

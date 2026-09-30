@@ -436,43 +436,170 @@ namespace UnityMCP.Editor.Welcome
 
         // -- Studio tab -----------------------------------------------------
 
+        private IEnumerable<UnityMcpGame> VisibleGames => (_catalog.games ?? new UnityMcpGame[0]).Where(game => !game.hidden);
+
+        /// <summary>The Studio blocks this package draws, in order. The catalogue decides; without
+        /// a list, the built-in order puts the ventures between the games and the studio.</summary>
+        private IEnumerable<string> StudioBlocks()
+        {
+            UnityMcpStudioBlock[] blocks = _catalog.studio?.blocks;
+            if (blocks == null || blocks.Length == 0)
+                return new[] { "devlog", "games" }
+                    .Concat((_catalog.ventures ?? new UnityMcpVenture[0]).Select(venture => venture.id))
+                    .Concat(new[] { "about", "careers", "consulting" });
+            return blocks.Where(block => block != null && !block.hidden && !string.IsNullOrEmpty(block.id) &&
+                    (block.profiles == null || block.profiles.Length == 0 || block.profiles.Contains(_context.Config.profile)))
+                .Select(block => block.id).Distinct();
+        }
+
         private void BuildStudioTab(VisualElement host)
         {
-            BuildDevlog(host);
-
-            if ((_catalog.games?.Length ?? 0) > 0)
+            // Careers and consulting share a row when they follow each other.
+            VisualElement cards = null;
+            foreach (string id in StudioBlocks())
             {
-                host.Add(Eyebrow("MADE WITH OUR PACKAGES", null));
-                host.Add(Text("The games behind the tools", "abw-studio__title"));
-                host.Add(Text("Explore our games and the packages we use to build them.", "abw-studio__body"));
-                var games = new VisualElement();
-                games.AddToClassList("abw-games");
-                foreach (UnityMcpGame game in _catalog.games.OrderBy(game => game.id == "mithrall" ? 0 : game.id == "kickdom" ? 1 : 2))
-                    games.Add(GameCard(game));
-                host.Add(games);
+                if (id == "careers" || id == "consulting")
+                {
+                    if (cards == null)
+                    {
+                        cards = new VisualElement();
+                        cards.AddToClassList("abw-row");
+                        cards.style.marginRight = -10;
+                        host.Add(cards);
+                    }
+                    cards.Add(id == "careers" ? CareersCard() : ConsultingCard());
+                    continue;
+                }
+                cards = null;
+                if (id == "devlog") BuildDevlog(host);
+                else if (id == "games") BuildGames(host);
+                else if (id == "about") BuildAbout(host);
+                else
+                {
+                    UnityMcpVenture venture = _catalog.ventures?.FirstOrDefault(v => v.id == id);
+                    if (venture != null) BuildVenture(host, venture);
+                }
             }
+        }
 
+        private void BuildGames(VisualElement host)
+        {
+            UnityMcpGame[] visible = VisibleGames.ToArray();
+            if (visible.Length == 0) return;
+            host.Add(Eyebrow("MADE WITH OUR PACKAGES", null));
+            host.Add(Text("The games behind the tools", "abw-studio__title"));
+            host.Add(Text("Explore our games and the packages we use to build them.", "abw-studio__body"));
+            var games = new VisualElement();
+            games.AddToClassList("abw-games");
+            foreach (UnityMcpGame game in visible.OrderBy(game => game.id == "mithrall" ? 0 : game.id == "kickdom" ? 1 : 2))
+                games.Add(GameCard(game));
+            host.Add(games);
+        }
+
+        private void BuildAbout(VisualElement host)
+        {
             UnityMcpStudio studio = _context.Config.studio;
-            host.Add(Text(studio.title, "abw-studio__title"));
-            host.Add(Text(studio.body, "abw-studio__body"));
-            var row = new VisualElement();
-            row.AddToClassList("abw-row");
-            row.style.marginRight = -10;
-            row.Add(StudioCard("Come build with us",
-                "See our open roles, or tell us what you would bring.",
-                "View open roles \u203a", _catalog.careersUrl));
-            row.Add(StudioCard("Need senior engineers?",
-                "AnkleBreaker Consulting builds games, SaaS and web platforms, AI and developer tools, and joins your team when you need more hands.",
-                "Visit AnkleBreaker Consulting \u203a", _catalog.consultingUrl));
-            host.Add(row);
+            UnityMcpStudioLayout remote = _catalog.studio;
+            host.Add(Text(Pick(remote?.title, studio.title), "abw-studio__title"));
+            host.Add(Text(Pick(remote?.body, studio.body), "abw-studio__body"));
+        }
+
+        private VisualElement CareersCard()
+        {
+            UnityMcpStudioCard card = _catalog.studio?.careers;
+            return StudioCard(Pick(card?.title, "Come build with us"),
+                Pick(card?.body, "See our open roles, or tell us what you would bring."),
+                Pick(card?.link, "View open roles \u203a"), _catalog.careersUrl);
+        }
+
+        private VisualElement ConsultingCard()
+        {
+            UnityMcpStudioCard card = _catalog.studio?.consulting;
+            return StudioCard(Pick(card?.title, "Need senior engineers?"),
+                Pick(card?.body, "AnkleBreaker Consulting builds games, SaaS and web platforms, AI and developer tools, and joins your team when you need more hands."),
+                Pick(card?.link, "Visit AnkleBreaker Consulting \u203a"), _catalog.consultingUrl);
+        }
+
+        private static string Pick(string remote, string local) => string.IsNullOrEmpty(remote) ? local : remote;
+
+        /// <summary>A studio product outside the Asset Store, drawn with the anatomy of a game card:
+        /// cover under a veil, logo top right, links, then a strip of what it gives. Promotion, so
+        /// it follows the showcase rule and only shows with the remote catalogue.</summary>
+        private void BuildVenture(VisualElement host, UnityMcpVenture venture)
+        {
+            if (!UnityMcpWelcomeServices.CatalogOnline) return;
+            if (!string.IsNullOrEmpty(venture.eyebrow)) host.Add(Eyebrow(venture.eyebrow, null));
+            if (!string.IsNullOrEmpty(venture.heading)) host.Add(Text(venture.heading, "abw-studio__title"));
+            if (!string.IsNullOrEmpty(venture.intro)) host.Add(Text(venture.intro, "abw-studio__body"));
+
+            var card = new VisualElement { name = "venture-" + venture.id };
+            card.AddToClassList("abw-game");
+            card.AddToClassList("abw-venture");
+            Texture2D cover = UnityMcpWelcomeServices.VentureImage(venture, false);
+            if (cover != null)
+            {
+                var backdrop = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
+                backdrop.AddToClassList("abw-game__backdrop");
+                card.Add(backdrop);
+            }
+            var mask = new VisualElement { pickingMode = PickingMode.Ignore };
+            mask.AddToClassList("abw-game__mask");
+            mask.generateVisualContent += context => DrawMask(context, mask.contentRect, GAME_MASK);
+            card.Add(mask);
+
+            var intro = new VisualElement();
+            intro.AddToClassList("abw-game__intro");
+            intro.AddToClassList("abw-venture__intro");
+            Texture2D logo = UnityMcpWelcomeServices.VentureImage(venture, true);
+            if (logo != null)
+            {
+                var mark = new Image { image = logo, scaleMode = ScaleMode.ScaleToFit, tooltip = venture.title };
+                mark.AddToClassList("abw-game__logo");
+                intro.Add(mark);
+            }
+            var body = new VisualElement();
+            body.AddToClassList("abw-game__body");
+            if (!string.IsNullOrEmpty(venture.tagline)) body.Add(Text(venture.tagline, "abw-game__tagline"));
+            body.Add(Text(venture.title, "abw-venture__title"));
+            if (!string.IsNullOrEmpty(venture.summary)) body.Add(Text(venture.summary, "abw-game__summary"));
+            var links = new VisualElement();
+            links.AddToClassList("abw-game__links");
+            foreach (UnityMcpVentureLink link in venture.links ?? new UnityMcpVentureLink[0])
+                links.Add(GameLink(link.label, link.url, link.primary));
+            body.Add(links);
+            intro.Add(body);
+            card.Add(intro);
+
+            UnityMcpVentureFeature[] features = (venture.features ?? new UnityMcpVentureFeature[0]).Where(f => f != null && !string.IsNullOrEmpty(f.title)).ToArray();
+            if (features.Length > 0 || !string.IsNullOrEmpty(venture.footnote))
+            {
+                var strip = new VisualElement();
+                strip.AddToClassList("abw-game__packages");
+                if (!string.IsNullOrEmpty(venture.featuresTitle)) strip.Add(Text(venture.featuresTitle, "abw-game__usage-title"));
+                var row = new VisualElement();
+                row.AddToClassList("abw-venture__features");
+                foreach (UnityMcpVentureFeature feature in features)
+                {
+                    var tile = new VisualElement();
+                    tile.AddToClassList("abw-venture__feature");
+                    tile.Add(Text(feature.title, "abw-venture__feature-title"));
+                    if (!string.IsNullOrEmpty(feature.body)) tile.Add(Text(feature.body, "abw-venture__feature-body"));
+                    row.Add(tile);
+                }
+                if (features.Length > 0) strip.Add(row);
+                if (!string.IsNullOrEmpty(venture.footnote)) strip.Add(Text(venture.footnote, "abw-venture__footnote"));
+                card.Add(strip);
+            }
+            host.Add(card);
         }
 
         private void AddGameBadges(VisualElement host, UnityMcpProduct product)
         {
-            if (!HasStudioTab || _catalog.games == null) return;
+            // A badge opens the game in Studio: none while the catalogue keeps the games out of it.
+            if (!HasStudioTab || _catalog.games == null || !StudioBlocks().Contains("games")) return;
             var row = new VisualElement();
             row.AddToClassList("abw-game-badges");
-            foreach (UnityMcpGame game in _catalog.games)
+            foreach (UnityMcpGame game in VisibleGames)
             {
                 UnityMcpGameProduct use = game.products.FirstOrDefault(p => p.id == product.id);
                 if (use == null) continue;

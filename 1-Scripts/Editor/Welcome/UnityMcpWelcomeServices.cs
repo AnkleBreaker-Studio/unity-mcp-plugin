@@ -475,6 +475,48 @@ namespace UnityMCP.Editor.Welcome
             cardUrl = logo ? game.logoUrl : game.coverUrl
         };
 
+        /// <summary>Game images are published in games/ next to the feed. A feed that names the file
+        /// without its URL must not blank the Studio tab of packages that embed no game image.</summary>
+        private static UnityMcpCatalog CompleteGameUrls(UnityMcpCatalog catalog, string feedUrl)
+        {
+            if (catalog?.games == null || !Uri.TryCreate(feedUrl, UriKind.Absolute, out Uri feed)) return catalog;
+            foreach (UnityMcpGame game in catalog.games)
+            {
+                if (string.IsNullOrEmpty(game.coverUrl) && !string.IsNullOrEmpty(game.cover))
+                    game.coverUrl = new Uri(feed, "games/" + game.cover).AbsoluteUri;
+                if (string.IsNullOrEmpty(game.logoUrl) && !string.IsNullOrEmpty(game.logo))
+                    game.logoUrl = new Uri(feed, "games/" + game.logo).AbsoluteUri;
+            }
+            foreach (UnityMcpVenture venture in catalog.ventures ?? new UnityMcpVenture[0])
+            {
+                if (string.IsNullOrEmpty(venture.coverUrl) && !string.IsNullOrEmpty(venture.cover))
+                    venture.coverUrl = new Uri(feed, "games/" + venture.cover).AbsoluteUri;
+                if (string.IsNullOrEmpty(venture.logoUrl) && !string.IsNullOrEmpty(venture.logo))
+                    venture.logoUrl = new Uri(feed, "games/" + venture.logo).AbsoluteUri;
+            }
+            return catalog;
+        }
+
+        private static UnityMcpProduct VentureMedia(UnityMcpVenture venture, bool logo) => new UnityMcpProduct
+        {
+            id = "venture-" + venture.id + (logo ? "-logo" : "-cover"),
+            cardUrl = logo ? venture.logoUrl : venture.coverUrl
+        };
+
+        /// <summary>Ventures only show once the remote catalogue has answered, so their images are
+        /// never embedded.</summary>
+        public static Texture2D VentureImage(UnityMcpVenture venture, bool logo)
+        {
+            UnityMcpProduct media = VentureMedia(venture, logo);
+            return CatalogOnline && !string.IsNullOrEmpty(media.cardUrl) ? LoadImage(CachedCardPath(media)) : null;
+        }
+
+        private static bool ValidVentures(UnityMcpVenture[] ventures) => ventures == null ||
+            (ventures.All(v => v != null && !string.IsNullOrEmpty(v.id) && !string.IsNullOrEmpty(v.title) &&
+                ValidGameFile(v.cover) && ValidGameFile(v.logo) &&
+                (v.links ?? new UnityMcpVentureLink[0]).All(l => l != null && !string.IsNullOrEmpty(l.label) && !string.IsNullOrEmpty(l.url))) &&
+            ventures.Select(v => v.id).Distinct().Count() == ventures.Length);
+
         public static Texture2D GameImage(UnityMcpWelcomeContext c, UnityMcpGame game, bool logo)
         {
             UnityMcpProduct media = GameMedia(game, logo);
@@ -490,7 +532,7 @@ namespace UnityMCP.Editor.Welcome
             try
             {
                 var catalog = JsonUtility.FromJson<UnityMcpCatalog>(json);
-                return catalog != null && ValidGames(catalog.games) && catalog.schema == 1 && catalog.products != null && catalog.products.Length > 0 &&
+                return catalog != null && ValidGames(catalog.games) && ValidVentures(catalog.ventures) && catalog.schema == 1 && catalog.products != null && catalog.products.Length > 0 &&
                     catalog.products.All(p => p != null && !string.IsNullOrEmpty(p.id) &&
                         !string.IsNullOrEmpty(p.name) && !string.IsNullOrEmpty(p.url) && p.detect != null) &&
                     catalog.products.Select(p => p.id).Distinct().Count() == catalog.products.Length &&
@@ -511,12 +553,19 @@ namespace UnityMCP.Editor.Welcome
         private static readonly Queue<UnityMcpProduct> s_cardQueue = new Queue<UnityMcpProduct>();
         private static UnityWebRequest s_cardRequest;
         private static UnityMcpProduct s_cardProduct;
+        private static bool s_overrideWarned;
 
         // A disk cache cannot establish connectivity or keep old promotions alive after a failure.
         public static void RefreshCatalog(UnityMcpCatalog current, bool force = false)
         {
             string url = EditorPrefs.GetString(CATALOG_URL_PREF, CATALOG_URL);
             if (s_request != null && url == s_catalogUrl) return;
+            // Machine-wide and set only by our lab tools: a forgotten one silently skews every AB window.
+            if (url != CATALOG_URL && !s_overrideWarned)
+            {
+                s_overrideWarned = true;
+                Debug.LogWarning("[AnkleBreaker Welcome] Catalogue URL overridden by EditorPrefs \"" + CATALOG_URL_PREF + "\": " + url);
+            }
             if (s_request != null) { s_request.Abort(); s_request.Dispose(); s_request = null; }
             EditorApplication.update -= PollCatalog;
             s_catalogUrl = url;
@@ -549,7 +598,7 @@ namespace UnityMCP.Editor.Welcome
             try
             {
                 if (s_request.result == UnityWebRequest.Result.Success)
-                    s_remoteCatalog = ReadCatalog(s_request.downloadHandler.text);
+                    s_remoteCatalog = CompleteGameUrls(ReadCatalog(s_request.downloadHandler.text), s_catalogUrl);
                 CatalogFetchedAt = s_remoteCatalog != null ? DateTime.UtcNow : (DateTime?)null;
             }
             catch (Exception) { s_remoteCatalog = null; CatalogFetchedAt = null; }
@@ -563,7 +612,9 @@ namespace UnityMCP.Editor.Welcome
         {
             if (catalog == null || !CatalogOnline) return;
             IEnumerable<UnityMcpProduct> media = catalog.products.Concat((catalog.games ?? new UnityMcpGame[0])
-                .SelectMany(g => new[] { GameMedia(g, false), GameMedia(g, true) }));
+                .SelectMany(g => new[] { GameMedia(g, false), GameMedia(g, true) }))
+                .Concat((catalog.ventures ?? new UnityMcpVenture[0])
+                .SelectMany(v => new[] { VentureMedia(v, false), VentureMedia(v, true) }));
             foreach (UnityMcpProduct product in media)
             {
                 if (!Uri.TryCreate(product.cardUrl, UriKind.Absolute, out Uri uri) ||

@@ -400,6 +400,35 @@
 .abw .abw-review__body { font-size: 11px; color: var(--abw-text-dim); margin: 2px 0 9px 0; }
 .abw-review__actions { flex-direction: row; }
 .abw-review__actions > .abw-btn { margin-right: 8px; }
+.abw-review__actions { align-items: center; }
+.abw .abw-review__aside, .abw .abw-prompt__aside { font-size: 10px; color: var(--abw-text-muted); cursor: link; }
+
+/* ── Prompt (review and discovery popups) ───────────────────────────────── */
+.abw-prompt { padding: 16px 18px 14px 18px; }
+.abw-prompt__head { flex-direction: row; flex-grow: 1; }
+.abw-prompt__icon { width: 52px; height: 52px; flex-shrink: 0; margin-right: 14px; border-radius: 6px; }
+.abw-prompt__text { flex-grow: 1; flex-shrink: 1; }
+.abw-prompt__card { height: 283px; flex-shrink: 0; border-radius: 6px; margin-bottom: 12px; }
+.abw .abw-prompt__eyebrow { font-size: 10px; -unity-font-style: bold; color: var(--abw-accent); margin-bottom: 3px; }
+.abw .abw-prompt__title { font-size: 15px; -unity-font-style: bold; color: var(--abw-text-strong); white-space: normal; }
+.abw .abw-prompt__body { font-size: 11px; color: var(--abw-text-dim); white-space: normal; margin-top: 4px; }
+.abw-prompt__actions { flex-direction: row; align-items: center; flex-shrink: 0; margin-top: 12px; }
+.abw-prompt__secondary {
+    flex-direction: row; align-items: center; justify-content: center;
+    height: 36px; padding: 0 16px; margin-left: 10px; border-radius: 5px;
+    border-width: 1px; border-color: var(--abw-line); background-color: rgba(0, 0, 0, 0);
+    cursor: link;
+}
+.abw-prompt__secondary:hover { background-color: var(--abw-surface-hover); }
+.abw .abw-prompt__secondary Label { font-size: 12px; color: var(--abw-text-dim); white-space: nowrap; cursor: link; }
+.abw-prompt__primary {
+    flex-direction: row; align-items: center; justify-content: center;
+    height: 36px; min-width: 150px; padding: 0 24px; margin-left: 10px; border-radius: 5px;
+    background-color: var(--abw-accent-fill);
+    cursor: link;
+}
+.abw-prompt__primary:hover { background-color: var(--abw-accent-fill-hover); }
+.abw .abw-prompt__primary Label { font-size: 14px; -unity-font-style: bold; color: var(--abw-on-accent); white-space: nowrap; cursor: link; }
 
 /* ── Showcase panel ─────────────────────────────────────────────────────── */
 /* The panel never narrows: the Cards are its reason to exist. What gives way at the minimum
@@ -661,6 +690,9 @@
 .abw .abw-footer__note { font-size: 11px; color: var(--abw-text-muted); flex-shrink: 1; }
 .abw-footer .abw-btn { margin-left: 8px; padding: 7px 14px; }
 .abw-footer .abw-btn--close { padding: 7px 20px; }
+.abw-footer .abw-review-cta { padding: 9px 18px; border-color: var(--abw-accent-fill); background-color: var(--abw-accent-fill); }
+.abw-footer .abw-review-cta:hover { border-color: var(--abw-accent-fill-hover); background-color: var(--abw-accent-fill-hover); }
+.abw .abw-review-cta Label { font-size: 12px; -unity-font-style: bold; color: var(--abw-on-accent); }
 
 .abw-panel .abw-shelf { margin-right: 0; justify-content: space-between; }
 .abw-panel .abw-card { width: 48.8%; margin-right: 0; margin-bottom: 10px; flex-shrink: 0; }

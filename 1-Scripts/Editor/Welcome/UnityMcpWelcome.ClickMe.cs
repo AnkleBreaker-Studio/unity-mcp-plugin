@@ -173,9 +173,6 @@ namespace UnityMCP.Editor.Welcome
             private const string CLICKME_STYLE = "UnityMcpClickMe";
             private const string HOST_FILE = "host:";
 
-            // The Welcome asks after REVIEW_MIN_OPENS openings; the hub also asks once the
-            // package has been in the project for this long. Never on the day of the import.
-            private const int REVIEW_AFTER_DAYS = 3;
             private const int NEW_POST_DAYS = 21;
             private const int STARS = 5;
             private const int SHELF_CARDS = 3;
@@ -926,23 +923,12 @@ namespace UnityMCP.Editor.Welcome
             }
 
             /// <summary>
-            /// Never on the day of the import: after REVIEW_MIN_OPENS sessions with the Welcome or
-            /// this hub, or REVIEW_AFTER_DAYS days, and after the usage the config asks for. The
-            /// flags are the Welcome's: a review given or snoozed in one is so in the other.
+            /// The Welcome's rule (<see cref="UnityMcpWelcomePrompts.ReviewCardDue"/>): three days after the
+            /// first use on this machine, 30 days after a "Not now", once the package has been used,
+            /// never again once rated. The state is shared with the Welcome and the review popup.
             /// </summary>
-            private bool ReviewDue()
-            {
-                UnityMcpUsage usage = _context.Config.usage;
-                if (string.IsNullOrEmpty(ReviewUrl()) || UnityMcpWelcomeServices.GetFlag(_context, "ReviewDone")) return false;
-                DateTime? snooze = UnityMcpWelcomeServices.GetDate(_context, "ReviewSnooze");
-                if (snooze != null && (DateTime.UtcNow - snooze.Value).TotalDays < REVIEW_SNOOZE_DAYS) return false;
-
-                DateTime? first = UnityMcpWelcomeServices.GetDate(_context, "FirstOpen");
-                bool settled = first != null && (DateTime.UtcNow - first.Value).TotalDays >= REVIEW_AFTER_DAYS;
-                int visits = UnityMcpWelcomeServices.GetInt(_context, "Opens") + UnityMcpWelcomeServices.GetInt(_context, "ClickMeVisits");
-                if (!settled && visits < REVIEW_MIN_OPENS) return false;
-                return string.IsNullOrEmpty(usage.filter) || UnityMcpWelcomeServices.UsageCount(_context) >= usage.minCount;
-            }
+            private bool ReviewDue() =>
+                !string.IsNullOrEmpty(ReviewUrl()) && UnityMcpWelcomePrompts.ReviewCardDue(_context, _catalog, DateTime.UtcNow);
 
             /// <summary>Returns whether a review card is on screen, which takes the footer link away.</summary>
             private bool BuildReview(VisualElement host)
@@ -963,7 +949,7 @@ namespace UnityMCP.Editor.Welcome
                 top.Add(Text("Enjoying " + name + "?", "abc-review__title"));
                 VisualElement later = Clickable(() =>
                 {
-                    UnityMcpWelcomeServices.SetDate(_context, "ReviewSnooze");
+                    UnityMcpWelcomePrompts.MarkReviewLater(_context, DateTime.UtcNow);
                     Rebuild();
                 }, "abc-review__close");
                 later.Add(new Label("\u00d7"));
@@ -1020,7 +1006,7 @@ namespace UnityMCP.Editor.Welcome
             {
                 string url = ReviewUrl();
                 if (string.IsNullOrEmpty(url)) return;
-                UnityMcpWelcomeServices.SetFlag(_context, "ReviewDone", true);
+                UnityMcpWelcomePrompts.MarkReviewDone(_context);
                 SessionState.SetBool(ThanksKey, true);
                 Application.OpenURL(url);
                 Rebuild();

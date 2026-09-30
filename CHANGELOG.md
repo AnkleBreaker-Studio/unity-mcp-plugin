@@ -10,6 +10,7 @@ All notable changes to this package will be documented in this file.
 ### Changed
 - The Welcome footer's "Leave a review" button stands out (filled, with a star) until you have rated, then steps back.
 - The review card in the Welcome and in `CLICKME` follows the same three-day rule instead of counting window openings, and remembers a review for the whole machine rather than per project.
+- The Welcome's Studio tab takes the order and visibility of its blocks from the online catalogue, and presents Nodary next to Mithrall and Kickdom.
 
 ## [2.40.0] - 2026-09-29
 

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "_generated": "by welcome.py catalog from products.json + the store; do not edit",
-  "updated": "2026-09-24",
+  "updated": "2026-09-30",
   "publisherUrl": "https://assetstore.unity.com/publishers/101837",
   "discordUrl": "https://discord.gg/2D36VUmsYN",
   "devlogFeed": "https://anklebreaker-studio.com/devlog/feed.xml",
@@ -146,6 +146,73 @@
           "role": "game"
         }
       ]
+    }
+  ],
+  "studio": {
+    "_readme": "Order and visibility of the Studio tab. blocks: devlog, games, about, careers, consulting or a venture id; hidden:true drops a block, profiles ([\"tool\"] or [\"art\"]) limits it. A game is hidden with hidden:true in games[]. title/body/careers/consulting override the texts; empty keeps the package's own. Windows stamped before 2026-10 ignore all of this.",
+    "blocks": [
+      {
+        "id": "devlog"
+      },
+      {
+        "id": "games"
+      },
+      {
+        "id": "nodary"
+      },
+      {
+        "id": "about"
+      },
+      {
+        "id": "careers"
+      },
+      {
+        "id": "consulting"
+      }
+    ]
+  },
+  "ventures": [
+    {
+      "id": "nodary",
+      "eyebrow": "ALSO FROM THE STUDIO",
+      "heading": "Where our game design lives",
+      "intro": "We built Nodary when our game design docs were scattered across Notion, Confluence and Google Docs. Every one of our projects runs on it today.",
+      "tagline": "AI CONTEXT FOR GAME TEAMS",
+      "title": "Your AI changes. Your context stays.",
+      "summary": "Nodary links your design docs, sheets, diagrams and decisions into one map that your team and your AI both read, with sources cited.",
+      "cover": "nodary-cover.jpg",
+      "logo": "nodary-logo.png",
+      "links": [
+        {
+          "label": "Start for free",
+          "url": "https://nodary.ai/signup",
+          "primary": true
+        },
+        {
+          "label": "Try a working example",
+          "url": "https://nodary.ai/demo/context"
+        }
+      ],
+      "featuresTitle": "What your team gets",
+      "features": [
+        {
+          "title": "Constellation map",
+          "body": "Projects and docs linked, not piled up."
+        },
+        {
+          "title": "Answers with sources",
+          "body": "Studio AI cites the docs it read."
+        },
+        {
+          "title": "Rich documents",
+          "body": "Sheets, Mermaid diagrams, nested pages."
+        },
+        {
+          "title": "Live collaboration",
+          "body": "Cursors, comments, versions and roles."
+        }
+      ],
+      "footnote": "Built by AnkleBreaker Studio and used on all our projects. Free plan available at nodary.ai."
     }
   ],
   "products": [

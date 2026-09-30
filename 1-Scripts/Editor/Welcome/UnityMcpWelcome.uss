@@ -660,6 +660,15 @@
 .abw .abw-game-badge:hover { background-color: var(--abw-accent-bg-hover); }
 .abw .abw-game-badge:focus, .abw .abw-game-product:focus, .abw .abw-game-link:focus { border-color: var(--abw-accent); }
 .abw .abw-studio__body { font-size: 12px; color: var(--abw-text-dim); margin: 6px 0 16px 0; }
+/* A venture is a game card on its own dark cover, in both skins: literal colours, like the games. */
+.abw-venture { margin-bottom: 28px; background-color: #0a0d1a; border-color: #3b3566; }
+.abw-venture__intro { height: auto; min-height: 220px; }
+.abw .abw-venture__title { font-size: 28px; -unity-font-style: bold; color: #ffffff; margin: 8px 0; white-space: normal; }
+.abw-venture__features { flex-direction: row; margin: 12px -10px 0 0; }
+.abw-venture__feature { flex-grow: 1; flex-basis: 0; margin: 0 10px 0 0; padding: 10px 12px; border-radius: 5px; border-width: 1px; border-color: rgba(139,92,246,0.4); background-color: rgba(17,20,42,0.85); }
+.abw .abw-venture__feature-title { font-size: 12px; -unity-font-style: bold; color: #ffffff; white-space: normal; }
+.abw .abw-venture__feature-body { font-size: 11px; color: #b3b8d4; margin-top: 3px; white-space: normal; }
+.abw .abw-venture__footnote { font-size: 11px; color: #9297b5; margin-top: 12px; white-space: normal; }
 .abw-studio-card {
     flex-grow: 1;
     flex-basis: 200px;

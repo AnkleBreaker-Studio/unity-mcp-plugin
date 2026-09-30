@@ -59,6 +59,8 @@ Other existing demonstrations: [brick breaker](docs/unity-mcp-showcase-brickbrea
 
 ## Dashboard and monitoring
 
+`unity_editor_state.codeExecution` exposes compiler-reference cache size, image bytes, hits/misses and loaded snippet assemblies. References are bounded to 512 entries / 128 MiB of source images; snippets compile in memory and report their own source lines on failure. Twenty small calls measured 15.85 s before and 1.01 s after on one Unity 6.6 Windows fixture. [Measurement scope and reproduction](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/code-execution.md).
+
 Open **Window → AB Unity MCP → Dashboard** for bridge state, start/stop controls, category switches, auto-start and port settings, agent sessions and update information.
 
 From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agent_log` to inspect work. Action history records attribution and supported undo groups. New ticket fields separate monotonic `queueWaitMs` from `processingTimeMs`; existing `executionTimeMs` keeps its original total-response-time meaning.

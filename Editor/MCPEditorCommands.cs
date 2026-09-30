@@ -24,6 +24,7 @@ namespace UnityMCP.Editor
                 { "unityVersion", Application.unityVersion },
                 { "platform", EditorUserBuildSettings.activeBuildTarget.ToString() },
                 { "projectPath", MCPAssetSafety.ProjectRoot.Replace('\\', '/') },
+                { "codeExecution", MCPCodeExecutionSupport.GetDiagnostics() },
             };
         }
 
@@ -57,16 +58,6 @@ namespace UnityMCP.Editor
             return new { success = result, menuPath };
         }
 
-        // Short temp directory to avoid Windows 260-char path limit
-        private static readonly string _shortTempDir = Path.Combine(Path.GetTempPath(), "umcp");
-
-        private static string GetShortTempDir()
-        {
-            if (!Directory.Exists(_shortTempDir))
-                Directory.CreateDirectory(_shortTempDir);
-            return _shortTempDir;
-        }
-
         // ─── Roslyn via Reflection ───
         // Roslyn types are accessed purely through reflection so that the plugin compiles
         // even when the Microsoft.CodeAnalysis assemblies aren't directly referenced
@@ -85,7 +76,7 @@ namespace UnityMCP.Editor
             if (_roslynProbed) return _roslynCSharpAsm != null && _roslynCoreAsm != null;
             _roslynProbed = true;
 
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var asm in MCPCodeExecutionSupport.GetAssemblies())
             {
                 string name = asm.GetName().Name;
                 if (name == "Microsoft.CodeAnalysis.CSharp") _roslynCSharpAsm = asm;
@@ -145,7 +136,7 @@ namespace UnityMCP.Editor
                         string corePath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.dll");
                         if (File.Exists(corePath))
                         {
-                            try { _roslynCoreAsm = Assembly.LoadFrom(corePath); }
+                            try { _roslynCoreAsm = MCPCodeExecutionSupport.LoadAssembly(corePath); }
                             catch { /* .NET Core assemblies fail on Mono — skip */ }
                         }
                     }
@@ -154,7 +145,7 @@ namespace UnityMCP.Editor
                         string csharpPath = Path.Combine(searchDir, "Microsoft.CodeAnalysis.CSharp.dll");
                         if (File.Exists(csharpPath))
                         {
-                            try { _roslynCSharpAsm = Assembly.LoadFrom(csharpPath); }
+                            try { _roslynCSharpAsm = MCPCodeExecutionSupport.LoadAssembly(csharpPath); }
                             catch { /* .NET Core assemblies fail on Mono — skip */ }
                         }
                     }
@@ -195,26 +186,29 @@ namespace UnityMCP.Editor
             var refs = (System.Collections.IList)Activator.CreateInstance(listType);
             var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            object CreateReference(string path)
+            {
+                var parameters = createFromFile.GetParameters();
+                var arguments = new object[parameters.Length];
+                arguments[0] = path;
+                for (int i = 1; i < parameters.Length; i++)
+                    arguments[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue : null;
+                return createFromFile.Invoke(null, arguments);
+            }
+
+            foreach (var assembly in MCPCodeExecutionSupport.GetAssemblies())
             {
                 try
                 {
-                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
-                        continue;
-                    if (addedPaths.Contains(assembly.Location))
-                        continue;
+                    if (assembly.IsDynamic) continue;
+                    string path = MCPCodeExecutionSupport.GetAssemblyPath(assembly);
+                    if (string.IsNullOrEmpty(path) || !addedPaths.Add(path)) continue;
                     string asmName = assembly.GetName().Name;
                     if (asmName.Contains(".Tests") || asmName.Contains("NUnit") || asmName.Contains("Moq"))
                         continue;
 
-                    addedPaths.Add(assembly.Location);
-                    var cfPars = createFromFile.GetParameters();
-                    var cfArgs = new object[cfPars.Length];
-                    cfArgs[0] = assembly.Location;
-                    for (int i = 1; i < cfPars.Length; i++)
-                        cfArgs[i] = cfPars[i].HasDefaultValue ? cfPars[i].DefaultValue : null;
-                    var metaRef = createFromFile.Invoke(null, cfArgs);
-                    refs.Add(metaRef);
+                    var metaRef = MCPCodeExecutionSupport.GetReference(path, CreateReference);
+                    if (metaRef != null) refs.Add(metaRef);
                 }
                 catch { }
             }
@@ -250,15 +244,14 @@ public static class MCPDynamicCode
 {
     public static object Execute()
     {
+#line 1 ""MCP snippet""
         " + code + @"
+#line default
         return null;
     }
 }";
 
-                // --- Roslyn-based compilation (via reflection) ---
-                // All Roslyn types accessed through reflection to avoid compile-time dependency.
-                // Unity 6000+ uses CoreCLR where CodeDom/mcs can't handle netstandard facades.
-                // Roslyn resolves type forwarding correctly.
+                // Reflection avoids a fixed Roslyn package dependency across Unity versions and runtimes.
 
                 // CSharpSyntaxTree.ParseText(string)
                 var syntaxTreeType = _roslynCSharpAsm.GetType("Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree");
@@ -294,8 +287,7 @@ public static class MCPDynamicCode
 
                 var references = GetMetadataReferencesReflection();
 
-                string tempDir = GetShortTempDir();
-                string outputPath = Path.Combine(tempDir, $"mcp_dynamic_{Guid.NewGuid():N}.dll");
+                string assemblyName = $"mcp_dynamic_{Guid.NewGuid():N}";
 
                 // OutputKind.DynamicallyLinkedLibrary
                 var outputKindType = _roslynCoreAsm.GetType("Microsoft.CodeAnalysis.OutputKind");
@@ -351,16 +343,16 @@ public static class MCPDynamicCode
 
                 var compilation = createMethod.Invoke(null, new object[]
                 {
-                    Path.GetFileNameWithoutExtension(outputPath),
+                    assemblyName,
                     syntaxTreeArray,
                     references,
                     compilationOptions
                 });
 
-                // compilation.Emit(string outputPath)
-                // Use the stream overload: Emit(Stream)
+                // In-memory emission leaves no temporary DLL behind on compilation or execution failures.
                 object emitResult;
-                using (var stream = new FileStream(outputPath, FileMode.Create))
+                byte[] assemblyBytes = null;
+                using (var stream = new MemoryStream())
                 {
                     var emitMethod = compilation.GetType().GetMethod("Emit",
                         BindingFlags.Public | BindingFlags.Instance,
@@ -389,6 +381,8 @@ public static class MCPDynamicCode
                         emitArgs[i] = p.HasDefaultValue ? p.DefaultValue : null;
                     }
                     emitResult = emitMethod.Invoke(compilation, emitArgs);
+                    if ((bool)emitResult.GetType().GetProperty("Success").GetValue(emitResult))
+                        assemblyBytes = stream.ToArray();
                 }
 
                 // Check emitResult.Success
@@ -436,13 +430,10 @@ public static class MCPDynamicCode
                 }
 
                 // Load and execute
-                var compiledAssembly = Assembly.LoadFrom(outputPath);
+                var compiledAssembly = MCPCodeExecutionSupport.LoadSnippet(assemblyBytes);
                 var compiledType = compiledAssembly.GetType("MCPDynamicCode");
                 var method = compiledType.GetMethod("Execute");
                 var result = method.Invoke(null, null);
-
-                // Cleanup temp dll (best effort)
-                try { File.Delete(outputPath); } catch { }
 
                 return SerializeResult(result);
             }

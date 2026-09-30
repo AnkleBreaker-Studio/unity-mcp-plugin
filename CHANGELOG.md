@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Code execution
+- Reuse unchanged Roslyn metadata references with file timestamp/size invalidation and bounds of 512 entries / 128 MiB of source images. A local twenty-call workload drops from 15.85 s to 1.01 s; project workloads vary.
+- Emit generated code in memory, fixing DLL leftovers after compilation errors and user exceptions. Report source lines relative to the submitted snippet.
+- Use Unity's assembly enumeration/loading/path APIs on 6.6+, with version-gated older runtime APIs. Actual 6000.6.2f1 validation runs on Mono; CoreCLR editor execution remains unverified.
+- Add compiler-cache and loaded-snippet counters to editor state. Preserve fresh compilation/execution semantics and existing result/error shapes.
+- Add `-Suite Execution` covering failures, cache reuse/invalidation/limits, execution after eviction and fixture cleanup. The minimum-version API compiler check now passes with 70 source files.
+
 ### UMA compatibility and asset preservation
 - Move optional UMA assembly references out of the main bridge. Keep all 16 public handlers/routes available with explicit installation/define diagnostics when the integration is unavailable. Addresses [#25](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/25).
 - Adapt the UMA 3 slot-builder result, read-only logical names, removed slot material fields and changed library API. Use the existing JSON parser instead of requiring Newtonsoft. The official UMA V3.1f1 archive reproduced 42 compiler errors before these changes. Addresses [#27](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/27).

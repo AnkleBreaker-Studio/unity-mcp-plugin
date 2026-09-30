@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'Health', 'Monitoring')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -16,14 +16,24 @@ New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'Assets/Editor
 Set-Content -LiteralPath (Join-Path $projectRoot '.unity-mcp-validation') -Value $pluginRoot
 $manifest = @{ dependencies = @{ 'com.anklebreaker.unity-mcp' = "file:$pluginRoot" } } | ConvertTo-Json
 [System.IO.File]::WriteAllText((Join-Path $projectRoot 'Packages/manifest.json'), $manifest)
-$runnerFile = switch ($Suite) { 'Health' { 'QueueHealthValidation.cs' } 'Monitoring' { 'MonitoringValidation.cs' } default { 'ValidationRunner.cs' } }
-$runnerClass = switch ($Suite) { 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
+$runnerFile = switch ($Suite) { 'Execution' { 'ExecutionValidation.cs' } 'Health' { 'QueueHealthValidation.cs' } 'Monitoring' { 'MonitoringValidation.cs' } default { 'ValidationRunner.cs' } }
+$runnerClass = switch ($Suite) { 'Execution' { 'UnityMcpExecutionValidation' } 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportPath = Join-Path $projectRoot "Library/$runnerClass.json"
 if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath }
 $arguments = @('-batchmode', '-nographics', '-projectPath', ('"{0}"' -f $projectRoot), '-executeMethod', "$runnerClass.Run", '-logFile', ('"{0}"' -f $logPath))
-$editorProcess = Start-Process -FilePath $EditorPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
+try {
+    if ($Suite -eq 'Execution') {
+        $executionTemp = Join-Path $projectRoot 'ExecutionTemp'
+        New-Item -ItemType Directory -Force -Path $executionTemp | Out-Null
+        $env:TEMP = $executionTemp
+        $env:TMP = $executionTemp
+    }
+    $editorProcess = Start-Process -FilePath $EditorPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
+} finally { $env:TEMP = $previousTemp; $env:TMP = $previousTmp }
 Write-Output "Unity validation PID: $($editorProcess.Id), log: $logPath"
 while (!$editorProcess.WaitForExit(10000)) {
     Write-Output "Unity validation running (PID $($editorProcess.Id))"

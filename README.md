@@ -95,6 +95,8 @@ The bridge binds to loopback and checks incoming browser/host metadata. It is in
 
 ## Compatibility and validation
 
+The [live version matrix](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/compatibility.md) passes all four released/current server-plugin combinations on Unity 6.6 with Node 18 and 22. It checks object edits, undo, errors, history and concurrent agents across editors using different plugin versions. These tests cover the pinned baseline releases and routine workflows; an older server retains its original retry behavior.
+
 Live Unity 6.6 checks cover scene reopening, enum and flags properties, object references, material/prefab assets and Scene captures, including rejected-write preservation and capture cleanup after filesystem errors. A separate 2021.3.18f1 compiler check passes after correcting the Dashboard's older `IntegerField` namespace; it does not certify editor execution or package import. Actual older-editor execution is deferred. [Workflow contracts and reproduction →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md)
 
 Current modernization work has passed a focused batch run on **Unity 6000.6.2f1**: package compilation, object identity round-trips, agent ordering, read batching, duplicate/late deferred callbacks, result retention, 50 synchronous requests, real 30-second timeout races, dashboard state and polling at queue depths up to 10,000. Dashboard checks inspect its UI Toolkit labels in batch mode; they do not certify visual layout. Old Unity versions and other optional integrations remain part of the wider validation work.

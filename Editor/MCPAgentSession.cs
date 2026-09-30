@@ -19,6 +19,7 @@ namespace UnityMCP.Editor
         private int _completedRequests = 0;
         private long _totalResponseTimeMs = 0;
         private int _failedRequests;
+        private int _commandErrors;
         private int _timedOutRequests;
         private double _totalQueueWaitMs;
         private double _totalProcessingTimeMs;
@@ -116,6 +117,7 @@ namespace UnityMCP.Editor
             IncrementCompletedRequest(ticket.ExecutionTimeMs);
             Touch();
             if (ticket.Status == MCPRequestQueue.RequestStatus.Failed) _failedRequests++;
+            if (ticket.CommandFailed) _commandErrors++;
             if (ticket.Status == MCPRequestQueue.RequestStatus.TimedOut) _timedOutRequests++;
             _totalQueueWaitMs += ticket.QueueWaitMs;
             _totalProcessingTimeMs += ticket.ProcessingTimeMs;
@@ -135,6 +137,7 @@ namespace UnityMCP.Editor
                 { "completedRequests", CompletedRequests },
                 { "averageResponseTimeMs", Math.Round(AverageResponseTimeMs, 2) },
                 { "failedRequests", _failedRequests },
+                { "commandErrors", _commandErrors },
                 { "timedOutRequests", _timedOutRequests },
                 { "averageQueueWaitMs", _completedRequests == 0 ? 0 : Math.Round(_totalQueueWaitMs / _completedRequests, 2) },
                 { "averageProcessingTimeMs", _completedRequests == 0 ? 0 : Math.Round(_totalProcessingTimeMs / _completedRequests, 2) },

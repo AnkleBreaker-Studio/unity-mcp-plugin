@@ -55,6 +55,8 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object UndoLast(Dictionary<string, object> args)
         {
+            // A callback backlog must not hide the newest synchronous edit from undo selection.
+            MCPRequestQueue.FlushCompletedHistory(10_000);
             string agentId = GetString(args, "agentId");
             bool force = GetBool(args, "force");
 
@@ -113,6 +115,7 @@ namespace UnityMCP.Editor
 
         public static object GetUndoHistory(Dictionary<string, object> args)
         {
+            MCPRequestQueue.FlushCompletedHistory(10_000);
             int count = Math.Max(1, GetInt(args, "count", 20));
             string agentId = GetString(args, "agentId");
 
@@ -172,6 +175,8 @@ namespace UnityMCP.Editor
                 { "category", r.Category },
                 { "target", r.TargetPath ?? r.TargetInstanceId },
                 { "status", r.Status },
+                { "commandFailed", r.CommandFailed },
+                { "errorMessage", r.ErrorMessage ?? "" },
                 { "undoable", r.UndoGroup >= 0 && r.Status == "Completed" },
                 { "timestamp", r.Timestamp.ToString("o") },
             };

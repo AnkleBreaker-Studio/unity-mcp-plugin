@@ -69,6 +69,8 @@ namespace UnityMCP.Editor
             // Result / error
             public object Result       { get; set; }
             public string ErrorMessage { get; set; }
+            public bool CommandFailed { get; internal set; }
+            public string CommandError { get; internal set; }
 
             // Timing
             public DateTime  SubmittedAt   { get; set; }
@@ -142,6 +144,16 @@ namespace UnityMCP.Editor
         private static readonly List<long> _expiredTicketIds = new List<long>();
         private static readonly List<long> _staleExecutingIds = new List<long>();
         private static readonly List<string> _expiredSubmissionKeys = new List<string>();
+
+        private class PendingHistory
+        {
+            public MCPActionRecord Record;
+            public object Result;
+        }
+
+        private const int MaxPendingHistoryRecords = 10_000;
+        private static readonly Queue<PendingHistory> _pendingHistory = new Queue<PendingHistory>();
+        private static long _droppedHistoryRecords;
 
         // Cleanup cadence
         private static int _frameTick;
@@ -297,6 +309,8 @@ namespace UnityMCP.Editor
                 RunCleanup();
             }
 
+            FlushCompletedHistory();
+
             // --- Dequeue ---
             List<RequestTicket> batch;
             lock (_queueLock)
@@ -342,17 +356,7 @@ namespace UnityMCP.Editor
                     action = ticket.Action;
                     deferredAction = ticket.DeferredAction;
                 }
-                // Give each WRITE action its own named, collapsed Undo group so it can be
-                // reverted independently (per-action / per-agent undo via undo/last) and shows
-                // up named in Unity's Undo history. Reads and undo/redo ops don't open a group,
-                // so they never clutter the history or shift group indices out from under a
-                // pending undo. GetCurrentGroup() alone is unreliable — many write ops (e.g.
-                // RegisterCreatedObjectUndo) don't advance it — so we open the group explicitly.
-                //
-                // Deferred actions are EXCLUDED: their completion fires an arbitrary number of
-                // frames later, so a CollapseUndoOperations then would fold ANY other agent's
-                // interleaved group into this one (corrupting per-action undo bookkeeping). They
-                // are already excluded from history recording below, so they need no group.
+                // Isolate synchronous writes; deferred completion must not collapse other agents' interleaved undo groups.
                 bool opensUndoGroup =
                     deferredAction == null
                     && !IsReadOperation(ticket.ActionName)
@@ -401,13 +405,7 @@ namespace UnityMCP.Editor
                 if (undoGroup >= 0)
                     UnityEditor.Undo.CollapseUndoOperations(undoGroup);
 
-                TryCompleteTicket(ticket, status, result, error);
-
-                // An action is undoable only if it ACTUALLY registered an undo op. Reads that
-                // slip past IsReadOperation, and execute-code that only inspects, open an empty
-                // group we must not offer as an undo target (reverting it would be a confusing
-                // no-op). Fail open: if the internal record-count API is unavailable, keep the
-                // group (old behavior). We can only prove "empty" when both counts are valid.
+                // Empty groups must not hide real edits from undo/last; preserve the group if Unity cannot report its depth.
                 bool didRegisterUndo = undoGroup >= 0;
                 if (didRegisterUndo && undoRecordsBefore >= 0)
                 {
@@ -416,47 +414,12 @@ namespace UnityMCP.Editor
                         didRegisterUndo = false;
                 }
 
-                // Record action in history
-                try
-                {
-                    var record = new MCPActionRecord
-                    {
-                        Timestamp       = ticket.CompletedAt ?? DateTime.UtcNow,
-                        AgentId         = ticket.AgentId,
-                        ActionName      = ticket.ActionName,
-                        Category        = MCPActionRecord.ExtractCategory(ticket.ActionName),
-                        Status          = ticket.Status.ToString(),
-                        ExecutionTimeMs = ticket.ExecutionTimeMs,
-                        ErrorMessage    = ticket.ErrorMessage,
-                        // Only a completed write action that registered an undo op is undoable;
-                        // its dedicated group is the revert target for undo/last. Reads, empty
-                        // groups, undo-ops and failures stay -1. execute-code is excluded too:
-                        // it's an introspection escape hatch whose temp-host churn registers undo
-                        // but shouldn't shadow the agent's real edits as an undo/last target
-                        // (its group still isolates that churn; native Ctrl+Z still reaches it).
-                        UndoGroup       = (ticket.Status == RequestStatus.Completed && didRegisterUndo
-                                            && ticket.ActionName != "editor/execute-code") ? undoGroup : -1,
-                    };
-
-                    // Try to extract target object info from result
-                    if (ticket.Status == RequestStatus.Completed)
-                        record.ExtractTargetFromResult(ticket.Result);
-
-                    MCPActionHistory.RecordAction(record);
-
-                    // Also log to the agent session's structured log
-                    lock (_queueLock)
-                    {
-                        if (_sessions.TryGetValue(ticket.AgentId, out var agentSession))
-                            agentSession.LogStructuredAction(record);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[Unity MCP Queue] Failed to record action history: {ex.Message}");
-                }
-
+                // Temporary execute-code objects must not replace an agent's real edit as its undo target.
+                int recordedUndoGroup = status == RequestStatus.Completed && didRegisterUndo
+                    && ticket.ActionName != "editor/execute-code" ? undoGroup : -1;
+                TryCompleteTicket(ticket, status, result, error, recordedUndoGroup);
             }
+            FlushCompletedHistory();
         }
 
         // ═══════════════════════════════════════════════════════
@@ -508,6 +471,9 @@ namespace UnityMCP.Editor
                     { "evictedSessions", _evictedSessions },
                     { "sessionRetentionSeconds", SessionRetentionSeconds },
                     { "maxInactiveSessions", MaxInactiveSessions },
+                    { "pendingHistoryRecords", _pendingHistory.Count },
+                    { "droppedHistoryRecords", _droppedHistoryRecords },
+                    { "maxPendingHistoryRecords", MaxPendingHistoryRecords },
                     { "protocolVersion", ProtocolVersion },
                     { "queueSessionId", SessionId },
                     { "queueSessionTimeMs", SessionTimeMs },
@@ -702,8 +668,10 @@ namespace UnityMCP.Editor
             return session;
         }
 
-        private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error)
+        private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error, int undoGroup = -1)
         {
+            string commandError = null;
+            bool commandFailed = status == RequestStatus.Completed && MCPCommandOutcome.TryGetError(result, out commandError);
             lock (_queueLock)
             {
                 // Late callbacks and racing waiters must not overwrite a terminal outcome.
@@ -713,6 +681,8 @@ namespace UnityMCP.Editor
                 ticket.Status = status;
                 ticket.Result = result;
                 ticket.ErrorMessage = error;
+                ticket.CommandFailed = commandFailed;
+                ticket.CommandError = commandError;
                 ticket.CompletedAt = DateTime.UtcNow;
                 ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 ticket.Action = null;
@@ -734,10 +704,63 @@ namespace UnityMCP.Editor
                 _completedTickets[ticket.TicketId] = ticket;
                 if (_sessions.TryGetValue(ticket.AgentId, out var session))
                     session.RecordCompletion(ticket);
+
+                var record = new MCPActionRecord
+                {
+                    Timestamp = ticket.CompletedAt.Value,
+                    AgentId = ticket.AgentId,
+                    ActionName = ticket.ActionName,
+                    Category = MCPActionRecord.ExtractCategory(ticket.ActionName),
+                    Status = status.ToString(),
+                    CommandFailed = commandFailed,
+                    ExecutionTimeMs = ticket.ExecutionTimeMs,
+                    ErrorMessage = commandFailed ? commandError : error,
+                    UndoGroup = undoGroup,
+                };
+                if (_pendingHistory.Count >= MaxPendingHistoryRecords)
+                {
+                    _pendingHistory.Dequeue();
+                    _droppedHistoryRecords++;
+                }
+                _pendingHistory.Enqueue(new PendingHistory { Record = record, Result = result });
                 if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
                     waiter.Set();
                 return true;
             }
+        }
+
+        // Callback threads cannot read EditorPrefs or inspect Unity targets; the editor update drains this bounded buffer.
+        internal static void FlushCompletedHistory(int maxRecords = 100)
+        {
+            for (int i = 0; i < maxRecords; i++)
+            {
+                PendingHistory pending;
+                lock (_queueLock)
+                {
+                    if (_pendingHistory.Count == 0) return;
+                    pending = _pendingHistory.Dequeue();
+                }
+                try
+                {
+                    pending.Record.ExtractTargetFromResult(pending.Result);
+                    MCPActionHistory.RecordAction(pending.Record);
+                    lock (_queueLock)
+                    {
+                        if (_sessions.TryGetValue(pending.Record.AgentId, out var session))
+                            session.LogStructuredAction(pending.Record);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lock (_queueLock) _droppedHistoryRecords++;
+                    Debug.LogWarning($"[Unity MCP Queue] Failed to record action history: {ex.Message}");
+                }
+            }
+        }
+
+        internal static void ClearPendingHistory()
+        {
+            lock (_queueLock) _pendingHistory.Clear();
         }
 
         private static void RunCleanup()
@@ -824,6 +847,8 @@ namespace UnityMCP.Editor
                 { "queueWaitMs",     t.QueueWaitMs },
                 { "processingTimeMs", t.ProcessingTimeMs },
                 { "errorMessage",    t.ErrorMessage ?? "" },
+                { "commandFailed",   t.CommandFailed },
+                { "commandError",    t.CommandError ?? "" },
             };
 
             if (t.CompletedAt.HasValue)

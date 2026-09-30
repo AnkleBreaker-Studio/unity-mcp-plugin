@@ -13,6 +13,8 @@ All notable changes to this package will be documented in this file.
 - Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
 
 ### Fixed
+- Recognized handler errors appeared successful in plugin monitoring. Add `commandErrors`, ticket diagnostics and a history outcome flag while preserving existing statuses, raw results and exception counts. Dashboard and history now distinguish these failures.
+- Deferred completion and queued timeouts were absent from action history. Record every winning terminal transition once, drain a bounded history buffer on the editor thread, report dropped entries, and flush before optional reload/quit persistence. Preserve synchronous undo behavior and old saved records; explicit history/undo queries drain pending history, and clearing history includes the buffer.
 - Profiler/debugger mutations were batched as reads; replace route-name heuristics with an explicit read policy. Unknown routes stay serialized as writes, and compilation-error reads can batch.
 - Agents waiting over five minutes disappeared from active-session monitoring; keep sessions with outstanding work visible.
 - Restore Unity 6.6 Development diagnostics with the Checked managed code variant; default other builds to Release, accept an explicit variant, and restore the project's previous setting after success or failure. Older Unity versions retain the existing build path and reject the new optional argument explicitly.
@@ -25,6 +27,7 @@ All notable changes to this package will be documented in this file.
 - Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
 
 ### Validation
+- Add `-Suite Monitoring`: reproduce seven missed command errors and missing callback history, then verify 15 result shapes, concurrent callbacks, old/new persistence, bounded diagnostics/backlog, dashboard state, history endpoint and create/undo behavior. Extend the real 30-second timeout suite with exactly-once history checks.
 - Add `-Suite Health` for synthetic session retention, returning agents, scheduling and controlled allocation measurements. Validate the read policy against the generated route registry.
 - Live Windows Mono builds verify all four managed variants and setting restoration; two real editors exercise concurrent routing, four Play Mode configurations and actual script reload. Reproducible suites and reports live in the companion server repository.
 - Add `tools~/validate-unity.ps1` and an isolated editor runner covering object identity, agent FIFO and round-robin writes, read batching, deferred completion, synchronous completion and deep-queue polling.

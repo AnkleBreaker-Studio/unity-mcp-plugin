@@ -505,13 +505,16 @@ namespace UnityMCP.Editor
                 action.AddToClassList("ab-dash__ellipsis");
                 action.style.marginLeft = 8;
                 Grow(row);
+                string commandErrors = Read(session, "commandErrors", "0");
+                string exceptions = Read(session, "failedRequests", "0");
                 string stats = $"{Read(session, "completedRequests", "0")} finished · " +
                                $"{Read(session, "queuedRequests", "0")} outstanding · " +
-                               $"{Read(session, "failedRequests", "0")} failed · " +
+                               $"{commandErrors} command error{(commandErrors == "1" ? "" : "s")} · " +
+                               $"{exceptions} exception{(exceptions == "1" ? "" : "s")} · " +
                                $"{Read(session, "timedOutRequests", "0")} timed out";
                 var statsLabel = Text(_agentRows, stats, "ab-dash__mini");
                 statsLabel.style.whiteSpace = WhiteSpace.Normal;
-                statsLabel.tooltip = "Finished includes successes, failures and timeouts. Outstanding includes queued and running requests.";
+                statsLabel.tooltip = "Finished includes all terminal requests. Command errors are returned by handlers; exceptions escape the handler. Outstanding includes queued and running requests.";
                 string timing = $"Average: {Read(session, "averageQueueWaitMs", "0")} ms waiting · " +
                                 $"{Read(session, "averageProcessingTimeMs", "0")} ms processing";
                 var timingLabel = Text(_agentRows, timing, "ab-dash__mini");
@@ -533,7 +536,7 @@ namespace UnityMCP.Editor
             var recent = MCPActionHistory.GetRecent(8);
 
             var sb = new StringBuilder();
-            foreach (var r in recent) sb.Append(r.Id).Append(':').Append(r.Status).Append('|');
+            foreach (var r in recent) sb.Append(r.Id).Append(':').Append(r.DisplayStatus).Append('|');
             string sig = sb.ToString();
             if (sig == _actionSig && _actionRows.childCount > 0) return;
             _actionSig = sig;
@@ -550,9 +553,10 @@ namespace UnityMCP.Editor
             {
                 var r = recent[i];
                 var row = Row(_actionRows);
-                string dotClass = r.Status == "Completed" ? "ab-dash__dot--green"
+                string dotClass = r.CommandFailed ? "ab-dash__dot--red" : r.Status == "Completed" ? "ab-dash__dot--green"
                     : r.Status == "Failed" ? "ab-dash__dot--red" : "ab-dash__dot--yellow";
                 Dot(row, dotClass);
+                row.tooltip = string.IsNullOrEmpty(r.ErrorMessage) ? r.DisplayStatus : r.DisplayStatus + ": " + r.ErrorMessage;
                 Text(row, r.Timestamp.ToString("HH:mm:ss"), "ab-dash__mini");
 
                 string agent = r.AgentId ?? "?";
@@ -560,6 +564,7 @@ namespace UnityMCP.Editor
                 Text(row, agent, "ab-dash__blue-text").style.marginLeft = 6;
 
                 Text(row, MCPActionRecord.ExtractCommand(r.ActionName), "ab-dash__label").style.marginLeft = 6;
+                if (r.CommandFailed) Text(row, "Command error", "ab-dash__mini").style.marginLeft = 6;
 
                 string target = r.TargetPath ?? "";
                 if (target.Length > 28) target = ".." + target.Substring(target.Length - 26);

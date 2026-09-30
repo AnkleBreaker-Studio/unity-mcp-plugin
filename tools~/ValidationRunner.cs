@@ -244,6 +244,9 @@ public static class UnityMcpValidation
                 && (int)session["timedOutRequests"] == 3, "Legacy timeout counters are inconsistent");
             Check((double)session["averageQueueWaitMs"] >= 0 && (double)session["averageProcessingTimeMs"] >= 0,
                 "Session timing aggregates missing");
+            var history = MCPActionHistory.GetFiltered("sync-timeout", null, null);
+            Check(history.Count == 3 && history.TrueForAll(record => record.Status == "TimedOut" && record.UndoGroup == -1),
+                "Running, batched or queued timeouts were omitted or duplicated in history");
         }
     }
 
@@ -272,7 +275,7 @@ public static class UnityMcpValidation
             Check(queueText.Contains("1 running") && !queueText.Contains("Idle"), "Dashboard reported idle while a deferred operation was running");
             typeof(MCPDashboardWindow).GetMethod("RefreshAgents", flags).Invoke(window, null);
             string agentText = LabelText(agentRows);
-            Check(agentText.Contains("1 failed") && agentText.Contains("3 timed out"), "Dashboard omitted terminal failures");
+            Check(agentText.Contains("1 exception") && agentText.Contains("3 timed out"), "Dashboard omitted terminal failures");
             Check(agentText.Contains("ms waiting") && agentText.Contains("ms processing"), "Dashboard omitted timing breakdown");
             complete("done");
             typeof(MCPDashboardWindow).GetMethod("RefreshQueue", flags).Invoke(window, null);

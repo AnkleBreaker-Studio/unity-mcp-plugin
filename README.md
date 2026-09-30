@@ -61,7 +61,9 @@ Open **Window → AB Unity MCP → Dashboard** for bridge state, start/stop cont
 
 From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agent_log` to inspect work. Action history records attribution and supported undo groups. New ticket fields separate monotonic `queueWaitMs` from `processingTimeMs`; existing `executionTimeMs` keeps its original total-response-time meaning.
 
-The dashboard distinguishes pending and running requests. Agent sessions report `failedRequests`, `timedOutRequests`, `averageQueueWaitMs` and `averageProcessingTimeMs`. `completedRequests` counts all terminal tickets, including failures and timeouts; `queuedRequests` counts outstanding queued and executing tickets. Failure counts reflect queue exceptions, not errors returned inside a command's result object. Timing stops when a ticket finishes or expires.
+The dashboard distinguishes pending and running requests. Agent sessions separate returned command errors (`commandErrors`), exceptions (`failedRequests`) and deadlines (`timedOutRequests`), alongside average wait and processing times. `completedRequests` counts all terminal tickets; `queuedRequests` counts outstanding queued and executing tickets. Timing stops when a ticket finishes or expires.
+
+Recognized command errors retain the existing `Completed` ticket status and raw result, with additive `commandFailed` and `commandError` fields. The dashboard and history display **Command error**. Deferred callbacks and timeouts enter history once; duplicate callbacks cannot add records. History insertion runs on the editor thread through a bounded buffer, with pending/drop counts in `unity_queue_info`. Optional persistence includes the new outcome flag and remains compatible with older history files.
 
 Sessions with outstanding work stay visible even after five minutes. Sessions without work expire after 30 minutes of inactivity; at most 256 inactive sessions are retained, oldest first. Active/busy sessions are preserved. `unity_queue_info` reports the retention policy and eviction count. Returning after eviction starts fresh session statistics; the separate action history keeps its own limits. [Scheduling and measured retention behavior →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-monitoring.md)
 
@@ -100,6 +102,8 @@ To reproduce on Windows with an installed editor and a disposable project direct
 The runner launches Unity hidden in batch mode, refuses an unmarked existing project and writes `Library/UnityMcpValidation.json` plus `validation.log`. Development tooling under `tools~` is ignored by Unity's package importer.
 
 Add `-Suite Health` to validate session retention, read/write scheduling and idle queue allocations. This writes `Library/UnityMcpQueueHealthValidation.json`. The measured empty queue loop has zero allocation events after warmup; this is not a zero-allocation claim for the whole plugin or editor.
+
+Add `-Suite Monitoring` to verify command-result classification, callback history, old/new persistence, history-buffer capacity, dashboard state and a real create/undo cycle. This writes `Library/UnityMcpMonitoringValidation.json`. Batch-mode UI checks do not certify the interactive layout.
 
 The route list is generated from the dispatcher:
 

@@ -287,10 +287,10 @@ namespace UnityMCP.Editor
                     EditorGUILayout.BeginHorizontal(style);
 
                     // Status dot
-                    Color dotColor = GetStatusColor(record.Status);
+                    Color dotColor = GetStatusColor(record.DisplayStatus);
                     var prevColor = GUI.color;
                     GUI.color = dotColor;
-                    GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(18));
+                    GUILayout.Label(new GUIContent("\u25CF", record.DisplayStatus), _dotStyle, GUILayout.Width(18));
                     GUI.color = prevColor;
 
                     // Timestamp
@@ -442,8 +442,8 @@ namespace UnityMCP.Editor
                 _detailScroll = EditorGUILayout.BeginScrollView(_detailScroll);
 
                 // Status & timing
-                Color statusColor = GetStatusColor(r.Status);
-                DrawDetailRow("Status", r.Status, statusColor);
+                Color statusColor = GetStatusColor(r.DisplayStatus);
+                DrawDetailRow("Status", r.DisplayStatus, statusColor);
                 DrawDetailRow("Agent", r.AgentId);
                 DrawDetailRow("Time", r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
                 DrawDetailRow("Duration", $"{r.ExecutionTimeMs}ms");
@@ -545,6 +545,7 @@ namespace UnityMCP.Editor
             {
                 case "Completed": return ColorGreen;
                 case "Failed":    return ColorRed;
+                case "Command error": return ColorRed;
                 case "TimedOut":  return ColorOrange;
                 default:          return ColorYellow;
             }

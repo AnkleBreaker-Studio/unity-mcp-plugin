@@ -43,12 +43,14 @@ namespace UnityMCP.Editor
 
         private static void OnBeforeReload()
         {
+            MCPRequestQueue.FlushCompletedHistory(10_000);
             if (MCPSettingsManager.ActionHistoryPersistence)
                 SaveToDisk();
         }
 
         private static void OnQuitting()
         {
+            MCPRequestQueue.FlushCompletedHistory(10_000);
             if (MCPSettingsManager.ActionHistoryPersistence)
                 SaveToDisk();
         }
@@ -57,10 +59,7 @@ namespace UnityMCP.Editor
         //  Public API
         // ═══════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Record a new action. Called from MCPRequestQueue after ticket completion.
-        /// Thread-safe — can be called from any thread.
-        /// </summary>
+        /// <summary>Call on the main thread because history settings and notifications use editor APIs.</summary>
         public static void RecordAction(MCPActionRecord record)
         {
             int maxEntries = MCPSettingsManager.ActionHistoryMaxEntries;
@@ -168,6 +167,7 @@ namespace UnityMCP.Editor
         /// <summary>Clear all history.</summary>
         public static void Clear()
         {
+            MCPRequestQueue.ClearPendingHistory();
             lock (_lock)
             {
                 _history.Clear();
@@ -206,6 +206,7 @@ namespace UnityMCP.Editor
                         actionName = r.ActionName ?? "",
                         category = r.Category ?? "",
                         status = r.Status ?? "",
+                        commandFailed = r.CommandFailed,
                         executionTimeMs = r.ExecutionTimeMs,
                         errorMessage = r.ErrorMessage ?? "",
                         targetInstanceId = r.TargetInstanceId ?? "",
@@ -249,6 +250,7 @@ namespace UnityMCP.Editor
                             ActionName      = entry.actionName,
                             Category        = entry.category,
                             Status          = entry.status,
+                            CommandFailed   = entry.commandFailed,
                             ExecutionTimeMs = entry.executionTimeMs,
                             ErrorMessage    = entry.errorMessage,
                             TargetInstanceId = entry.targetInstanceId,
@@ -287,6 +289,7 @@ namespace UnityMCP.Editor
             public string actionName;
             public string category;
             public string status;
+            public bool commandFailed;
             public long   executionTimeMs;
             public string errorMessage;
             public string targetInstanceId; // string since 64-bit EntityId support. JsonUtility tolerates the old int→string scalar mismatch (parses to ""); LoadFromDisk is try/catch-guarded so a hard failure would drop the whole history file, not one field.

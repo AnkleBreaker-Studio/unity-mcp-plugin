@@ -20,6 +20,8 @@ namespace UnityMCP.Editor
         public string   Status          { get; set; } // Completed, Failed, TimedOut
         public long     ExecutionTimeMs { get; set; }
         public string   ErrorMessage    { get; set; }
+        public bool     CommandFailed   { get; set; }
+        public string DisplayStatus => CommandFailed ? "Command error" : Status;
 
         // Target object tracking. String because Unity 6.5 EntityIds are 64-bit
         // values carried as opaque decimal strings on the wire (see MCPObjectId) —
@@ -119,7 +121,7 @@ namespace UnityMCP.Editor
             sb.AppendLine($"Action: {ActionName}");
             sb.AppendLine($"Agent: {AgentId}");
             sb.AppendLine($"Time: {Timestamp:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"Status: {Status}");
+            sb.AppendLine($"Status: {DisplayStatus}");
             sb.AppendLine($"Duration: {ExecutionTimeMs}ms");
 
             if (!string.IsNullOrEmpty(TargetPath))
@@ -152,6 +154,7 @@ namespace UnityMCP.Editor
                 { "actionName",       ActionName ?? "" },
                 { "category",         Category ?? "" },
                 { "status",           Status ?? "" },
+                { "commandFailed",    CommandFailed },
                 { "executionTimeMs",  ExecutionTimeMs },
                 { "errorMessage",     ErrorMessage ?? "" },
                 { "targetInstanceId", TargetInstanceId ?? "" },

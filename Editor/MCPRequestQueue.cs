@@ -28,7 +28,7 @@ namespace UnityMCP.Editor
 
         public enum RequestStatus { Queued, Executing, Completed, Failed, TimedOut }
 
-        public const int ProtocolVersion = 2;
+        public const int ProtocolVersion = 3;
         public const int RetryWindowMs = 120_000;
         public static readonly string SessionId = Guid.NewGuid().ToString("N");
         private static readonly long _sessionStarted = System.Diagnostics.Stopwatch.GetTimestamp();

@@ -366,7 +366,7 @@ public static class UnityMcpValidation
                 client.BaseAddress = new Uri(root);
                 client.Timeout = TimeSpan.FromSeconds(5);
                 var info = HttpRoundTrip(listener, client, "GET", "queue/info", null, 200);
-                Check(Convert.ToInt32(info["protocolVersion"]) == 2, "HTTP retry capability missing");
+                Check(Convert.ToInt32(info["protocolVersion"]) >= 2, "HTTP retry capability missing");
                 var body = new Dictionary<string, object>
                 {
                     { "apiPath", "gameobject/create" }, { "body", "{\"name\":\"" + objectName + "\"}" },

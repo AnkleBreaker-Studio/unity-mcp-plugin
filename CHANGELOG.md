@@ -5,12 +5,13 @@ All notable changes to this package will be documented in this file.
 ## [Unreleased]
 
 ### Improved
-- Advertise queue protocol 2 with protected submission and scoped polling endpoints. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
+- Advertise protocol 3, retaining protocol-2 protected submission and scoped polling while adding managed build variants. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
 - Index pending tickets by ID so status polling does not scan every agent queue as queue depth grows.
 - Add monotonic `queueWaitMs` and `processingTimeMs` plus `startedAt` to ticket status. Keep the existing `executionTimeMs` field and meaning for old servers and dashboards.
 - Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
 
 ### Fixed
+- Restore Unity 6.6 Development diagnostics with the Checked managed code variant; default other builds to Release, accept an explicit variant, and restore the project's previous setting after success or failure. Older Unity versions retain the existing build path and reject the new optional argument explicitly.
 - Register legacy synchronous waiters before a ticket can complete and remove them before disposal, under the queue lock, to avoid lost wakeups and signaling disposed waiters.
 - Declare the uGUI and Test Framework dependencies already used by the command assembly. A minimal project could fail compilation because template-installed packages had hidden those requirements.
 - Finalize tickets atomically so duplicate callbacks, callbacks after expiration and synchronous timeout races cannot overwrite terminal results or count completion twice. Release work closures, remove expired pending work, and account for deferred exceptions and timeouts consistently.
@@ -20,6 +21,7 @@ All notable changes to this package will be documented in this file.
 - Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
 
 ### Validation
+- Live Windows Mono builds verify all four managed variants and setting restoration; two real editors exercise concurrent routing, four Play Mode configurations and actual script reload. Reproducible suites and reports live in the companion server repository.
 - Add `tools~/validate-unity.ps1` and an isolated editor runner covering object identity, agent FIFO and round-robin writes, read batching, deferred completion, synchronous completion and deep-queue polling.
 - Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
 - Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.

@@ -87,6 +87,8 @@ The bridge binds to loopback and checks incoming browser/host metadata. It is in
 
 Current modernization work has passed a focused batch run on **Unity 6000.6.2f1**: package compilation, object identity round-trips, agent ordering, read batching, duplicate/late deferred callbacks, result retention, 50 synchronous requests, real 30-second timeout races, dashboard state and polling at queue depths up to 10,000. Dashboard checks inspect its UI Toolkit labels in batch mode; they do not certify visual layout. Old Unity versions, optional integrations and actual multiplayer scenarios remain part of the wider validation work.
 
+Live validation also covers 24 overlapping commands to two editors, four Play Mode reload configurations, and an actual script reload that loses a result without replaying the command. Unity 6.6 builds now default to Checked managed diagnostics for Development and Release otherwise; optional `managedCodeVariant` overrides this for one build, with the project setting restored even on failure. Five Windows Mono builds verified the compiled defines. See the server's [build guide](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/builds.md) and [validation record](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md).
+
 To reproduce on Windows with an installed editor and a disposable project directory:
 
 ```powershell

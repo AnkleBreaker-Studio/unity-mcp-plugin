@@ -15,6 +15,20 @@ namespace UnityMCP.Editor
             string outputPath = args.ContainsKey("outputPath") ? args["outputPath"].ToString() : "";
             bool devBuild = args.ContainsKey("developmentBuild") && Convert.ToBoolean(args["developmentBuild"]);
 
+#if UNITY_6000_6_OR_NEWER
+            var variant = devBuild ? ManagedCodeVariant.Checked : ManagedCodeVariant.Release;
+            if (args.TryGetValue("managedCodeVariant", out var requestedVariant))
+            {
+                if (!(requestedVariant is string variantName)
+                    || !Enum.GetNames(typeof(ManagedCodeVariant)).Any(name => string.Equals(name, variantName, StringComparison.OrdinalIgnoreCase))
+                    || !Enum.TryParse(variantName, true, out variant))
+                    return new { error = "managedCodeVariant must be Release, Instrumented, Checked or Debug" };
+            }
+#else
+            if (args.ContainsKey("managedCodeVariant"))
+                return new { error = "managedCodeVariant requires Unity 6.6 or newer" };
+#endif
+
             if (string.IsNullOrEmpty(outputPath))
                 return new { error = "outputPath is required" };
 
@@ -49,7 +63,24 @@ namespace UnityMCP.Editor
 
             try
             {
+#if UNITY_6000_6_OR_NEWER
+                var namedTarget = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target));
+                var previousVariant = PlayerSettings.GetManagedCodeVariant(namedTarget);
+                BuildReport report;
+                try
+                {
+                    // Development no longer enables these diagnostics by itself in Unity 6.6.
+                    if (previousVariant != variant) PlayerSettings.SetManagedCodeVariant(namedTarget, variant);
+                    report = BuildPipeline.BuildPlayer(options);
+                }
+                finally
+                {
+                    // One MCP build must not change the diagnostics of later user builds.
+                    if (previousVariant != variant) PlayerSettings.SetManagedCodeVariant(namedTarget, previousVariant);
+                }
+#else
                 var report = BuildPipeline.BuildPlayer(options);
+#endif
 
                 return new Dictionary<string, object>
                 {
@@ -61,6 +92,10 @@ namespace UnityMCP.Editor
                     { "outputPath", report.summary.outputPath },
                     { "totalSize", report.summary.totalSize },
                     { "platform", report.summary.platform.ToString() },
+                    { "developmentBuild", devBuild },
+#if UNITY_6000_6_OR_NEWER
+                    { "managedCodeVariant", variant.ToString() },
+#endif
                 };
             }
             catch (Exception ex)

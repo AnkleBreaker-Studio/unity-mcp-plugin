@@ -5,6 +5,7 @@ All notable changes to this package will be documented in this file.
 ## [Unreleased]
 
 ### Improved
+- Expose MPPM parent-project/virtual-player identity in ping and registry records, player IDs in player listings, and installed package/workflow/role diagnostics. Preserve ParrelSync metadata meanings.
 - Bound inactive agent sessions to 256, expire them after 30 idle minutes, release excess dictionary storage, and expose policy/eviction counters. Preserve active sessions and outstanding work; use monotonic activity deadlines.
 - Reuse cleanup scratch lists. The isolated empty queue loop records zero allocation events after warmup, down from 3,000 per 100,000 updates.
 - Advertise protocol 3, retaining protocol-2 protected submission and scoped polling while adding managed build variants. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
@@ -13,6 +14,10 @@ All notable changes to this package will be documented in this file.
 - Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
 
 ### Fixed
+- Adapt MPPM to Unity 6.6's native instance settings and Play Mode scenario manager. Retained legacy fields and runner-only selection could leave the requested client unconfigured or the Default scenario selected. Keep the older reflection path and read the actual stored role enum type.
+- Resolve CurrentPlayer in Unity's native module as well as the older package. Read registered package metadata for core/embedded packages, and native scenario status fields for progress.
+- Refuse scenario asset overwrites and reject invalid paths, roles and virtual-player counts before creating assets.
+- Write the instance registry as UTF-8 without a BOM so existing servers can parse it outside the fallback scan range.
 - Recognized handler errors appeared successful in plugin monitoring. Add `commandErrors`, ticket diagnostics and a history outcome flag while preserving existing statuses, raw results and exception counts. Dashboard and history now distinguish these failures.
 - Deferred completion and queued timeouts were absent from action history. Record every winning terminal transition once, drain a bounded history buffer on the editor thread, report dropped entries, and flush before optional reload/quit persistence. Preserve synchronous undo behavior and old saved records; explicit history/undo queries drain pending history, and clearing history includes the buffer.
 - Profiler/debugger mutations were batched as reads; replace route-name heuristics with an explicit read policy. Unknown routes stay serialized as writes, and compilation-error reads can batch.
@@ -27,6 +32,7 @@ All notable changes to this package will be documented in this file.
 - Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
 
 ### Validation
+- Exercise a real MPPM 3.0 Host/Client scenario on Unity 6000.6.2f1, per-agent routing across both processes and a shared script recompilation. The companion server includes a repeatable opt-in suite, raw evidence and restored-fixture checks. Older MPPM and ParrelSync lifecycle remain unverified.
 - Add `-Suite Monitoring`: reproduce seven missed command errors and missing callback history, then verify 15 result shapes, concurrent callbacks, old/new persistence, bounded diagnostics/backlog, dashboard state, history endpoint and create/undo behavior. Extend the real 30-second timeout suite with exactly-once history checks.
 - Add `-Suite Health` for synthetic session retention, returning agents, scheduling and controlled allocation measurements. Validate the read policy against the generated route registry.
 - Live Windows Mono builds verify all four managed variants and setting restoration; two real editors exercise concurrent routing, four Play Mode configurations and actual script reload. Reproducible suites and reports live in the companion server repository.

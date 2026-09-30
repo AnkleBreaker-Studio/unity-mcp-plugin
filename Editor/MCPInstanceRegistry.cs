@@ -249,6 +249,9 @@ namespace UnityMCP.Editor
                     { "processId", System.Diagnostics.Process.GetCurrentProcess().Id },
                     { "isClone", IsParrelSyncClone() },
                     { "cloneIndex", GetParrelSyncCloneIndex() },
+                    { "isVirtualPlayer", MCPScenarioCommands.IsVirtualPlayer() },
+                    { "mainProjectPath", GetMainProjectPath() },
+                    { "virtualPlayerId", GetVirtualPlayerId() },
                     { "registeredAt", nowUtc },
                     { "lastSeen", nowUtc }
                 };
@@ -397,6 +400,20 @@ namespace UnityMCP.Editor
 
         // ─── ParrelSync Detection ───
 
+        public static string GetMainProjectPath()
+        {
+            string project = GetProjectPath();
+            if (!MCPScenarioCommands.IsVirtualPlayer()) return project;
+            var vp = Directory.GetParent(project);
+            var library = vp?.Parent;
+            // Unity stores virtual projects under Library/VP; do not infer a parent for an unknown layout.
+            return vp?.Name == "VP" && library?.Name == "Library"
+                ? library.Parent?.FullName.Replace('\\', '/') ?? "" : "";
+        }
+
+        public static string GetVirtualPlayerId() =>
+            MCPScenarioCommands.IsVirtualPlayer() ? Path.GetFileName(GetProjectPath()) : "";
+
         /// <summary>
         /// Detect if this project is a ParrelSync clone based on folder naming convention.
         /// ParrelSync clones have folders named "ProjectName_clone_X".
@@ -516,7 +533,7 @@ namespace UnityMCP.Editor
                     list.Add(dict);
 
                 string json = MiniJson.Serialize(list);
-                File.WriteAllText(RegistryPath, json, Encoding.UTF8);
+                File.WriteAllText(RegistryPath, json, new UTF8Encoding(false));
             }
             catch (Exception ex)
             {

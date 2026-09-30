@@ -737,6 +737,9 @@ namespace UnityMCP.Editor
                         platform = Application.platform.ToString(),
                         isClone = MCPInstanceRegistry.IsParrelSyncClone(),
                         cloneIndex = MCPInstanceRegistry.GetParrelSyncCloneIndex(),
+                        isVirtualPlayer = MCPScenarioCommands.IsVirtualPlayer(),
+                        mainProjectPath = MCPInstanceRegistry.GetMainProjectPath(),
+                        virtualPlayerId = MCPInstanceRegistry.GetVirtualPlayerId(),
                         processId = System.Diagnostics.Process.GetCurrentProcess().Id,
                         // Capability handshake: servers gate newer wire features on this
                         // monotonic int so the pair degrades gracefully across version

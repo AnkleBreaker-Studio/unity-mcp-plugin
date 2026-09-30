@@ -32,6 +32,8 @@ The default port is 7890; multiple editors can claim different ports. Discover t
 
 Server and plugin versions advance independently. Queue and legacy synchronous paths remain available; version numbers do not need to match.
 
+On the modernization branch, protocol 2 adds protected submission retries and session-scoped polling. An updated server can recover the original ticket when its acknowledgement is lost. Older clients keep using their existing endpoints; their retry behavior does not change. [Protocol and compatibility details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-protocol.md).
+
 ## What you can do
 
 | Author | Inspect and verify | Coordinate |

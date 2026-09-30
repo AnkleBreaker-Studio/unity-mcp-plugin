@@ -28,6 +28,31 @@ namespace UnityMCP.Editor
 
         public enum RequestStatus { Queued, Executing, Completed, Failed, TimedOut }
 
+        public const int ProtocolVersion = 2;
+        public const int RetryWindowMs = 120_000;
+        public static readonly string SessionId = Guid.NewGuid().ToString("N");
+        private static readonly long _sessionStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        public static long SessionTimeMs => (long)((System.Diagnostics.Stopwatch.GetTimestamp() - _sessionStarted)
+            * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+
+        public class SubmissionResult
+        {
+            public RequestTicket Ticket;
+            public int StatusCode = 202;
+            public string Error;
+            public string Code;
+        }
+
+        private class SubmissionRecord
+        {
+            public long TicketId;
+            public long ExpiresAtMs;
+            public string Fingerprint;
+        }
+
+        private const int MaxSubmissionRecords = 10_000;
+        private static readonly Dictionary<string, SubmissionRecord> _submissions = new Dictionary<string, SubmissionRecord>();
+
         public class RequestTicket
         {
             public long   TicketId    { get; set; }
@@ -470,6 +495,11 @@ namespace UnityMCP.Editor
                     { "completedCacheSize",   _completedTickets.Count },
                     { "perAgentQueued",        perAgent },
                     { "totalSessionsTracked", _sessions.Count },
+                    { "protocolVersion", ProtocolVersion },
+                    { "queueSessionId", SessionId },
+                    { "queueSessionTimeMs", SessionTimeMs },
+                    { "queueRetryWindowMs", RetryWindowMs },
+                    { "retryCacheSize", _submissions.Count },
                 };
             }
         }
@@ -730,6 +760,7 @@ namespace UnityMCP.Editor
             lock (_queueLock)
             {
                 long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                CleanupSubmissions(SessionTimeMs);
                 var kill = new List<long>();
 
                 foreach (var kvp in _completedTickets)
@@ -788,6 +819,67 @@ namespace UnityMCP.Editor
                 dict["result"] = t.Result;
 
             return dict;
+        }
+
+        // Admission and replay lookup share the lock so duplicate callers cannot enqueue twice.
+        public static SubmissionResult SubmitOnce(string agentId, string actionName, string body, string requestId,
+            string sessionId, long expiresAtMs, Func<RequestTicket> submit)
+        {
+            if (string.IsNullOrEmpty(agentId)) agentId = "anonymous";
+            if (!Guid.TryParseExact(requestId, "N", out var parsedId))
+                return SubmissionError(400, "invalid_request_id", "requestId must be a 32-character GUID");
+            if (!string.Equals(sessionId, SessionId, StringComparison.Ordinal))
+                return SubmissionError(409, "queue_session_changed", "Queue session changed; submission was not accepted");
+
+            string fingerprint;
+            string key;
+            using (var hash = System.Security.Cryptography.SHA256.Create())
+            {
+                string content = actionName.Length + ":" + actionName + (body ?? "");
+                fingerprint = Convert.ToBase64String(hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(content)));
+                key = Convert.ToBase64String(hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(agentId))) + ":" + parsedId.ToString("N");
+            }
+            lock (_queueLock)
+            {
+                long now = SessionTimeMs;
+                if (expiresAtMs <= now)
+                    return SubmissionError(410, "request_expired", "Submission retry window expired; inspect the original outcome");
+                if (expiresAtMs - now > RetryWindowMs)
+                    return SubmissionError(400, "invalid_expiration", "Expiration exceeds the supported retry window");
+
+                if (_submissions.TryGetValue(key, out var previous))
+                {
+                    if (previous.Fingerprint != fingerprint || previous.ExpiresAtMs != expiresAtMs)
+                        return SubmissionError(409, "request_conflict", "requestId was already used with a different payload or expiration");
+                    if (_pendingTickets.TryGetValue(previous.TicketId, out var ticket)
+                        || _executingTickets.TryGetValue(previous.TicketId, out ticket)
+                        || _completedTickets.TryGetValue(previous.TicketId, out ticket))
+                        return new SubmissionResult { Ticket = ticket };
+                    return SubmissionError(410, "result_expired", "Original result expired; the request will not execute again");
+                }
+
+                if (_submissions.Count >= MaxSubmissionRecords) CleanupSubmissions(now);
+                if (_submissions.Count >= MaxSubmissionRecords)
+                    return SubmissionError(429, "retry_cache_full", "Submission retry cache is full; request was not accepted");
+
+                var accepted = submit();
+                _submissions.Add(key, new SubmissionRecord
+                {
+                    TicketId = accepted.TicketId, ExpiresAtMs = expiresAtMs, Fingerprint = fingerprint
+                });
+                return new SubmissionResult { Ticket = accepted };
+            }
+        }
+
+        private static SubmissionResult SubmissionError(int status, string code, string error) =>
+            new SubmissionResult { StatusCode = status, Code = code, Error = error };
+
+        private static void CleanupSubmissions(long now)
+        {
+            var expired = new List<string>();
+            foreach (var entry in _submissions)
+                if (entry.Value.ExpiresAtMs <= now) expired.Add(entry.Key);
+            foreach (var key in expired) _submissions.Remove(key);
         }
     }
 }

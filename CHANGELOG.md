@@ -5,6 +5,7 @@ All notable changes to this package will be documented in this file.
 ## [Unreleased]
 
 ### Improved
+- Advertise queue protocol 2 with protected submission and scoped polling endpoints. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
 - Index pending tickets by ID so status polling does not scan every agent queue as queue depth grows.
 - Add monotonic `queueWaitMs` and `processingTimeMs` plus `startedAt` to ticket status. Keep the existing `executionTimeMs` field and meaning for old servers and dashboards.
 - Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
@@ -22,6 +23,7 @@ All notable changes to this package will be documented in this file.
 - Add `tools~/validate-unity.ps1` and an isolated editor runner covering object identity, agent FIFO and round-robin writes, read batching, deferred completion, synchronous completion and deep-queue polling.
 - Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
 - Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.
+- Add 40-way concurrent submission retries, cache-capacity checks and a real HTTP dispatcher test that creates one GameObject for repeated protected submissions and verifies existing queue/synchronous calls.
 
 ## [2.39.7] - 2026-09-24
 

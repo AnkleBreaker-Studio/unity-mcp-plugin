@@ -76,7 +76,7 @@ namespace UnityMCP.Editor
         // One monotonic int, bumped whenever the bridge gains a wire-visible capability.
         // Servers compare it to decide between fast paths and graceful fallbacks.
         // v1: baseline — advertises the handshake itself + unknown-route 404s.
-        private const int ProtocolVersion = 1;
+        private const int ProtocolVersion = MCPRequestQueue.ProtocolVersion;
 
         private static string _pluginVersion;
         private static string PluginVersion
@@ -428,6 +428,7 @@ namespace UnityMCP.Editor
         {
             return apiPath == "ping"
                 || apiPath == "queue/status"
+                || apiPath == "queue/status-scoped"
                 || apiPath == "queue/info"
                 || apiPath == "context"
                 || apiPath.StartsWith("context/")
@@ -503,14 +504,14 @@ namespace UnityMCP.Editor
                 string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
 
                 // ═══ Queue endpoints (async, non-blocking) ═══
-                if (apiPath == "queue/submit")
+                if (apiPath == "queue/submit" || apiPath == "queue/submit-once")
                 {
-                    HandleQueueSubmit(response, agentId, body);
+                    HandleQueueSubmit(response, agentId, body, apiPath == "queue/submit-once");
                     return;
                 }
-                if (apiPath == "queue/status")
+                if (apiPath == "queue/status" || apiPath == "queue/status-scoped")
                 {
-                    HandleQueueStatus(response, request);
+                    HandleQueueStatus(response, request, apiPath == "queue/status-scoped");
                     return;
                 }
                 if (apiPath == "queue/info")
@@ -576,7 +577,7 @@ namespace UnityMCP.Editor
 
         // ─── Queue Submit (async) ───
 
-        private static void HandleQueueSubmit(HttpListenerResponse response, string agentId, string body)
+        private static void HandleQueueSubmit(HttpListenerResponse response, string agentId, string body, bool requireGuard)
         {
             try
             {
@@ -594,17 +595,35 @@ namespace UnityMCP.Editor
                 if (args.ContainsKey("agentId") && !string.IsNullOrEmpty(args["agentId"]?.ToString()))
                     agentId = args["agentId"].ToString();
 
-                MCPRequestQueue.RequestTicket ticket;
-                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                Func<MCPRequestQueue.RequestTicket> submit = () =>
                 {
-                    ticket = MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, resolve =>
-                        deferredHandler(ParseJson(innerBody), resolve));
-                }
-                else
-                {
-                    ticket = MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
+                    if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                        return MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, resolve =>
+                            deferredHandler(ParseJson(innerBody), resolve));
+                    return MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
                         RouteRequest(apiPath, "POST", innerBody));
+                };
+                MCPRequestQueue.RequestTicket ticket;
+                if (requireGuard || args.ContainsKey("requestId") || args.ContainsKey("queueSessionId") || args.ContainsKey("expiresAtMs"))
+                {
+                    if (!args.TryGetValue("requestId", out var requestId) || !(requestId is string)
+                        || !args.TryGetValue("queueSessionId", out var sessionId) || !(sessionId is string)
+                        || !args.TryGetValue("expiresAtMs", out var expires)
+                        || !long.TryParse(expires?.ToString(), out long expiresAtMs))
+                    {
+                        SendJson(response, 400, new { error = "requestId, queueSessionId and integer expiresAtMs are required together", code = "invalid_retry_guard" });
+                        return;
+                    }
+                    var submission = MCPRequestQueue.SubmitOnce(agentId, apiPath, innerBody,
+                        (string)requestId, (string)sessionId, expiresAtMs, submit);
+                    if (submission.Ticket == null)
+                    {
+                        SendJson(response, submission.StatusCode, new { error = submission.Error, code = submission.Code });
+                        return;
+                    }
+                    ticket = submission.Ticket;
                 }
+                else ticket = submit();
 
                 // Return immediately with ticket info
                 SendJson(response, 202, new Dictionary<string, object>
@@ -613,6 +632,7 @@ namespace UnityMCP.Editor
                     { "status",        ticket.Status.ToString() },
                     { "queuePosition", ticket.QueuePosition },
                     { "agentId",       agentId },
+                    { "queueSessionId", MCPRequestQueue.SessionId },
                 });
             }
             catch (Exception ex)
@@ -623,8 +643,14 @@ namespace UnityMCP.Editor
 
         // ─── Queue Status (polling) ───
 
-        private static void HandleQueueStatus(HttpListenerResponse response, HttpListenerRequest request)
+        private static void HandleQueueStatus(HttpListenerResponse response, HttpListenerRequest request, bool requireGuard)
         {
+            string sessionId = request.QueryString["queueSessionId"];
+            if ((requireGuard || sessionId != null) && !string.Equals(sessionId, MCPRequestQueue.SessionId, StringComparison.Ordinal))
+            {
+                SendJson(response, 409, new { error = "Queue session changed; the original ticket outcome is unknown", code = "queue_session_changed" });
+                return;
+            }
             string ticketIdStr = request.QueryString["ticketId"];
             if (string.IsNullOrEmpty(ticketIdStr) || !long.TryParse(ticketIdStr, out long ticketId))
             {
@@ -716,6 +742,7 @@ namespace UnityMCP.Editor
                         // monotonic int so the pair degrades gracefully across version
                         // drift (server and plugin ship on separate release trains).
                         protocolVersion = ProtocolVersion,
+                        queueSessionId = MCPRequestQueue.SessionId,
                         pluginVersion = PluginVersion
                     };
 

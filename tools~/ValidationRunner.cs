@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,12 +37,18 @@ public static class UnityMcpValidation
             report.checks.Add("Agent FIFO, round-robin writes, read batching and ticket results");
             ValidateDeferred();
             report.checks.Add("Deferred completion is atomic, single-shot and stable after timeout");
+            ValidateSubmissionRetries();
+            report.checks.Add("Concurrent submission retries share one ticket; conflicts, reload sessions and expired results never re-execute");
+            ValidateHttpProtocol();
+            report.checks.Add("Actual HTTP dispatcher validates scoped submission/polling, browser rejection, one-object retries and legacy compatibility");
             ValidateSync();
             report.checks.Add("Legacy synchronous callers are signaled without lost wakeups");
             ValidateSyncTimeouts();
             report.checks.Add("Legacy timeout preserves running outcomes and skips expired batched and queued work");
             ValidateDashboard();
             report.checks.Add("Dashboard shows running-only work and separates failures from finished requests");
+            ValidateRetryCapacity();
+            report.checks.Add("Submission retry cache refuses new work at its bounded capacity");
             report.polling100Ms = MeasurePolling(100);
             report.polling10000Ms = MeasurePolling(9900);
             report.checks.Add("1000 status polls at queue depths 100 and 10000");
@@ -277,5 +286,167 @@ public static class UnityMcpValidation
         var labels = new List<string>();
         root.Query<Label>().ForEach(label => labels.Add(label.text));
         return string.Join("\n", labels);
+    }
+
+    private static void ValidateSubmissionRetries()
+    {
+        string requestId = Guid.NewGuid().ToString("N");
+        long expires = MCPRequestQueue.SessionTimeMs + MCPRequestQueue.RetryWindowMs - 1000;
+        int submissions = 0, writes = 0;
+        Func<MCPRequestQueue.RequestTicket> submit = () =>
+        {
+            Interlocked.Increment(ref submissions);
+            return MCPRequestQueue.SubmitRequest("retry", "validation/write", () => ++writes);
+        };
+        var replies = new MCPRequestQueue.SubmissionResult[40];
+        Parallel.For(0, replies.Length, i => replies[i] = MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}",
+            requestId, MCPRequestQueue.SessionId, expires, submit));
+        foreach (var reply in replies)
+            Check(reply.StatusCode == 202 && ReferenceEquals(reply.Ticket, replies[0].Ticket), "A retry created another ticket");
+        Check(submissions == 1, "Concurrent retry admitted the operation more than once");
+        MCPRequestQueue.ProcessNextRequests();
+        Check(writes == 1, "Retried operation executed more than once");
+
+        var conflict = MCPRequestQueue.SubmitOnce("retry", "validation/write", "{\"changed\":true}", requestId,
+            MCPRequestQueue.SessionId, expires, submit);
+        Check(conflict.StatusCode == 409 && submissions == 1, "Conflicting payload was accepted");
+        var restarted = MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}", requestId,
+            Guid.NewGuid().ToString("N"), expires, submit);
+        Check(restarted.StatusCode == 409 && submissions == 1, "A retry from another editor domain was accepted");
+        Check(MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}", requestId, MCPRequestQueue.SessionId, 0, submit).StatusCode == 410,
+            "Expired submission was accepted");
+        Check(MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}", "invalid", MCPRequestQueue.SessionId, expires, submit).StatusCode == 400,
+            "Malformed request ID was accepted");
+        Check(MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}", requestId, MCPRequestQueue.SessionId, long.MaxValue, submit).StatusCode == 400,
+            "Unbounded retry lifetime was accepted");
+
+        SetTimestamp(replies[0].Ticket, "CompletedTimestamp", Stopwatch.GetTimestamp() - 61L * Stopwatch.Frequency);
+        Cleanup();
+        var evicted = MCPRequestQueue.SubmitOnce("retry", "validation/write", "{}", requestId, MCPRequestQueue.SessionId, expires, submit);
+        Check(evicted.StatusCode == 410 && submissions == 1, "Evicted result caused the operation to run again");
+        var otherAgent = MCPRequestQueue.SubmitOnce("retry-other", "validation/write", "{}", requestId, MCPRequestQueue.SessionId, expires,
+            () => MCPRequestQueue.SubmitRequest("retry-other", "validation/write", () => ++writes));
+        Check(otherAgent.StatusCode == 202 && otherAgent.Ticket.TicketId != replies[0].Ticket.TicketId, "Request IDs leaked across agents");
+        MCPRequestQueue.ProcessNextRequests();
+        Check(writes == 2, "Independent agent request was not executed");
+    }
+
+    private static void ValidateRetryCapacity()
+    {
+        int existing = (int)MCPRequestQueue.GetQueueInfo()["retryCacheSize"];
+        long expires = MCPRequestQueue.SessionTimeMs + MCPRequestQueue.RetryWindowMs - 1000;
+        int admitted = 0;
+        Func<MCPRequestQueue.RequestTicket> submit = () => { admitted++; return new MCPRequestQueue.RequestTicket(); };
+        for (int i = existing; i < 10_000; i++)
+            Check(MCPRequestQueue.SubmitOnce("capacity", "validation/write", "{}", Guid.NewGuid().ToString("N"),
+                MCPRequestQueue.SessionId, expires, submit).StatusCode == 202, "Retry capacity exhausted prematurely");
+        int before = admitted;
+        var refused = MCPRequestQueue.SubmitOnce("capacity", "validation/write", "{}", Guid.NewGuid().ToString("N"),
+            MCPRequestQueue.SessionId, expires, submit);
+        Check(refused.StatusCode == 429 && admitted == before, "Retry cache overflow accepted untracked work");
+    }
+
+    private static void ValidateHttpProtocol()
+    {
+        const string objectName = "__mcp_http_retry_validation";
+        var portProbe = new TcpListener(IPAddress.Loopback, 0);
+        portProbe.Start();
+        int port = ((IPEndPoint)portProbe.LocalEndpoint).Port;
+        portProbe.Stop();
+        bool categoryEnabled = MCPSettingsManager.IsCategoryEnabled("gameobject");
+        MCPSettingsManager.SetCategoryEnabled("gameobject", true);
+        try
+        {
+            using (var listener = new HttpListener())
+            using (var client = new HttpClient(new HttpClientHandler { UseProxy = false }))
+            {
+                string root = "http://127.0.0.1:" + port + "/";
+                listener.Prefixes.Add(root);
+                listener.Start();
+                client.BaseAddress = new Uri(root);
+                client.Timeout = TimeSpan.FromSeconds(5);
+                var info = HttpRoundTrip(listener, client, "GET", "queue/info", null, 200);
+                Check(Convert.ToInt32(info["protocolVersion"]) == 2, "HTTP retry capability missing");
+                var body = new Dictionary<string, object>
+                {
+                    { "apiPath", "gameobject/create" }, { "body", "{\"name\":\"" + objectName + "\"}" },
+                    { "agentId", "http-validation" }, { "requestId", Guid.NewGuid().ToString("N") },
+                    { "queueSessionId", info["queueSessionId"] },
+                    { "expiresAtMs", Convert.ToInt64(info["queueSessionTimeMs"]) + 119000 }
+                };
+                var first = HttpRoundTrip(listener, client, "POST", "queue/submit-once", body, 202);
+                var repeated = HttpRoundTrip(listener, client, "POST", "queue/submit-once", body, 202);
+                Check(Convert.ToInt64(first["ticketId"]) == Convert.ToInt64(repeated["ticketId"]), "HTTP retry returned another ticket");
+                MCPRequestQueue.ProcessNextRequests();
+                string query = "?ticketId=" + first["ticketId"] + "&queueSessionId=" + info["queueSessionId"];
+                var result = HttpRoundTrip(listener, client, "GET", "queue/status-scoped" + query, null, 200);
+                Check((string)result["status"] == "Completed", "HTTP request did not complete");
+                Check(CountValidationObjects(objectName) == 1, "HTTP retries did not create exactly one object");
+
+                HttpRoundTrip(listener, client, "POST", "queue/submit-once", body, 403, "https://example.test");
+
+                HttpRoundTrip(listener, client, "GET", "queue/status-scoped?ticketId=" + first["ticketId"], null, 409);
+                HttpRoundTrip(listener, client, "GET", "queue/submit-once", null, 405);
+                HttpRoundTrip(listener, client, "POST", "queue/submit-once", new Dictionary<string, object> { { "apiPath", "editor/state" } }, 400);
+                body["body"] = "{}";
+                HttpRoundTrip(listener, client, "POST", "queue/submit-once", body, 409);
+                body["queueSessionId"] = Guid.NewGuid().ToString("N");
+                HttpRoundTrip(listener, client, "POST", "queue/submit-once", body, 409);
+                Check(CountValidationObjects(objectName) == 1, "Rejected HTTP submissions executed work");
+
+                var oldBody = new Dictionary<string, object> { { "apiPath", "editor/state" }, { "body", "{}" } };
+                var legacyTicket = HttpRoundTrip(listener, client, "POST", "queue/submit", oldBody, 202);
+                MCPRequestQueue.ProcessNextRequests();
+                var legacyResult = HttpRoundTrip(listener, client, "GET", "queue/status?ticketId=" + legacyTicket["ticketId"], null, 200);
+                Check((string)legacyResult["status"] == "Completed", "Old queue client contract changed");
+                HttpRoundTrip(listener, client, "POST", "editor/state", new Dictionary<string, object>(), 200);
+            }
+        }
+        finally
+        {
+            MCPSettingsManager.SetCategoryEnabled("gameobject", categoryEnabled);
+            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+                if (go.name == objectName) UnityEngine.Object.DestroyImmediate(go);
+        }
+    }
+
+    private static int CountValidationObjects(string name)
+    {
+        int count = 0;
+        foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>()) if (go.name == name) count++;
+        return count;
+    }
+
+    private static Dictionary<string, object> HttpRoundTrip(HttpListener listener, HttpClient client, string method,
+        string path, Dictionary<string, object> body, int expectedStatus, string origin = null)
+    {
+        using (var message = new HttpRequestMessage(new HttpMethod(method), "api/" + path))
+        {
+            if (origin != null) message.Headers.Add("Origin", origin);
+            if (body != null) message.Content = new StringContent(MiniJson.Serialize(body), System.Text.Encoding.UTF8, "application/json");
+            var receiving = listener.GetContextAsync();
+            var sending = client.SendAsync(message);
+            var deadline = Stopwatch.StartNew();
+            while (!receiving.IsCompleted && deadline.ElapsedMilliseconds < 5000) Thread.Yield();
+            Check(receiving.IsCompleted, "Validation listener did not receive request");
+            var context = receiving.GetAwaiter().GetResult();
+            var dispatch = typeof(MCPBridgeServer).GetMethod("HandleRequest", BindingFlags.NonPublic | BindingFlags.Static);
+            var handling = Task.Run(() => dispatch.Invoke(null, new object[] { context }));
+            var drainLegacy = typeof(MCPBridgeServer).GetMethod("ProcessMainThreadQueue", BindingFlags.NonPublic | BindingFlags.Static);
+            while ((!sending.IsCompleted || !handling.IsCompleted) && deadline.ElapsedMilliseconds < 5000)
+            {
+                drainLegacy.Invoke(null, null);
+                MCPRequestQueue.ProcessNextRequests();
+                Thread.Yield();
+            }
+            Check(sending.IsCompleted && handling.IsCompleted, "HTTP dispatcher did not finish");
+            handling.GetAwaiter().GetResult();
+            using (var response = sending.GetAwaiter().GetResult())
+            {
+                string text = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                Check((int)response.StatusCode == expectedStatus, path + " returned " + response.StatusCode + ": " + text);
+                return MiniJson.Deserialize(text) as Dictionary<string, object>;
+            }
+        }
     }
 }

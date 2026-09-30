@@ -13,9 +13,6 @@ namespace UnityMCP.Editor.Welcome
     /// tool and the art profile.</summary>
     internal sealed partial class UnityMcpWelcome
     {
-        private const int REVIEW_MIN_OPENS = 3;
-        private const int REVIEW_SNOOZE_DAYS = 14;
-
         // -- Tool profile ---------------------------------------------------
 
         private void BuildToolStart(VisualElement host)
@@ -34,7 +31,7 @@ namespace UnityMCP.Editor.Welcome
             if (setupDone && !showSteps) BuildShortcuts(host);
             BuildStats(host);
             if (!setupDone) BuildHelp(host);
-            if (setupDone) BuildReview(host);
+            BuildReview(host);
         }
 
         /// <summary>Returns whether the package is blocked: missing compile dependencies, or not
@@ -259,24 +256,21 @@ namespace UnityMCP.Editor.Welcome
         }
 
         /// <summary>
-        /// Asked on a return visit only, once the setup is done and the package has been used:
-        /// never at import, where there is nothing to judge yet.
+        /// Asked on a return visit only, once the package has had time to be used: never at
+        /// import, where there is nothing to judge yet. Same clock and same machine-wide state as
+        /// the review popup (<see cref="UnityMcpWelcomePrompts"/>), without its cap: here the buyer
+        /// opened the window himself.
         /// </summary>
         private void BuildReview(VisualElement host)
         {
+            if (!UnityMcpWelcomePrompts.ReviewCardDue(_context, _catalog, DateTime.UtcNow)) return;
+
             UnityMcpUsage usage = _context.Config.usage;
-            if (string.IsNullOrEmpty(usage.reviewUrl) || UnityMcpWelcomeServices.GetFlag(_context, "ReviewDone")) return;
-            if (UnityMcpWelcomeServices.GetInt(_context, "Opens") < REVIEW_MIN_OPENS) return;
-            DateTime? snooze = UnityMcpWelcomeServices.GetDate(_context, "ReviewSnooze");
-            if (snooze != null && (DateTime.UtcNow - snooze.Value).TotalDays < REVIEW_SNOOZE_DAYS) return;
-
             int made = UnityMcpWelcomeServices.UsageCount(_context);
-            if (!string.IsNullOrEmpty(usage.filter) && made < usage.minCount) return;
-
             host.Add(Fill());
             var card = new VisualElement();
             card.AddToClassList("abw-review");
-            string lead = string.IsNullOrEmpty(usage.phrase)
+            string lead = string.IsNullOrEmpty(usage.phrase) || made < usage.minCount
                 ? "Has " + _context.Config.name + " earned its place in your project?"
                 : usage.phrase.Replace("{n}", made.ToString(CultureInfo.InvariantCulture)) + " Would you say so?";
             card.Add(Text(lead, "abw-review__title"));
@@ -285,20 +279,28 @@ namespace UnityMCP.Editor.Welcome
             actions.AddToClassList("abw-review__actions");
             VisualElement rate = Clickable(() =>
             {
-                UnityMcpWelcomeServices.SetFlag(_context, "ReviewDone", true);
-                // "store": this package's own store page, reviews section, as the catalogue knows it.
-                Application.OpenURL(usage.reviewUrl == "store" && Self != null ? Self.url + "#reviews" : usage.reviewUrl);
+                UnityMcpWelcomePrompts.MarkReviewDone(_context);
+                string url = UnityMcpWelcomePrompts.ReviewUrl(_context, _catalog);
+                if (url != null) Application.OpenURL(url);
                 Rebuild();
             }, "abw-btn", "abw-btn--accent");
             rate.Add(new Label("Rate " + _context.Config.name));
             actions.Add(rate);
             VisualElement later = Clickable(() =>
             {
-                UnityMcpWelcomeServices.SetDate(_context, "ReviewSnooze");
+                UnityMcpWelcomePrompts.MarkReviewLater(_context, DateTime.UtcNow);
                 Rebuild();
             }, "abw-btn", "abw-btn--quiet");
             later.Add(new Label("Not now"));
             actions.Add(later);
+            actions.Add(Fill());
+            Label rated = Text("I already rated it", "abw-review__aside");
+            rated.AddManipulator(new Clickable(() =>
+            {
+                UnityMcpWelcomePrompts.MarkReviewDone(_context);
+                Rebuild();
+            }));
+            actions.Add(rated);
             card.Add(actions);
             host.Add(card);
         }
@@ -321,6 +323,7 @@ namespace UnityMCP.Editor.Welcome
                 foreach (UnityMcpAction action in config.utilities) row.Add(Button(action, "abw-btn"));
                 host.Add(row);
             }
+            BuildReview(host);
         }
 
         /// <summary>For an art pack the only blocking question is the render pipeline: a material
@@ -358,8 +361,14 @@ namespace UnityMCP.Editor.Welcome
             }
         }
 
-        /// <summary>The pack is its content: its real inventory icons, one click per prefab.
-        /// Variants that only differ by a suffix (colliders) collapse into one tile.</summary>
+        private const int BOARD_ROWS = 4;
+        private const float BOARD_TILE_STEP = 106f; // .abw-tile width 98 + right margin 8
+        private const long PREVIEW_POLL_MS = 150;
+
+        /// <summary>The pack is its content: its real inventory icons, or the prefab's own
+        /// rendered preview when the pack has none, one click per prefab. Four rows at most, whatever
+        /// the window width: the last tile says how many more there are and opens the folder, so a
+        /// pack of sixty rocks does not bury the rest of the column.</summary>
         private void BuildBoard(VisualElement host)
         {
             UnityMcpBoard board = _context.Config.board;
@@ -382,6 +391,7 @@ namespace UnityMCP.Editor.Welcome
             grid.AddToClassList("abw-board");
             string common = CommonPrefix(shown.Select(Path.GetFileNameWithoutExtension).ToList());
 
+            var tiles = new List<BoardTile>();
             foreach (string path in shown)
             {
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -395,23 +405,94 @@ namespace UnityMCP.Editor.Welcome
                 tile.Add(image);
                 tile.Add(Text(TileLabel(name, common), "abw-tile__label"));
                 grid.Add(tile);
+                tiles.Add(new BoardTile { Element = tile, Image = image, Prefab = prefab, NeedsPreview = icon == null, Name = name });
             }
 
+            VisualElement group = null;
             if (grouped.Count > 0)
             {
                 string first = grouped[0];
-                VisualElement group = Clickable(() =>
-                {
-                    var asset = AssetDatabase.LoadAssetAtPath<GameObject>(first);
-                    Selection.activeObject = asset;
-                    EditorGUIUtility.PingObject(asset);
-                }, "abw-tile", "abw-tile--group");
+                group = Clickable(() => Reveal(first), "abw-tile", "abw-tile--group");
                 group.tooltip = string.Join("\n", grouped.Select(Path.GetFileNameWithoutExtension));
                 group.Add(Text("+" + grouped.Count, "abw-tile__count"));
                 group.Add(Text(board.groupLabel, "abw-tile__label"));
                 grid.Add(group);
             }
+
+            string folder = AssetDatabase.IsValidFolder(prefabs) ? prefabs : Path.GetDirectoryName(shown.FirstOrDefault() ?? "")?.Replace('\\', '/');
+            Label moreCount = Text("", "abw-tile__count");
+            VisualElement more = Clickable(() => Reveal(folder), "abw-tile", "abw-tile--group", "abw-tile--more");
+            more.Add(moreCount);
+            more.Add(Text("more prefabs", "abw-tile__label"));
+            grid.Add(more);
             section.Add(grid);
+
+            int lastCapacity = -1;
+            void Layout(float width)
+            {
+                int perRow = Mathf.Max(1, Mathf.FloorToInt((width + 8f) / BOARD_TILE_STEP));
+                int capacity = perRow * BOARD_ROWS;
+                if (capacity == lastCapacity) return;
+                lastCapacity = capacity;
+
+                int total = tiles.Count + (group != null ? 1 : 0);
+                bool overflow = total > capacity;
+                int visible = overflow ? capacity - 1 : tiles.Count;
+                for (int i = 0; i < tiles.Count; i++)
+                    tiles[i].Element.style.display = i < visible ? DisplayStyle.Flex : DisplayStyle.None;
+                if (group != null) group.style.display = overflow ? DisplayStyle.None : DisplayStyle.Flex;
+
+                more.style.display = overflow ? DisplayStyle.Flex : DisplayStyle.None;
+                if (overflow)
+                {
+                    int hidden = tiles.Count - visible + grouped.Count;
+                    moreCount.text = "+" + hidden;
+                    more.tooltip = string.Join("\n", tiles.Skip(visible).Select(t => t.Name).Concat(grouped.Select(Path.GetFileNameWithoutExtension)).Take(40));
+                }
+                RequestPreviews(tiles.Take(visible).Where(t => t.NeedsPreview).ToList());
+            }
+
+            // Before the first layout, assume the narrowest column so nothing flashes past four rows.
+            Layout(MIN_SIZE.x * 0.5f);
+            grid.RegisterCallback<GeometryChangedEvent>(evt => Layout(evt.newRect.width));
+        }
+
+        private sealed class BoardTile
+        {
+            public VisualElement Element;
+            public Image Image;
+            public GameObject Prefab;
+            public bool NeedsPreview;
+            public string Name;
+        }
+
+        /// <summary>AssetPreview renders asynchronously and returns null until it has: poll only
+        /// the tiles on screen, and stop once each has its picture or Unity gave up on it.</summary>
+        private void RequestPreviews(List<BoardTile> pending)
+        {
+            if (pending.Count == 0) return;
+            AssetPreview.SetPreviewTextureCacheSize(Mathf.Max(256, pending.Count * 2));
+            IVisualElementScheduledItem poll = null;
+            poll = rootVisualElement.schedule.Execute(() =>
+            {
+                pending.RemoveAll(t =>
+                {
+                    if (t.Prefab == null || t.Image.panel == null) return true;
+                    Texture2D preview = AssetPreview.GetAssetPreview(t.Prefab);
+                    if (preview != null) { t.Image.image = preview; t.NeedsPreview = false; return true; }
+                    return !AssetPreview.IsLoadingAssetPreview(t.Prefab.GetInstanceID());
+                });
+                if (pending.Count == 0) poll.Pause();
+            }).Every(PREVIEW_POLL_MS);
+        }
+
+        private static void Reveal(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return;
+            UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+            if (asset == null) return;
+            Selection.activeObject = asset;
+            EditorGUIUtility.PingObject(asset);
         }
 
         /// <summary>"Cauldron_T1_Simple" under a common "Cauldron_" prefix reads "T1 Simple"; the

@@ -360,6 +360,8 @@ namespace UnityMCP.Editor.Welcome
         private void BuildAssetsTab(VisualElement host)
         {
             if (_filter == "art") _filter = "cat:3D";
+            // What is on screen here is no longer news for the discovery prompt.
+            UnityMcpWelcomePrompts.MarkCatalogSeen(_catalog, DateTime.UtcNow);
             var head = new VisualElement();
             head.AddToClassList("abw-assets-head");
             var text = new VisualElement();

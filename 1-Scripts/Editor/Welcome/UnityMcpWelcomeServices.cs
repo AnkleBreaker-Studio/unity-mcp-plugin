@@ -159,6 +159,7 @@ namespace UnityMCP.Editor.Welcome
                 EditorPrefs.DeleteKey(Key(c, name));
             foreach (UnityMcpStep step in c.Config.steps)
                 EditorPrefs.DeleteKey(Key(c, "Step." + step.id));
+            UnityMcpWelcomePrompts.ClearState(c);
         }
 
         // -- What the project has -------------------------------------------
@@ -808,6 +809,8 @@ namespace UnityMCP.Editor.Welcome
             {
                 if (UnityMcpWelcomeServices.ShouldAutoOpen(context))
                 {
+                    // Tells every package's prompt scheduler to leave this session alone.
+                    SessionState.SetBool(UnityMcpWelcomePrompts.SESSION_AUTO_OPENED, true);
                     UnityMcpWelcome.Open(context.Guid);
                     return;
                 }

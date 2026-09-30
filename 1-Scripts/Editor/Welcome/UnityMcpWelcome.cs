@@ -46,7 +46,12 @@ namespace UnityMCP.Editor.Welcome
         private static void OpenFromMenu() => Open(null);
 
         /// <summary>Opens this package context, or its first config when no GUID is supplied.</summary>
-        public static void Open(string contextGuid)
+        public static void Open(string contextGuid) => OpenAt(contextGuid, "start", null);
+
+        /// <summary>The discovery prompt's "Show me": the catalogue, already filtered.</summary>
+        public static void OpenAssets(string contextGuid, string filter) => OpenAt(contextGuid, "assets", filter);
+
+        private static void OpenAt(string contextGuid, string tab, string filter)
         {
             UnityMcpWelcomeFirstOpen.OpenedThisSession = true;
             bool existed = HasOpenInstances<UnityMcpWelcome>();
@@ -66,6 +71,12 @@ namespace UnityMCP.Editor.Welcome
             window._pendingAssetsFilter = null;
             window.Bind();
             window.MarkOpened();
+            if (tab == "assets")
+            {
+                // Offline or still fetching: Rebuild keeps the destination pending until it lands.
+                window._filter = filter ?? "all";
+                window._tab = "assets";
+            }
             window.Rebuild();
             window.Show();
             window.Focus();
@@ -379,9 +390,16 @@ namespace UnityMCP.Editor.Welcome
 
             footer.Add(Fill());
 
+            // Stands out until the buyer has rated: then it steps back to a quiet link-button.
             string reviewUrl = Self?.url;
-            VisualElement review = Clickable(() => Application.OpenURL(reviewUrl + "#reviews"), "abw-btn", "abw-btn--quiet");
-            review.Add(new Label("Leave a review"));
+            bool rated = UnityMcpWelcomePrompts.ReviewDone(_context);
+            VisualElement review = Clickable(() =>
+            {
+                UnityMcpWelcomePrompts.MarkReviewDone(_context);
+                Application.OpenURL(reviewUrl + "#reviews");
+                Rebuild();
+            }, "abw-btn", rated ? "abw-btn--quiet" : "abw-review-cta");
+            review.Add(new Label(rated ? "Leave a review" : "\u2605  Leave a review"));
             review.SetEnabled(!string.IsNullOrEmpty(reviewUrl));
             footer.Add(review);
 

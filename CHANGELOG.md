@@ -2,6 +2,15 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.40.1] - 2026-10-01
+
+### Added
+- **Review and discovery prompts in the AnkleBreaker Welcome.** A small window asks for a review three days after the plugin's first use on this machine (Rate / Later / "I already rated it"; asked twice at most, 30 days apart), and another one shows what is new in the AnkleBreaker catalogue when something really is (a release since your last look, or a sale you have not seen). Every AnkleBreaker package on the machine shares one slot: at most one such window every 14 days, never at launch, never in Play mode or while compiling. Nothing opens a web page by itself: the store only opens from a click.
+
+### Changed
+- The Welcome footer's "Leave a review" button stands out (filled, with a star) until you have rated, then steps back.
+- The review card in the Welcome and in `CLICKME` follows the same three-day rule instead of counting window openings, and remembers a review for the whole machine rather than per project.
+
 ## [2.40.0] - 2026-09-29
 
 ### Changed

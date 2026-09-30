@@ -57,7 +57,11 @@ Other existing demonstrations: [brick breaker](docs/unity-mcp-showcase-brickbrea
 
 Open **Window → AB Unity MCP → Dashboard** for bridge state, start/stop controls, category switches, auto-start and port settings, agent sessions and update information.
 
-From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agent_log` to inspect work. Action history records attribution and supported undo groups. New ticket fields separate `queueWaitMs` from `processingTimeMs`; existing `executionTimeMs` keeps its original total-response-time meaning. Timing uses a monotonic clock.
+From your assistant, use `unity_queue_info`, `unity_agents_list` and `unity_agent_log` to inspect work. Action history records attribution and supported undo groups. New ticket fields separate monotonic `queueWaitMs` from `processingTimeMs`; existing `executionTimeMs` keeps its original total-response-time meaning.
+
+The dashboard distinguishes pending and running requests. Agent sessions report `failedRequests`, `timedOutRequests`, `averageQueueWaitMs` and `averageProcessingTimeMs`. `completedRequests` counts all terminal tickets, including failures and timeouts; `queuedRequests` counts outstanding queued and executing tickets. Failure counts reflect queue exceptions, not errors returned inside a command's result object. Timing stops when a ticket finishes or expires.
+
+Ticket completion is atomic: duplicate or late callbacks cannot replace a terminal result or count it twice. Legacy calls expire after 30 seconds; work still waiting is removed. Deferred execution expires after 120 seconds of processing when the editor runs cleanup. A timeout cannot cancel work that already started and does not prove that no changes occurred. Results remain available for polling for 60 seconds, or 30 seconds after timeout, until periodic cleanup.
 
 The editor registry receives a heartbeat approximately every 30 seconds while the editor update loop runs. A long compile can pause that loop. The server uses a staleness allowance and live identity checks during discovery; the heartbeat is a signal, not proof that an operation completed.
 
@@ -79,7 +83,7 @@ The bridge binds to loopback and checks incoming browser/host metadata. It is in
 
 ## Compatibility and validation
 
-Current modernization work has passed a focused batch run on **Unity 6000.6.2f1**: package compilation, object identity round-trips, agent ordering, read batching, deferred completion, 50 synchronous requests and polling at queue depths up to 10,000. Old Unity versions, optional integrations and actual multiplayer scenarios remain part of the wider validation work.
+Current modernization work has passed a focused batch run on **Unity 6000.6.2f1**: package compilation, object identity round-trips, agent ordering, read batching, duplicate/late deferred callbacks, result retention, 50 synchronous requests, real 30-second timeout races, dashboard state and polling at queue depths up to 10,000. Dashboard checks inspect its UI Toolkit labels in batch mode; they do not certify visual layout. Old Unity versions, optional integrations and actual multiplayer scenarios remain part of the wider validation work.
 
 To reproduce on Windows with an installed editor and a disposable project directory:
 

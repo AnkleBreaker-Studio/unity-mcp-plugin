@@ -18,6 +18,10 @@ namespace UnityMCP.Editor
         private int _queuedRequests = 0;
         private int _completedRequests = 0;
         private long _totalResponseTimeMs = 0;
+        private int _failedRequests;
+        private int _timedOutRequests;
+        private double _totalQueueWaitMs;
+        private double _totalProcessingTimeMs;
 
         private readonly List<string> _actionLog = new List<string>();
         private readonly List<MCPActionRecord> _structuredLog = new List<MCPActionRecord>();
@@ -97,6 +101,16 @@ namespace UnityMCP.Editor
 
         public List<string> GetLog() => new List<string>(_actionLog);
 
+        internal void RecordCompletion(MCPRequestQueue.RequestTicket ticket)
+        {
+            IncrementCompletedRequest(ticket.ExecutionTimeMs);
+            LastActivityAt = DateTime.UtcNow;
+            if (ticket.Status == MCPRequestQueue.RequestStatus.Failed) _failedRequests++;
+            if (ticket.Status == MCPRequestQueue.RequestStatus.TimedOut) _timedOutRequests++;
+            _totalQueueWaitMs += ticket.QueueWaitMs;
+            _totalProcessingTimeMs += ticket.ProcessingTimeMs;
+        }
+
         public Dictionary<string, object> ToDict()
         {
             return new Dictionary<string, object>
@@ -110,6 +124,10 @@ namespace UnityMCP.Editor
                 { "queuedRequests", QueuedRequests },
                 { "completedRequests", CompletedRequests },
                 { "averageResponseTimeMs", Math.Round(AverageResponseTimeMs, 2) },
+                { "failedRequests", _failedRequests },
+                { "timedOutRequests", _timedOutRequests },
+                { "averageQueueWaitMs", _completedRequests == 0 ? 0 : Math.Round(_totalQueueWaitMs / _completedRequests, 2) },
+                { "averageProcessingTimeMs", _completedRequests == 0 ? 0 : Math.Round(_totalProcessingTimeMs / _completedRequests, 2) },
                 { "structuredActionCount", _structuredLog.Count },
             };
         }

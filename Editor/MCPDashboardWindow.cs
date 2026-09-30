@@ -354,11 +354,11 @@ namespace UnityMCP.Editor
         {
             var info = MCPRequestQueue.GetQueueInfo();
             int totalQueued = ReadInt(info, "totalQueued");
-            int activeAgents = ReadInt(info, "activeAgents");
+            int executing = ReadInt(info, "executingCount");
             int cacheSize = ReadInt(info, "completedCacheSize");
 
             var sb = new StringBuilder();
-            sb.Append(totalQueued).Append('|').Append(activeAgents).Append('|').Append(cacheSize);
+            sb.Append(totalQueued).Append('|').Append(executing).Append('|').Append(cacheSize);
             var perAgent = info.TryGetValue("perAgentQueued", out var pa) ? pa as Dictionary<string, object> : null;
             if (perAgent != null)
                 foreach (var kvp in perAgent) sb.Append('|').Append(kvp.Key).Append(':').Append(kvp.Value);
@@ -369,11 +369,13 @@ namespace UnityMCP.Editor
             _queueRows.Clear();
 
             var summary = Row(_queueRows);
-            Dot(summary, totalQueued > 0 ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
-            string statusText = totalQueued > 0
-                ? $"{totalQueued} pending  ·  {activeAgents} agents  ·  {cacheSize} cached"
-                : $"Idle  ·  {activeAgents} agents  ·  {cacheSize} cached";
-            Text(summary, statusText, "ab-dash__label");
+            bool busy = totalQueued > 0 || executing > 0;
+            Dot(summary, busy ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
+            string statusText = busy
+                ? $"{totalQueued} pending  ·  {executing} running  ·  {cacheSize} cached"
+                : $"Idle  ·  {cacheSize} cached";
+            var summaryText = Text(summary, statusText, "ab-dash__label");
+            summaryText.style.whiteSpace = WhiteSpace.Normal;
 
             if (perAgent != null && perAgent.Count > 0)
             {
@@ -503,11 +505,19 @@ namespace UnityMCP.Editor
                 action.AddToClassList("ab-dash__ellipsis");
                 action.style.marginLeft = 8;
                 Grow(row);
-                string stats = $"{Read(session, "totalActions", "0")} total · " +
-                               $"{Read(session, "queuedRequests", "0")}q · " +
-                               $"{Read(session, "completedRequests", "0")}ok · " +
-                               $"{Read(session, "averageResponseTimeMs", "0")}ms";
-                Text(row, stats, "ab-dash__mini").AddToClassList("ab-dash__ellipsis");
+                string stats = $"{Read(session, "completedRequests", "0")} finished · " +
+                               $"{Read(session, "queuedRequests", "0")} outstanding · " +
+                               $"{Read(session, "failedRequests", "0")} failed · " +
+                               $"{Read(session, "timedOutRequests", "0")} timed out";
+                var statsLabel = Text(_agentRows, stats, "ab-dash__mini");
+                statsLabel.style.whiteSpace = WhiteSpace.Normal;
+                statsLabel.tooltip = "Finished includes successes, failures and timeouts. Outstanding includes queued and running requests.";
+                string timing = $"Average: {Read(session, "averageQueueWaitMs", "0")} ms waiting · " +
+                                $"{Read(session, "averageProcessingTimeMs", "0")} ms processing";
+                var timingLabel = Text(_agentRows, timing, "ab-dash__mini");
+                timingLabel.style.whiteSpace = WhiteSpace.Normal;
+                timingLabel.tooltip = "Measured until each ticket finishes or times out. A timeout cannot stop an operation that already started.";
+                timingLabel.style.marginBottom = 6;
             }
         }
 

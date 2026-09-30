@@ -214,39 +214,25 @@ namespace UnityMCP.Editor
 
             try
             {
-                if (!waiter.Wait(SyncTimeoutMs))
-                {
-                    // Timed out — mark ticket
-                    lock (_queueLock)
-                    {
-                        ticket.Status       = RequestStatus.TimedOut;
-                        ticket.ErrorMessage = $"Timed out after {SyncTimeoutMs / 1000}s waiting for main thread";
-                        ticket.CompletedAt  = DateTime.UtcNow;
-                        ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-                        _completedTickets[ticket.TicketId] = ticket;
-                    }
-                    return new Dictionary<string, object>
-                    {
-                        { "error", ticket.ErrorMessage },
-                        { "ticketId", ticket.TicketId },
-                    };
-                }
-
-                // Signaled — grab result
+                bool signaled = waiter.Wait(SyncTimeoutMs);
                 lock (_queueLock)
                 {
-                    if (_completedTickets.TryGetValue(ticket.TicketId, out var done))
+                    if (!signaled)
                     {
-                        if (done.Status == RequestStatus.Failed)
-                            return new Dictionary<string, object>
-                            {
-                                { "error", done.ErrorMessage },
-                                { "ticketId", done.TicketId },
-                            };
-                        return done.Result;
+                        string detail = ticket.StartedTimestamp.HasValue
+                            ? "the operation may already have made changes"
+                            : "the operation was removed before execution";
+                        TryCompleteTicket(ticket, RequestStatus.TimedOut, null,
+                            $"Timed out after {SyncTimeoutMs / 1000}s; {detail}");
                     }
+                    if (ticket.Status == RequestStatus.Failed || ticket.Status == RequestStatus.TimedOut)
+                        return new Dictionary<string, object>
+                        {
+                            { "error", ticket.ErrorMessage },
+                            { "ticketId", ticket.TicketId },
+                        };
+                    return ticket.Result;
                 }
-                return null;
             }
             finally
             {
@@ -310,10 +296,16 @@ namespace UnityMCP.Editor
             // --- Execute OUTSIDE lock (main thread) ---
             foreach (var ticket in batch)
             {
+                Func<object> action;
+                Action<Action<object>> deferredAction;
                 lock (_queueLock)
                 {
+                    // A synchronous waiter can expire while an earlier batched read runs.
+                    if (ticket.Status != RequestStatus.Executing) continue;
                     ticket.StartedAt = DateTime.UtcNow;
                     ticket.StartedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                    action = ticket.Action;
+                    deferredAction = ticket.DeferredAction;
                 }
                 // Give each WRITE action its own named, collapsed Undo group so it can be
                 // reverted independently (per-action / per-agent undo via undo/last) and shows
@@ -327,7 +319,7 @@ namespace UnityMCP.Editor
                 // interleaved group into this one (corrupting per-action undo bookkeeping). They
                 // are already excluded from history recording below, so they need no group.
                 bool opensUndoGroup =
-                    ticket.DeferredAction == null
+                    deferredAction == null
                     && !IsReadOperation(ticket.ActionName)
                     && !(ticket.ActionName != null && ticket.ActionName.StartsWith("undo/"));
                 int undoGroup = -1;
@@ -341,69 +333,40 @@ namespace UnityMCP.Editor
                 }
 
                 // Deferred actions complete via callback on a future editor frame.
-                if (ticket.DeferredAction != null)
+                if (deferredAction != null)
                 {
-                    var deferredTicket = ticket; // capture for closure
                     try
                     {
-                        deferredTicket.DeferredAction(result =>
-                        {
-                            deferredTicket.Result      = result;
-                            deferredTicket.Status      = RequestStatus.Completed;
-                            deferredTicket.CompletedAt = DateTime.UtcNow;
-                            deferredTicket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-                            deferredTicket.DeferredAction = null;
-
-                            lock (_queueLock)
-                            {
-                                _executingTickets.Remove(deferredTicket.TicketId);
-                                _completedTickets[deferredTicket.TicketId] = deferredTicket;
-                                if (_waiters.TryGetValue(deferredTicket.TicketId, out var w))
-                                    w.Set();
-                                if (_sessions.TryGetValue(deferredTicket.AgentId, out var s))
-                                    s.IncrementCompletedRequest(deferredTicket.ExecutionTimeMs);
-                            }
-                        });
+                        deferredAction(value => TryCompleteTicket(ticket, RequestStatus.Completed, value, null));
                     }
                     catch (Exception ex)
                     {
-                        deferredTicket.Status       = RequestStatus.Failed;
-                        deferredTicket.ErrorMessage  = ex.Message;
-                        deferredTicket.CompletedAt   = DateTime.UtcNow;
-                        deferredTicket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-                        deferredTicket.DeferredAction = null;
+                        TryCompleteTicket(ticket, RequestStatus.Failed, null, ex.Message);
                         Debug.LogError($"[Unity MCP Queue] Deferred ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
-
-                        lock (_queueLock)
-                        {
-                            _executingTickets.Remove(deferredTicket.TicketId);
-                            _completedTickets[deferredTicket.TicketId] = deferredTicket;
-                            if (_waiters.TryGetValue(deferredTicket.TicketId, out var w))
-                                w.Set();
-                        }
                     }
                     continue; // Skip normal completion — callback handles it
                 }
 
+                object result = null;
+                string error = null;
+                var status = RequestStatus.Completed;
                 try
                 {
-                    ticket.Result = ticket.Action();
-                    ticket.Status = RequestStatus.Completed;
+                    result = action();
                 }
                 catch (Exception ex)
                 {
-                    ticket.Status       = RequestStatus.Failed;
-                    ticket.ErrorMessage = ex.Message;
+                    status = RequestStatus.Failed;
+                    error = ex.Message;
                     Debug.LogError($"[Unity MCP Queue] Ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
                 }
-                ticket.CompletedAt = DateTime.UtcNow;
-                ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-                ticket.Action      = null; // Free the closure
 
                 // Fold everything this action registered into its single named group so one
                 // undo/last (or a native Ctrl+Z) reverts the whole action as one step.
                 if (undoGroup >= 0)
                     UnityEditor.Undo.CollapseUndoOperations(undoGroup);
+
+                TryCompleteTicket(ticket, status, result, error);
 
                 // An action is undoable only if it ACTUALLY registered an undo op. Reads that
                 // slip past IsReadOperation, and execute-code that only inspects, open an empty
@@ -458,18 +421,6 @@ namespace UnityMCP.Editor
                     Debug.LogWarning($"[Unity MCP Queue] Failed to record action history: {ex.Message}");
                 }
 
-                // Move to completed cache, remove from in-flight, and signal waiters
-                lock (_queueLock)
-                {
-                    _executingTickets.Remove(ticket.TicketId);
-                    _completedTickets[ticket.TicketId] = ticket;
-
-                    if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
-                        waiter.Set();
-
-                    if (_sessions.TryGetValue(ticket.AgentId, out var session))
-                        session.IncrementCompletedRequest(ticket.ExecutionTimeMs);
-                }
             }
         }
 
@@ -736,19 +687,57 @@ namespace UnityMCP.Editor
             return session;
         }
 
+        private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error)
+        {
+            lock (_queueLock)
+            {
+                // Late callbacks and racing waiters must not overwrite a terminal outcome.
+                if (ticket.Status != RequestStatus.Queued && ticket.Status != RequestStatus.Executing)
+                    return false;
+
+                ticket.Status = status;
+                ticket.Result = result;
+                ticket.ErrorMessage = error;
+                ticket.CompletedAt = DateTime.UtcNow;
+                ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                ticket.Action = null;
+                ticket.DeferredAction = null;
+
+                if (_pendingTickets.Remove(ticket.TicketId)
+                    && _agentQueues.TryGetValue(ticket.AgentId, out var queue))
+                {
+                    // Expired work must leave both indexes without changing the surviving FIFO order.
+                    int count = queue.Count;
+                    for (int i = 0; i < count; i++)
+                    {
+                        var queued = queue.Dequeue();
+                        if (queued.TicketId != ticket.TicketId) queue.Enqueue(queued);
+                    }
+                    PurgeEmptyQueues();
+                }
+                _executingTickets.Remove(ticket.TicketId);
+                _completedTickets[ticket.TicketId] = ticket;
+                if (_sessions.TryGetValue(ticket.AgentId, out var session))
+                    session.RecordCompletion(ticket);
+                if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
+                    waiter.Set();
+                return true;
+            }
+        }
+
         private static void RunCleanup()
         {
             lock (_queueLock)
             {
-                var now  = DateTime.UtcNow;
+                long now = System.Diagnostics.Stopwatch.GetTimestamp();
                 var kill = new List<long>();
 
                 foreach (var kvp in _completedTickets)
                 {
                     var t = kvp.Value;
-                    if (!t.CompletedAt.HasValue) continue;
+                    if (!t.CompletedTimestamp.HasValue) continue;
 
-                    double age = (now - t.CompletedAt.Value).TotalSeconds;
+                    double age = (now - t.CompletedTimestamp.Value) / (double)System.Diagnostics.Stopwatch.Frequency;
                     if (t.Status == RequestStatus.TimedOut && age > TimedOutCacheLifetimeSec)
                         kill.Add(t.TicketId);
                     else if (age > CompletedCacheLifetimeSec)
@@ -758,16 +747,18 @@ namespace UnityMCP.Editor
                 foreach (var id in kill)
                     _completedTickets.Remove(id);
 
-                // Safety valve: clean up stale executing tickets (stuck > 120s)
+                // Queue wait does not consume an asynchronous operation's execution deadline.
                 var staleExecuting = new List<long>();
                 foreach (var kvp in _executingTickets)
                 {
-                    double age = (now - kvp.Value.SubmittedAt).TotalSeconds;
+                    if (!kvp.Value.StartedTimestamp.HasValue) continue;
+                    double age = (now - kvp.Value.StartedTimestamp.Value) / (double)System.Diagnostics.Stopwatch.Frequency;
                     if (age > 120)
                         staleExecuting.Add(kvp.Key);
                 }
                 foreach (var id in staleExecuting)
-                    _executingTickets.Remove(id);
+                    TryCompleteTicket(_executingTickets[id], RequestStatus.TimedOut, null,
+                        "Timed out after 120s of execution; the operation may already have made changes");
             }
         }
 

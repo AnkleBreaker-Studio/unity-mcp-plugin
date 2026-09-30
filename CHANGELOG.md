@@ -7,10 +7,13 @@ All notable changes to this package will be documented in this file.
 ### Improved
 - Index pending tickets by ID so status polling does not scan every agent queue as queue depth grows.
 - Add monotonic `queueWaitMs` and `processingTimeMs` plus `startedAt` to ticket status. Keep the existing `executionTimeMs` field and meaning for old servers and dashboards.
+- Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
 
 ### Fixed
 - Register legacy synchronous waiters before a ticket can complete and remove them before disposal, under the queue lock, to avoid lost wakeups and signaling disposed waiters.
 - Declare the uGUI and Test Framework dependencies already used by the command assembly. A minimal project could fail compilation because template-installed packages had hidden those requirements.
+- Finalize tickets atomically so duplicate callbacks, callbacks after expiration and synchronous timeout races cannot overwrite terminal results or count completion twice. Release work closures, remove expired pending work, and account for deferred exceptions and timeouts consistently.
+- Keep expired deferred tickets queryable as `TimedOut` until retention cleanup instead of dropping them immediately. Execution deadlines start when work begins; deadlines and retention use monotonic time.
 
 ### Documentation
 - Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
@@ -18,6 +21,7 @@ All notable changes to this package will be documented in this file.
 ### Validation
 - Add `tools~/validate-unity.ps1` and an isolated editor runner covering object identity, agent FIFO and round-robin writes, read batching, deferred completion, synchronous completion and deep-queue polling.
 - Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
+- Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.
 
 ## [2.39.7] - 2026-09-24
 

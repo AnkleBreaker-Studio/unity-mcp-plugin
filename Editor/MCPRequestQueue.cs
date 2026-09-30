@@ -213,6 +213,13 @@ namespace UnityMCP.Editor
         public static RequestTicket SubmitDeferredRequest(string agentId, string actionName,
             Action<Action<object>> deferredAction)
         {
+            return SubmitDeferredRequest(agentId, actionName, (resolve, isActive) => deferredAction(resolve));
+        }
+
+        // Deferred schedulers must skip work whose legacy waiter or execution deadline has expired.
+        public static RequestTicket SubmitDeferredRequest(string agentId, string actionName,
+            Action<Action<object>, Func<bool>> deferredAction)
+        {
             if (string.IsNullOrEmpty(agentId)) agentId = "anonymous";
 
             var ticket = new RequestTicket
@@ -222,8 +229,11 @@ namespace UnityMCP.Editor
                 ActionName     = actionName,
                 Status         = RequestStatus.Queued,
                 SubmittedAt    = DateTime.UtcNow,
-                DeferredAction = deferredAction,
             };
+            ticket.DeferredAction = resolve => deferredAction(resolve, () =>
+            {
+                lock (_queueLock) return ticket.Status == RequestStatus.Executing;
+            });
 
             lock (_queueLock)
             {
@@ -250,12 +260,24 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object ExecuteWithTracking(string agentId, string actionName, Func<object> action)
         {
+            return ExecuteAndWait(() => SubmitRequest(agentId, actionName, action));
+        }
+
+        // Only the HTTP worker waits; Unity callbacks must remain free to run on future editor updates.
+        public static object ExecuteDeferredWithTracking(string agentId, string actionName,
+            Action<Action<object>, Func<bool>> action)
+        {
+            return ExecuteAndWait(() => SubmitDeferredRequest(agentId, actionName, action));
+        }
+
+        private static object ExecuteAndWait(Func<RequestTicket> submit)
+        {
             var waiter = new ManualResetEventSlim(false);
             RequestTicket ticket;
             lock (_queueLock)
             {
                 // Register before the main thread can complete and signal this ticket.
-                ticket = SubmitRequest(agentId, actionName, action);
+                ticket = submit();
                 _waiters[ticket.TicketId] = waiter;
             }
 

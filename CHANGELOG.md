@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Package Manager
+- Replace main-thread sleep loops in all five package commands with sequential requests observed on editor updates. Preserve tool arguments and successful result payloads.
+- Skip pending requests whose tickets expire; let started Unity requests retain their slot until completion without overwriting timed-out outcomes. Unsubscribe polling when idle and clear it before reload/shutdown.
+- Preserve legacy synchronous responses by waiting on the HTTP worker, including deferred test discovery. Apply category settings to deferred handlers and map package routes to the Package Manager setting.
+- Use registered packages for synchronous Dashboard self-tests. Add `-Suite Packages` and legacy HTTP checks; live list/info/search/local-add/local-remove checks pass on Node 18 and 22 with current and released servers, the latter sequentially. The 70-file Unity 2021.3 API compiler check passes; actual older-editor execution remains deferred.
+
 ### Dashboard
 - Reuse agent cards and typed display snapshots instead of rebuilding the entire agent section and transport dictionaries on every metric change. A local 100-refresh workload with one changing agent among twenty records 34,800 allocation events, down from 210,000; layout/rendering costs are excluded.
 - Fix duplicate controls and refresh schedules when Unity recreates the interface. Replace the prior news subscription and pause the old schedule.

@@ -357,7 +357,9 @@ public static class UnityMcpValidation
         int port = ((IPEndPoint)portProbe.LocalEndpoint).Port;
         portProbe.Stop();
         bool categoryEnabled = MCPSettingsManager.IsCategoryEnabled("gameobject");
+        bool packagesEnabled = MCPSettingsManager.IsCategoryEnabled("packagemanager");
         MCPSettingsManager.SetCategoryEnabled("gameobject", true);
+        MCPSettingsManager.SetCategoryEnabled("packagemanager", true);
         try
         {
             using (var listener = new HttpListener())
@@ -403,11 +405,17 @@ public static class UnityMcpValidation
                 var legacyResult = HttpRoundTrip(listener, client, "GET", "queue/status?ticketId=" + legacyTicket["ticketId"], null, 200);
                 Check((string)legacyResult["status"] == "Completed", "Old queue client contract changed");
                 HttpRoundTrip(listener, client, "POST", "editor/state", new Dictionary<string, object>(), 200);
+                var packageError = HttpRoundTrip(listener, client, "POST", "packages/info", new Dictionary<string, object>(), 200);
+                Check(((string)packageError["error"]).Contains("name is required"), "Legacy deferred route lost its command result");
+                MCPSettingsManager.SetCategoryEnabled("packagemanager", false);
+                var disabledPackages = HttpRoundTrip(listener, client, "POST", "packages/list", new Dictionary<string, object>(), 200);
+                Check(((string)disabledPackages["error"]).Contains("disabled"), "Legacy deferred route bypassed category settings");
             }
         }
         finally
         {
             MCPSettingsManager.SetCategoryEnabled("gameobject", categoryEnabled);
+            MCPSettingsManager.SetCategoryEnabled("packagemanager", packagesEnabled);
             foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
                 if (go.name == objectName) UnityEngine.Object.DestroyImmediate(go);
         }

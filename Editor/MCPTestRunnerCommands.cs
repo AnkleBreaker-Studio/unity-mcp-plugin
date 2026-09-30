@@ -224,14 +224,7 @@ namespace UnityMCP.Editor
             return SerializeJob(job, includeDetails, includeFailedOnly);
         }
 
-        /// <summary>
-        /// List available tests (discovery).
-        /// Route: testing/list-tests
-        ///
-        /// Uses a callback because RetrieveTestList fires its callback on the
-        /// next editor frame, not synchronously. The bridge's deferred execution
-        /// path blocks the HTTP thread until resolve is called.
-        /// </summary>
+        // RetrieveTestList completes on a future editor update; the caller must keep the main thread free.
         public static void ListTests(Dictionary<string, object> args, Action<object> resolve)
         {
             string modeStr = args.ContainsKey("mode") ? args["mode"].ToString() : "EditMode";

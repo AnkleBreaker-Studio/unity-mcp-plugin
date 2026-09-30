@@ -66,10 +66,15 @@ namespace UnityMCP.Editor
 
         // Routes whose Unity APIs use async callbacks (fire on next editor frame).
         // Register here instead of adding per-route if-conditions in HandleRequest/HandleQueueSubmit.
-        private static readonly Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
-            _deferredRoutes = new Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
+        private static readonly Dictionary<string, Action<Dictionary<string, object>, Action<object>, Func<bool>>>
+            _deferredRoutes = new Dictionary<string, Action<Dictionary<string, object>, Action<object>, Func<bool>>>
         {
-            { "testing/list-tests", MCPTestRunnerCommands.ListTests },
+            { "testing/list-tests", (args, resolve, isActive) => MCPTestRunnerCommands.ListTests(args, resolve) },
+            { "packages/list", MCPPackageManagerCommands.ListPackages },
+            { "packages/add", MCPPackageManagerCommands.AddPackage },
+            { "packages/remove", MCPPackageManagerCommands.RemovePackage },
+            { "packages/search", MCPPackageManagerCommands.SearchPackage },
+            { "packages/info", MCPPackageManagerCommands.GetPackageInfo },
         };
 
         // ─── Capability handshake (unity-mcp-server PRs #32/#20) ───
@@ -536,17 +541,12 @@ namespace UnityMCP.Editor
                     return;
                 }
 
-                // ═══ Deferred paths (Unity APIs with async callbacks) ═══
-                // These complete via an async main-thread callback and MUST go through the async
-                // queue (queue/submit → SubmitDeferredRequest, which is non-blocking). Running one
-                // on this synchronous endpoint self-deadlocks the editor for the full sync timeout:
-                // the ticket executes on the main thread and blocks on the main-thread pump, which
-                // can't drain until the current update tick returns — but it's blocked inside it.
-                // The Node server always uses queue/submit; this guard only trips a raw/legacy
-                // direct POST, turning a 30s hang into an actionable error.
+                // Preserve legacy responses while Unity completes the request on later editor updates.
                 if (_deferredRoutes.ContainsKey(apiPath))
                 {
-                    SendJson(response, 409, new { error = $"Route '{apiPath}' must be called via the async queue (POST /api/queue/submit), not the synchronous endpoint." });
+                    var result = MCPRequestQueue.ExecuteDeferredWithTracking(agentId, apiPath,
+                        (resolve, isActive) => RouteDeferredRequest(apiPath, body, resolve, isActive));
+                    SendJson(response, 200, result);
                     return;
                 }
 
@@ -597,9 +597,9 @@ namespace UnityMCP.Editor
 
                 Func<MCPRequestQueue.RequestTicket> submit = () =>
                 {
-                    if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
-                        return MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, resolve =>
-                            deferredHandler(ParseJson(innerBody), resolve));
+                    if (_deferredRoutes.ContainsKey(apiPath))
+                        return MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, (resolve, isActive) =>
+                            RouteDeferredRequest(apiPath, innerBody, resolve, isActive));
                     return MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
                         RouteRequest(apiPath, "POST", innerBody));
                 };
@@ -703,6 +703,23 @@ namespace UnityMCP.Editor
             };
         }
 
+        private static object DisabledCategoryError(string path)
+        {
+            string category = ExtractCategory(path);
+            if (category == "packages") category = "packagemanager";
+            if (category != "ping" && category != "agents" && category != "queue"
+                && !MCPSettingsManager.IsCategoryEnabled(category))
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
+            return null;
+        }
+
+        private static void RouteDeferredRequest(string path, string body, Action<object> resolve, Func<bool> isActive)
+        {
+            var disabled = DisabledCategoryError(path);
+            if (disabled != null) { resolve(disabled); return; }
+            _deferredRoutes[path](ParseJson(body), resolve, isActive);
+        }
+
         /// <summary>
         /// Route API requests to the appropriate handler.
         /// NOTE: This entire method runs on the main thread (dispatched by HandleRequest
@@ -716,13 +733,8 @@ namespace UnityMCP.Editor
                 return GetRegisteredRoutes();
             }
 
-            // Check if category is enabled
-            string category = ExtractCategory(path);
-            if (category != "ping" && category != "agents" && category != "queue"
-                && !MCPSettingsManager.IsCategoryEnabled(category))
-            {
-                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
-            }
+            var disabled = DisabledCategoryError(path);
+            if (disabled != null) return disabled;
 
             switch (path)
             {
@@ -1420,18 +1432,6 @@ namespace UnityMCP.Editor
                     return MCPUICommands.SetUIText(ParseJson(body));
                 case "ui/set-image":
                     return MCPUICommands.SetUIImage(ParseJson(body));
-
-                // ─── Package Manager ───
-                case "packages/list":
-                    return MCPPackageManagerCommands.ListPackages(ParseJson(body));
-                case "packages/add":
-                    return MCPPackageManagerCommands.AddPackage(ParseJson(body));
-                case "packages/remove":
-                    return MCPPackageManagerCommands.RemovePackage(ParseJson(body));
-                case "packages/search":
-                    return MCPPackageManagerCommands.SearchPackage(ParseJson(body));
-                case "packages/info":
-                    return MCPPackageManagerCommands.GetPackageInfo(ParseJson(body));
 
                 // ─── Constraints & LOD ───
                 case "constraint/add":

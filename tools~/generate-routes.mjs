@@ -54,10 +54,8 @@ if (deferredCount === 0) {
   throw new Error("No deferred routes extracted — parser assumptions broke.");
 }
 
-// Note: routes behind conditional compilation (e.g. uma/* under #if UMA_INSTALLED)
-// are always listed — source-text generation can't evaluate defines. On projects
-// without the optional package those routes pass the 404 gate and fall through to
-// the dispatch default's "Unknown API endpoint" error, same as before this registry.
+// Optional integrations stay discoverable; their dispatch facades report missing dependencies.
+// Source-text generation cannot evaluate project-specific compilation defines.
 
 if (routes.size < 200) {
   throw new Error(`Only ${routes.size} routes extracted — parser likely broke; refusing to emit a shrunken registry.`);

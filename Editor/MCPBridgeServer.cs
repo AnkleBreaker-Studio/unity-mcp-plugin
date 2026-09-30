@@ -1483,7 +1483,6 @@ namespace UnityMCP.Editor
                 case "mppm/deactivate-player":
                     return MCPScenarioCommands.MppmDeactivatePlayer(ParseJson(body));
 
-#if UMA_INSTALLED
                 // === UMA (Unity Multipurpose Avatar)
                 case "uma/inspect-fbx":
                     return MCPUMACommands.InspectFbx(ParseJson(body));
@@ -1517,7 +1516,6 @@ namespace UnityMCP.Editor
                         return MCPUMACommands.CreateRace(ParseJson(body));
                     case "uma/rename-asset":
                         return MCPUMACommands.RenameAsset(ParseJson(body));
-#endif
                 // ─── Testing ───
                 case "testing/run-tests":
                     return MCPTestRunnerCommands.RunTests(ParseJson(body));

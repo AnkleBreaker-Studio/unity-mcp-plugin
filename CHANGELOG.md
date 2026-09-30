@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### UMA compatibility and asset preservation
+- Move optional UMA assembly references out of the main bridge. Keep all 16 public handlers/routes available with explicit installation/define diagnostics when the integration is unavailable. Addresses [#25](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/25).
+- Adapt the UMA 3 slot-builder result, read-only logical names, removed slot material fields and changed library API. Use the existing JSON parser instead of requiring Newtonsoft. The official UMA V3.1f1 archive reproduced 42 compiler errors before these changes. Addresses [#27](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/27).
+- Stop slot, wardrobe and race creation from deleting unrelated `Assets` folders. Check generated asset moves and preserve remaining files after a collision; post-process only newly generated slots.
+- Propagate slot/overlay renames through wardrobe recipe JSON v1/v2/v3 and refresh cached name hashes. Validate destinations and perform the file rename before applying dependent changes, preserving references on a rejected collision.
+- Add `tools~/validate-uma.ps1` and a real-editor fixture covering creation, verification, library registration, race changes, legacy recipe references, collisions and cleanup. Passed on Unity 6000.6.2f1 with UMA V3.1f1; the minimal-project health suite and all 16 missing-UMA facade checks also pass. UMA 2 execution and rendered/runtime avatar behavior remain unverified.
+
 ### Improved
 - Add explicit `{enumValue:int}` writes and enum metadata while retaining existing numeric-index writes and named-value reads. Combined flags and unknown stored values remain inspectable.
 - Expose MPPM parent-project/virtual-player identity in ping and registry records, player IDs in player listings, and installed package/workflow/role diagnostics. Preserve ParrelSync metadata meanings.
@@ -37,7 +44,7 @@ All notable changes to this package will be documented in this file.
 - Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
 
 ### Validation
-- Add `tools~/check-unity2021-api.ps1` for compilation against installed minimum-version assemblies. The 66-source check passes; it excludes optional UMA/ProBuilder code and does not run the editor or resolve packages. Actual older-editor execution is deferred.
+- Add `tools~/check-unity2021-api.ps1` for compilation against installed minimum-version assemblies. The check passes with 69 source files after isolating UMA; it excludes optional UMA/ProBuilder code and does not run the editor or resolve packages. Actual older-editor execution is deferred.
 - Exercise real scene/component/reference/prefab/asset/screenshot workflows through the companion server on Unity 6.6, including failure-state preservation and fixture restoration.
 - Exercise a real MPPM 3.0 Host/Client scenario on Unity 6000.6.2f1, per-agent routing across both processes and a shared script recompilation. The companion server includes a repeatable opt-in suite, raw evidence and restored-fixture checks. Older MPPM and ParrelSync lifecycle remain unverified.
 - Add `-Suite Monitoring`: reproduce seven missed command errors and missing callback history, then verify 15 result shapes, concurrent callbacks, old/new persistence, bounded diagnostics/backlog, dashboard state, history endpoint and create/undo behavior. Extend the real 30-second timeout suite with exactly-once history checks.

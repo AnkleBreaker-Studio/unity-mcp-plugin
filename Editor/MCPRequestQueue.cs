@@ -498,6 +498,7 @@ namespace UnityMCP.Editor
                     { "queueSessionId", SessionId },
                     { "queueSessionTimeMs", SessionTimeMs },
                     { "queueRetryWindowMs", RetryWindowMs },
+                    { "maxRequestBodyBytes", MCPRequestInput.MaxBodyBytes },
                     { "retryCacheSize", _submissions.Count },
                 };
             }

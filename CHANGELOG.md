@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Request input validation
+- Enforce the existing 32 MiB inbound limit on actual bytes before decoding, including chunked bodies and BOMs. Close oversized uploads without draining them for connection reuse.
+- Reject malformed/non-object JSON before ticket creation or execution; bound request parsing to 64 container levels and 1,000,000 values/property names. Preserve valid number/container shapes and existing asset-file readers.
+- Parse queue envelopes and embedded arguments before dispatch, then pass dictionaries to synchronous and deferred commands. Return input-specific error codes and non-acceptance; advertise the body limit for companion-server preflight checks.
+- Add 35 controlled input checks, with guarded retry, native HTTP and byte-boundary coverage; retain generated routes and existing public tool schemas.
+
 ### Native Undo state and cascade protection
 - Check retained MCP groups against Unity's actual Undo stack, editor-session identity and native entry signature. Reflect native Undo/Redo, clearing and external group changes instead of trusting historical group numbers.
 - Refuse newer native groups as well as newer MCP actions unless `force: true`; retain legacy MCP counts and add native-group details. Verify the resulting stack before reporting success.

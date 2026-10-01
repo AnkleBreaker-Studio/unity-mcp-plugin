@@ -21,9 +21,9 @@ The server also provides Hub and connection tools. Route counts describe the che
 
 **From a prompt to a playable prototype.** The recorded neon brick-breaker workflow combines scene authoring, materials, C# gameplay scripts and visual iteration through Unity MCP.
 
-[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](docs/unity-mcp-showcase-brickbreaker.gif)](Documentation~/media/showcase-brickbreaker.mp4)
+[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](docs/unity-mcp-showcase-brickbreaker.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)
 
-**[▶ Open video · 25 seconds](Documentation~/media/showcase-brickbreaker.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-brickbreaker.mp4) · [Village and castle demos](#build-environments-and-playable-levels)
+**[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-brickbreaker.mp4) · [Village and castle demos](#build-environments-and-playable-levels)
 
 Accelerated excerpts from existing recordings. The silent MP4s contain the same frames as the GIFs; their duration is not a development-time benchmark. [Prompts and media details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/demos.md).
 
@@ -80,17 +80,17 @@ UMA uses a separate assembly enabled by `UMA_INSTALLED`, keeping its references 
 
 Terrain, reusable houses, materials, trees, fences and paths, created and refined in the Unity Editor.
 
-[![Unity MCP recording showing a medieval village being built with terrain and houses](docs/unity-mcp-showcase-village.gif)](Documentation~/media/showcase-village.mp4)
+[![Unity MCP recording showing a medieval village being built with terrain and houses](docs/unity-mcp-showcase-village.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)
 
-**[▶ Open video · 25 seconds](Documentation~/media/showcase-village.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-village.mp4)
+**[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-village.mp4)
 
 ### Castle and walkthrough
 
 Multi-room construction, lighting adjustments and a first-person walkthrough in the recorded project.
 
-[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](docs/unity-mcp-showcase-castle.gif)](Documentation~/media/showcase-castle.mp4)
+[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](docs/unity-mcp-showcase-castle.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)
 
-**[▶ Open video · 18 seconds](Documentation~/media/showcase-castle.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-castle.mp4)
+**[▶ Open video · 18 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-castle.mp4)
 
 ### Prompts for your own project
 

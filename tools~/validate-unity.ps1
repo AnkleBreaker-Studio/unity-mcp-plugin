@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'QueueAdmission', 'ResultRetention', 'SessionRetention', 'ParrelSync', 'HistoryNotifications', 'HistoryPersistence', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'QueueAdmission', 'ResultRetention', 'SessionRetention', 'ParrelSync', 'HistoryNotifications', 'HistoryPersistence', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPagination', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -24,6 +24,7 @@ if ($Suite -eq 'MeshMetadata') { $runnerFile = 'MeshMetadataValidation.cs'; $run
 if ($Suite -eq 'QueueAdmission') { $runnerFile = 'QueueAdmissionValidation.cs'; $runnerClass = 'UnityMcpQueueAdmissionValidation' }
 if ($Suite -eq 'ResultRetention') { $runnerFile = 'ResultRetentionValidation.cs'; $runnerClass = 'UnityMcpResultRetentionValidation' }
 if ($Suite -eq 'SessionRetention') { $runnerFile = 'SessionRetentionValidation.cs'; $runnerClass = 'UnityMcpSessionRetentionValidation' }
+if ($Suite -eq 'TestPagination') { $runnerFile = 'TestPaginationValidation.cs'; $runnerClass = 'UnityMcpTestPaginationValidation' }
 if ($Suite -eq 'ParrelSync') { $runnerFile = 'ParrelSyncValidation.cs'; $runnerClass = 'UnityMcpParrelSyncValidation' }
 if ($Suite -eq 'HistoryNotifications') { $runnerFile = 'HistoryNotificationsValidation.cs'; $runnerClass = 'UnityMcpHistoryNotificationsValidation' }
 if ($Suite -eq 'HistoryPersistence') { $runnerFile = 'HistoryPersistenceValidation.cs'; $runnerClass = 'UnityMcpHistoryPersistenceValidation' }

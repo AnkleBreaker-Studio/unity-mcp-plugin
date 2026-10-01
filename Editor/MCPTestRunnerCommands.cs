@@ -227,6 +227,11 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object GetTestJob(Dictionary<string, object> args)
         {
+            bool paged = args.ContainsKey("resultOffset") || args.ContainsKey("resultLimit");
+            if (!TryReadPageInteger(args, "resultOffset", 0, 0, int.MaxValue, out int offset))
+                return new Dictionary<string, object> { { "error", "resultOffset must be an integer from 0 to 2147483647" } };
+            if (!TryReadPageInteger(args, "resultLimit", 200, 1, 10000, out int limit))
+                return new Dictionary<string, object> { { "error", "resultLimit must be an integer from 1 to 10000" } };
             if (CleanupExpiredJobs()) SaveToSessionState();
             string jobId = args.ContainsKey("jobId") ? args["jobId"]?.ToString() : null;
             if (string.IsNullOrEmpty(jobId))
@@ -253,7 +258,15 @@ namespace UnityMCP.Editor
             bool includeDetails = args.ContainsKey("includeDetails") && Convert.ToBoolean(args["includeDetails"]);
             bool includeFailedOnly = args.ContainsKey("includeFailedOnly") && Convert.ToBoolean(args["includeFailedOnly"]);
 
-            return SerializeJob(job, includeDetails, includeFailedOnly);
+            return SerializeJob(job, includeDetails || paged, includeFailedOnly, paged ? (int?)limit : null, offset);
+        }
+
+        private static bool TryReadPageInteger(Dictionary<string, object> args, string key, int fallback, int minimum, int maximum, out int value)
+        {
+            value = fallback;
+            return !args.TryGetValue(key, out var raw) || (raw != null
+                && int.TryParse(Convert.ToString(raw, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+                && value >= minimum && value <= maximum);
         }
 
         // RetrieveTestList completes on a future editor update; the caller must keep the main thread free.
@@ -521,7 +534,7 @@ namespace UnityMCP.Editor
                 foreach (var child in result.Children) CollectResults(job, child, ref resultCount);
         }
 
-        private static Dictionary<string, object> SerializeJob(TestJob job, bool includeDetails, bool includeFailedOnly)
+        private static Dictionary<string, object> SerializeJob(TestJob job, bool includeDetails, bool includeFailedOnly, int? resultLimit = null, int resultOffset = 0)
         {
             var result = new Dictionary<string, object>
             {
@@ -600,23 +613,46 @@ namespace UnityMCP.Editor
             // Detailed results
             if (includeDetails || includeFailedOnly)
             {
-                var tests = job.AllResults;
+                int total = job.AllResults.Count, limit = resultLimit ?? int.MaxValue;
+                var tests = new List<Dictionary<string, object>>();
                 if (includeFailedOnly)
-                    tests = tests.Where(t => t.Status == "Failed" || t.Status == "Inconclusive").ToList();
-
-                result["tests"] = tests.Select(t => new Dictionary<string, object>
                 {
-                    { "name", t.Name },
-                    { "fullName", t.FullName },
-                    { "status", t.Status },
-                    { "duration", Math.Round(t.Duration, 3) },
-                    { "message", t.Message ?? "" },
-                    { "stackTrace", t.StackTrace ?? "" }
-                }).ToList();
+                    total = 0;
+                    foreach (var test in job.AllResults)
+                    {
+                        if (test.Status != "Failed" && test.Status != "Inconclusive") continue;
+                        if (total >= resultOffset && tests.Count < limit) tests.Add(SerializeTestResult(test));
+                        total++;
+                    }
+                }
+                else
+                {
+                    // Direct indexing keeps an unfiltered page independent of the number of earlier results.
+                    int count = resultOffset >= total ? 0 : Math.Min(limit, total - resultOffset);
+                    tests.Capacity = count;
+                    for (int i = 0; i < count; i++) tests.Add(SerializeTestResult(job.AllResults[resultOffset + i]));
+                }
+                result["tests"] = tests;
+                if (resultLimit.HasValue)
+                {
+                    bool hasMore = resultOffset < total && tests.Count < total - resultOffset;
+                    result["resultPage"] = new Dictionary<string, object>
+                    {
+                        { "offset", resultOffset }, { "limit", limit }, { "returned", tests.Count }, { "total", total },
+                        { "hasMore", hasMore }, { "nextOffset", hasMore ? (object)(resultOffset + tests.Count) : null },
+                        { "stable", job.Status != TestJobStatus.Running }
+                    };
+                }
             }
 
             return result;
         }
+
+        private static Dictionary<string, object> SerializeTestResult(TestResult test) => new Dictionary<string, object>
+        {
+            { "name", test.Name }, { "fullName", test.FullName }, { "status", test.Status },
+            { "duration", Math.Round(test.Duration, 3) }, { "message", test.Message ?? "" }, { "stackTrace", test.StackTrace ?? "" }
+        };
 
         // ─── Test Discovery Helpers ──────────────────────────────────
 

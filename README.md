@@ -115,7 +115,7 @@ The declared minimum remains **Unity 2021.3.18f1**. All 77 editor sources includ
 | [Server HTTP downloads](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/response-limits.md#node-http-downloads) | The companion server bounds response reads with current and released plugins; overflow preserves unknown-outcome recovery without repeating commands. |
 | [Request input](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/request-input.md) | Complete HTTP/JSON before ticket creation, 8 body readers, 64 MiB reservations and a 30-second upload deadline; limits advertised for server preflight checks. |
 | [Undo across agents](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/undo.md) | Native stack/session checks, explicit cascade handling and action identity preserved through script reload. |
-| [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, native cancellation, accurate results and retained job details through script reload. |
+| [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, native cancellation, retained details through reload and optional pages for large results. |
 | [Editor workflows](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md) | Scene reopening, enum/flags properties, object references, material/prefab assets and Scene capture cleanup. |
 | [Inline captures](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/graphics-capture.md) | Camera selection, dimension bounds, borrowed render-target restoration and decoded PNG checks on Built-in/Direct3D12. |
 | [Asset previews](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/asset-previews.md) | Deferred loading lets other agents progress; requested sizes and metadata-only options are honored, with native preview pixels preserved. |
@@ -155,6 +155,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | `-Suite Undo` | Native Undo/Redo eligibility, agent/native cascades, session identity, group changes and history-window confirmation checks |
 | `-Suite Serialization` | JSON validity, output/traversal budgets, result conversion and owned HTTP writer checks |
 | `-Suite Testing` | Test Runner settings, callbacks, cancellation and UTC restoration |
+| `-Suite TestPagination` | Optional result pages, filtered offsets, legacy responses and measured construction costs; [contract and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/test-pagination.md) |
 | `-Suite TestResults` | Discovery limits and authoritative final counts/details |
 | `-Suite TestPersistence` | Reload snapshots, native identity, corruption and history retention |
 | `-Suite RequestShutdown` | HTTP worker interruption without a false Unity error |

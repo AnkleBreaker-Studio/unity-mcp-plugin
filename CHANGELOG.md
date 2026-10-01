@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Test result pagination
+- Add optional `resultOffset`/`resultLimit` detail pages while preserving unpaged responses, filtered result ordering and native completeness semantics.
+- Expose page counts, continuation and stability; construct only requested result dictionaries and use direct indexing for unfiltered pages.
+- Validate eight controlled checks, measured allocation-event scaling, existing Test Runner regressions and native EditMode results across current/released servers and script reloads.
+
 ### Recent agent-session retention
 - Bound recently completed identities to 1,024 sessions without outstanding work, with oldest-completion eviction and constant-time list updates. Keep queued/executing agents protected and preserve the existing 256-inactive-session policy.
 - Isolate pending history by session generation without retaining evicted session objects. Returning identities start fresh counters and logs while global history, terminal results and protected retries remain intact.

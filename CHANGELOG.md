@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Result serialization
+- Emit valid JSON for non-finite floating-point values, culture-independent integers and unpaired UTF-16 surrogates. Preserve ordinary numeric/list shapes and getter-failure nulls.
+- Detect cycles and bound generic traversal to 64 container levels / 1,000,000 values. Propagate nested serialization errors instead of returning partial JSON.
+- Enforce the existing 16 MiB HTTP limit while serializing; return bounded 413/500 diagnostics without replay. Mark early size measurements as lower bounds.
+- Limit execution-result conversion to 100,000 values across the whole graph, preserving existing per-container caps. Result-limit and iterator errors identify that the snippet already executed.
+- Add sixteen controlled serialization/HTTP checks and real-server no-replay fixtures.
+
 ### Test job persistence
 - Save versioned per-job SessionState snapshots with available results, failure diagnostics, all filters and current-test timing; reuse unchanged snapshots. Keep existing summary fields readable.
 - Replace age-based failure with native serialized run identity checks; expose uncertain recovery and damaged snapshots without hiding other valid jobs or replaying tests.

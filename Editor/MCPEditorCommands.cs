@@ -457,7 +457,22 @@ public static class MCPDynamicCode
             if (result == null)
                 return new { success = true, result = (object)null };
 
-            object serialized = SerializeValue(result, 0);
+            object serialized;
+            var budget = new ResultSerializationBudget();
+            try { serialized = SerializeValue(result, 0, budget); }
+            catch (System.Threading.ThreadAbortException) { throw; }
+            catch (Exception error)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", error.GetBaseException().Message },
+                    { "code", error is ResultSerializationLimitException ? "execution_result_limit" : "execution_result_serialization_failed" },
+                    { "executionCompleted", true },
+                    { "serializedValues", budget.Values },
+                    { "maxSerializedValues", MaxSerializeValues },
+                    { "hint", "The snippet already executed. Inspect its effects before retrying; return a smaller result." }
+                };
+            }
 
             // Preserve the historical { result, count } shape for top-level lists.
             if (result is System.Collections.IList && serialized is List<object> items)
@@ -479,6 +494,22 @@ public static class MCPDynamicCode
 
         private const int MaxSerializeDepth = 4;
         private const int MaxSerializeItems = 1000;
+        private const int MaxSerializeValues = 100000;
+
+        private sealed class ResultSerializationLimitException : InvalidOperationException
+        {
+            internal ResultSerializationLimitException() : base("Execution result serialization exceeded " + MaxSerializeValues + " values") { }
+        }
+
+        private sealed class ResultSerializationBudget
+        {
+            internal int Values;
+            internal void Visit()
+            {
+                if (Values >= MaxSerializeValues) throw new ResultSerializationLimitException();
+                Values++;
+            }
+        }
 
         /// <summary>
         /// Recursively serialize a value, PRESERVING primitive types. The previous
@@ -486,8 +517,9 @@ public static class MCPDynamicCode
         /// numbers came back as strings ("307" instead of 307) and nested objects
         /// flattened to type names. Depth/item caps keep pathological returns bounded.
         /// </summary>
-        private static object SerializeValue(object value, int depth)
+        private static object SerializeValue(object value, int depth, ResultSerializationBudget budget)
         {
+            budget.Visit();
             if (value == null) return null;
 
             if (value is string || value is bool
@@ -516,7 +548,7 @@ public static class MCPDynamicCode
                         obj["_truncated"] = $"... (truncated at {MaxSerializeItems} entries)";
                         break;
                     }
-                    obj[entry.Key != null ? entry.Key.ToString() : "null"] = SerializeValue(entry.Value, depth + 1);
+                    obj[entry.Key != null ? entry.Key.ToString() : "null"] = SerializeValue(entry.Value, depth + 1, budget);
                 }
                 return obj;
             }
@@ -531,7 +563,7 @@ public static class MCPDynamicCode
                         items.Add($"... (truncated at {MaxSerializeItems} items)");
                         break;
                     }
-                    items.Add(SerializeValue(item, depth + 1));
+                    items.Add(SerializeValue(item, depth + 1, budget));
                 }
                 return items;
             }
@@ -550,12 +582,16 @@ public static class MCPDynamicCode
                         var obj = new Dictionary<string, object>();
                         foreach (var prop in props)
                         {
-                            try { obj[prop.Name] = SerializeValue(prop.GetValue(value), depth + 1); }
+                            try { obj[prop.Name] = SerializeValue(prop.GetValue(value), depth + 1, budget); }
+                            catch (ResultSerializationLimitException) { throw; }
+                            catch (System.Threading.ThreadAbortException) { throw; }
                             catch { obj[prop.Name] = "<error>"; }
                         }
                         return obj;
                     }
                 }
+                catch (ResultSerializationLimitException) { throw; }
+                catch (System.Threading.ThreadAbortException) { throw; }
                 catch { }
             }
 

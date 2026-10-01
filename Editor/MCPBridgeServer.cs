@@ -1604,25 +1604,32 @@ namespace UnityMCP.Editor
         {
             response.StatusCode = statusCode;
             response.ContentType = "application/json";
-            string json = MiniJson.Serialize(data);
-            byte[] buffer = Encoding.UTF8.GetBytes(json);
-
-            // Size validation — protect against Write EOF on large projects
-            if (buffer.Length > ResponseHardLimitBytes)
+            string json;
+            try { json = MiniJson.Serialize(data, ResponseHardLimitBytes); }
+            catch (MiniJson.SerializationException error)
             {
-                Debug.LogWarning($"[AB-UMCP] Response too large ({buffer.Length / (1024 * 1024)}MB), replacing with error. Use pagination parameters.");
+                bool oversized = error.Reason == "byte_limit";
+                string message = error.Message.Length > 2048 ? error.Message.Substring(0, 2048) : error.Message;
                 var errorData = new Dictionary<string, object>
                 {
-                    { "error", "response_too_large" },
-                    { "size", buffer.Length },
-                    { "limit", ResponseHardLimitBytes },
-                    { "message", "Response exceeded size limit. Use pagination parameters (maxNodes, limit, maxResults) to request smaller chunks." },
+                    { "error", oversized ? "response_too_large" : "response_serialization_failed" },
+                    { "reason", error.Reason },
+                    { "outcomeUnknown", true },
+                    { "message", oversized ? "Response exceeded size limit. Use pagination parameters (maxNodes, limit, maxResults) to request smaller chunks." : message },
+                    { "hint", "The original operation may already have completed. Inspect its effects or original ticket before repeating a write." }
                 };
-                json = MiniJson.Serialize(errorData);
-                buffer = Encoding.UTF8.GetBytes(json);
-                response.StatusCode = 413; // Payload Too Large
+                if (oversized)
+                {
+                    errorData["size"] = error.BytesRequired;
+                    errorData["sizeIsLowerBound"] = true;
+                    errorData["limit"] = ResponseHardLimitBytes;
+                    Debug.LogWarning("[AB-UMCP] Response exceeded the 16 MiB serialization limit; use pagination parameters.");
+                }
+                json = MiniJson.Serialize(errorData, ResponseHardLimitBytes);
+                response.StatusCode = oversized ? 413 : 500;
             }
-            else if (buffer.Length > ResponseSoftLimitBytes)
+            byte[] buffer = Encoding.UTF8.GetBytes(json);
+            if (buffer.Length > ResponseSoftLimitBytes)
             {
                 Debug.LogWarning($"[AB-UMCP] Large response ({buffer.Length / (1024 * 1024)}MB). Consider using pagination parameters.");
             }

@@ -168,6 +168,7 @@ public static class UnityMcpSerializationValidation
         Check("Execution enumeration failures report that code already ran", () => {
             var result = (Dictionary<string, object>)SerializeResult.Invoke(null, new object[] { new EnumerationFailure() });
             Require((string)result["code"] == "execution_result_serialization_failed" && (bool)result["executionCompleted"], "Execution completion was not retained");
+            Require(((string)result["stackTrace"]).Contains("EnumerationFailure"), "Existing exception diagnostics were lost");
             return result;
         });
         Check("Legacy list counts and per-container truncation remain compatible", () => {

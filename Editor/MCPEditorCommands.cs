@@ -466,6 +466,7 @@ public static class MCPDynamicCode
                 return new Dictionary<string, object>
                 {
                     { "error", error.GetBaseException().Message },
+                    { "stackTrace", error.GetBaseException().StackTrace ?? error.StackTrace },
                     { "code", error is ResultSerializationLimitException ? "execution_result_limit" : "execution_result_serialization_failed" },
                     { "executionCompleted", true },
                     { "serializedValues", budget.Values },

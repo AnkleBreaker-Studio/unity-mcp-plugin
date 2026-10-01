@@ -96,14 +96,14 @@ The bridge binds to loopback and checks incoming browser/host metadata. It is in
 
 ## Compatibility and validation
 
-The declared minimum remains **Unity 2021.3.18f1**. All 70 editor sources pass the minimum-version API compiler check. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
+The declared minimum remains **Unity 2021.3.18f1**. All 71 editor sources pass the minimum-version API compiler check. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
 
 | Coverage | Verified behavior |
 |---|---|
 | [Server-plugin matrix](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/compatibility.md) | All four released/current pairs with Node 18 and 22; object edits, undo, errors, history and concurrent agents across mixed plugin versions. |
 | [Queue and monitoring](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-monitoring.md) | Fair scheduling, read batching, duplicate/late callbacks, real timeout races, retention and error history. |
 | [Package Manager](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/packages.md) | Sequential requests across editor updates, expiration cleanup, legacy responses and local package add/remove with manifest restoration. |
-| [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, restored settings, native cancellation, bounded discovery and counts reconciled from final results. |
+| [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, native cancellation, accurate results and retained job details through script reload. |
 | [Editor workflows](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md) | Scene reopening, enum/flags properties, object references, material/prefab assets and Scene capture cleanup. |
 | [Multiplayer](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/multiplayer.md) | MPPM 3.0 Host/Client launch, independent agent routing and shared script recompilation. |
 | [Builds](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/builds.md) | Five Windows Mono builds verify managed diagnostics and restoration of project settings. |
@@ -128,6 +128,10 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | Default | Queue, HTTP dispatch, callbacks and timeout races |
 | `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
 | `-Suite Monitoring` | Error classification, history, persistence and create/undo |
+| `-Suite Testing` | Test Runner settings, callbacks, cancellation and UTC restoration |
+| `-Suite TestResults` | Discovery limits and authoritative final counts/details |
+| `-Suite TestPersistence` | Reload snapshots, native identity, corruption and history retention |
+| `-Suite RequestShutdown` | HTTP worker interruption without a false Unity error |
 | `-Suite Dashboard` | Card reuse, refresh allocations, interface reconstruction and saved preferences |
 
 Batch UI checks exclude interactive rendering. The measured empty queue loop has zero allocation events after warmup; this is not a whole-plugin allocation claim.

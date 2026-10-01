@@ -567,6 +567,11 @@ namespace UnityMCP.Editor
                     SendJson(response, 200, result);
                 }
             }
+            catch (ThreadAbortException)
+            {
+                // Domain reload aborts waiting HTTP workers; logging an error would fail native tests.
+                throw;
+            }
             catch (Exception ex)
             {
                 // Full stack trace goes to the editor log only — never to the wire.

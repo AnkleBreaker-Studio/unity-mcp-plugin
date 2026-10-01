@@ -15,7 +15,7 @@ namespace UnityMCP.Editor
     /// then poll for status/results via the job ID.
     /// </summary>
     [InitializeOnLoad]
-    public static class MCPTestRunnerCommands
+    public static partial class MCPTestRunnerCommands
     {
         // ─── Job Tracking ────────────────────────────────────────────
 
@@ -169,13 +169,13 @@ namespace UnityMCP.Editor
                 TestNames = testNames,
                 Categories = testCategories,
                 Assemblies = assemblyNames,
+                GroupNames = groupNames,
             };
 
             _jobs[job.JobId] = job;
             _currentJobId = job.JobId;
 
             // Clean up old jobs
-            CleanupExpiredJobs();
             SaveToSessionState();
 
             // Build the filter
@@ -227,7 +227,8 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object GetTestJob(Dictionary<string, object> args)
         {
-            string jobId = args.ContainsKey("jobId") ? args["jobId"].ToString() : null;
+            if (CleanupExpiredJobs()) SaveToSessionState();
+            string jobId = args.ContainsKey("jobId") ? args["jobId"]?.ToString() : null;
             if (string.IsNullOrEmpty(jobId))
             {
                 // If no jobId, return the current/latest job
@@ -236,7 +237,7 @@ namespace UnityMCP.Editor
                 else if (_jobs.Count > 0)
                     jobId = _jobs.Values.OrderByDescending(j => j.StartedAt).First().JobId;
                 else
-                    return new Dictionary<string, object> { { "error", "No test jobs found" } };
+                    return new Dictionary<string, object> { { "error", "No test jobs found" }, { "historyRetention", SerializeHistoryRetention() } };
             }
 
             if (!_jobs.TryGetValue(jobId, out var job))
@@ -244,7 +245,8 @@ namespace UnityMCP.Editor
                 return new Dictionary<string, object>
                 {
                     { "error", $"Job '{jobId}' not found" },
-                    { "availableJobs", _jobs.Keys.ToArray() }
+                    { "availableJobs", _jobs.Keys.ToArray() },
+                    { "historyRetention", SerializeHistoryRetention() }
                 };
             }
 
@@ -379,6 +381,7 @@ namespace UnityMCP.Editor
             job.CompletedAt = DateTime.UtcNow;
             job.CurrentTestName = null;
             job.CurrentTestStartedAt = null;
+            job.SnapshotDirty = true;
             ReleaseJob();
         }
 
@@ -402,7 +405,7 @@ namespace UnityMCP.Editor
             var job = _jobs[jobId];
 
             job.TotalTests = totalTests;
-            job.CompletedTests = 0;
+            // A resumed native run can repeat RunStarted after restoring completed results.
             SaveToSessionState();
             Debug.Log($"[MCP TestRunner] Job {job.JobId}: Run started, {totalTests} tests to execute");
         }
@@ -414,6 +417,7 @@ namespace UnityMCP.Editor
 
             job.CurrentTestName = testFullName;
             job.CurrentTestStartedAt = DateTime.UtcNow;
+            job.SnapshotDirty = true;
         }
 
         internal static void OnTestFinished(string jobId, string testFullName, string testName, TestStatus resultStatus,
@@ -426,6 +430,7 @@ namespace UnityMCP.Editor
             job.CurrentTestName = null;
             job.CurrentTestStartedAt = null;
             job.LastUpdatedAt = DateTime.UtcNow;
+            job.SnapshotDirty = true;
 
             var result = new TestResult
             {
@@ -471,6 +476,7 @@ namespace UnityMCP.Editor
             job.TotalDuration = totalDuration;
             job.CurrentTestName = null;
             job.CurrentTestStartedAt = null;
+            job.SnapshotDirty = true;
 
             ReleaseJob();
 
@@ -489,6 +495,7 @@ namespace UnityMCP.Editor
             CollectResults(job, root, ref resultCount);
             if (resultCount < job.AllResults.Count) job.AllResults.RemoveRange(resultCount, job.AllResults.Count - resultCount);
             job.LastUpdatedAt = DateTime.UtcNow;
+            job.SnapshotDirty = true;
             if (root.TestStatus == TestStatus.Failed && root.FailCount == 0)
                 job.Error = string.IsNullOrEmpty(root.Message) ? "Unity reported a suite-level failure" : root.Message;
         }
@@ -523,7 +530,11 @@ namespace UnityMCP.Editor
                 { "mode", job.Mode.ToString() },
                 { "startedAt", job.StartedAt.ToString("O") },
                 { "resultsComplete", job.AllResults.Count == job.CompletedTests },
+                { "historyRetention", SerializeHistoryRetention() },
             };
+
+            if (job.PersistenceWarning != null) result["persistenceWarning"] = job.PersistenceWarning;
+            if (job.RecoveryWarning != null) result["recoveryWarning"] = job.RecoveryWarning;
 
             // Progress info
             var progress = new Dictionary<string, object>
@@ -640,124 +651,6 @@ namespace UnityMCP.Editor
 
         // ─── Session State Persistence ───────────────────────────────
 
-        private const string SessionKey = "MCPTestRunner_Jobs";
-        private const string SessionCurrentKey = "MCPTestRunner_CurrentJobId";
-
-        private static void SaveToSessionState()
-        {
-            try
-            {
-                // Serialize minimal state for surviving domain reloads
-                var jobList = new List<Dictionary<string, object>>();
-                foreach (var kv in _jobs)
-                {
-                    var j = kv.Value;
-                    jobList.Add(new Dictionary<string, object>
-                    {
-                        { "jobId", j.JobId },
-                        { "nativeRunId", j.NativeRunId ?? "" },
-                        { "mode", j.Mode.ToString() },
-                        { "status", j.Status.ToString() },
-                        { "startedAt", j.StartedAt.ToString("O") },
-                        { "completedAt", j.CompletedAt?.ToString("O") ?? "" },
-                        { "totalTests", j.TotalTests },
-                        { "completedTests", j.CompletedTests },
-                        { "passedCount", j.PassedCount },
-                        { "failedCount", j.FailedCount },
-                        { "skippedCount", j.SkippedCount },
-                        { "totalDuration", j.TotalDuration },
-                        { "error", j.Error ?? "" }
-                    });
-                }
-
-                string json = MiniJson.Serialize(jobList);
-                SessionState.SetString(SessionKey, json);
-                SessionState.SetString(SessionCurrentKey, _currentJobId ?? "");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[MCP TestRunner] Failed to save session state: {ex.Message}");
-            }
-        }
-
-        private static void RestoreFromSessionState()
-        {
-            try
-            {
-                string json = SessionState.GetString(SessionKey, "");
-                if (string.IsNullOrEmpty(json)) return;
-
-                _currentJobId = SessionState.GetString(SessionCurrentKey, null);
-                if (string.IsNullOrEmpty(_currentJobId)) _currentJobId = null;
-
-                var jobList = MiniJson.Deserialize(json) as List<object>;
-                if (jobList == null) return;
-
-                foreach (var obj in jobList)
-                {
-                    var dict = obj as Dictionary<string, object>;
-                    if (dict == null) continue;
-
-                    var job = new TestJob
-                    {
-                        JobId = dict["jobId"].ToString(),
-                        NativeRunId = dict.TryGetValue("nativeRunId", out var nativeRunId) ? nativeRunId?.ToString() : null,
-                        Mode = Enum.TryParse<TestMode>(dict["mode"].ToString(), out var m) ? m : TestMode.EditMode,
-                        Status = Enum.TryParse<TestJobStatus>(dict["status"].ToString(), out var s)
-                            ? s
-                            : TestJobStatus.Failed,
-                        TotalTests = Convert.ToInt32(dict["totalTests"]),
-                        CompletedTests = Convert.ToInt32(dict["completedTests"]),
-                        PassedCount = Convert.ToInt32(dict["passedCount"]),
-                        FailedCount = Convert.ToInt32(dict["failedCount"]),
-                        SkippedCount = Convert.ToInt32(dict["skippedCount"]),
-                        TotalDuration = Convert.ToDouble(dict["totalDuration"]),
-                    };
-
-                    if (DateTime.TryParse(dict["startedAt"].ToString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var started))
-                        job.StartedAt = started.ToUniversalTime();
-                    if (!string.IsNullOrEmpty(dict["completedAt"]?.ToString()) &&
-                        DateTime.TryParse(dict["completedAt"].ToString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var completed))
-                        job.CompletedAt = completed.ToUniversalTime();
-                    if (!string.IsNullOrEmpty(dict["error"]?.ToString()))
-                        job.Error = dict["error"].ToString();
-
-                    // If job was running but survived a domain reload, mark as failed
-                    if (job.Status == TestJobStatus.Running)
-                    {
-                        var elapsed = (DateTime.UtcNow - job.StartedAt).TotalMinutes;
-                        if (elapsed > 5)
-                        {
-                            job.Status = TestJobStatus.Failed;
-                            job.Error = "Job became stale after domain reload";
-                            job.CompletedAt = DateTime.UtcNow;
-                            if (_currentJobId == job.JobId)
-                                _currentJobId = null;
-                        }
-                    }
-
-                    _jobs[job.JobId] = job;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[MCP TestRunner] Failed to restore session state: {ex.Message}");
-            }
-        }
-
-        private static void CleanupExpiredJobs()
-        {
-            var expired = _jobs.Values
-                .Where(j => j.Status != TestJobStatus.Running
-                            && j.CompletedAt.HasValue
-                            && (DateTime.UtcNow - j.CompletedAt.Value).TotalMinutes > JobExpiryMinutes)
-                .Select(j => j.JobId)
-                .ToList();
-
-            foreach (var id in expired)
-                _jobs.Remove(id);
-        }
-
         // ─── PlayMode Domain Reload Guard ────────────────────────────
 
         /// <summary>
@@ -840,6 +733,12 @@ namespace UnityMCP.Editor
             public string[] TestNames;
             public string[] Categories;
             public string[] Assemblies;
+            public string[] GroupNames;
+            public bool SnapshotDirty = true;
+            public int SnapshotVersion;
+            public long SnapshotBytes;
+            public string PersistenceWarning;
+            public string RecoveryWarning;
 
             // Progress
             public int TotalTests;
@@ -858,6 +757,7 @@ namespace UnityMCP.Editor
             public List<TestResult> FailuresSoFar = new List<TestResult>();
         }
 
+        [Serializable]
         internal class TestResult
         {
             public string FullName;

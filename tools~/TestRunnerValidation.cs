@@ -26,6 +26,8 @@ public static class UnityMcpTestRunnerValidation
     }
     private static FieldInfo Field(string name) => Commands.GetField(name, PrivateStatic);
     private static readonly List<object> Results = new List<object>();
+    private static object _nativeFixture;
+    private static IList _nativeRuns;
 
     public static void Run()
     {
@@ -156,6 +158,14 @@ public static class UnityMcpTestRunnerValidation
         if ((string)state["jobId"] != current || (string)state["status"] != "running")
             throw new InvalidOperationException("A late callback changed the new job");
 
+        var holderType = typeof(TestRunnerApi).Assembly.GetType("UnityEditor.TestTools.TestRunner.TestRun.TestJobDataHolder", true);
+        var holder = holderType.GetProperty("instance", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy).GetValue(null);
+        _nativeRuns = (IList)holderType.GetField("TestRuns").GetValue(holder);
+        var dataType = typeof(TestRunnerApi).Assembly.GetType("UnityEditor.TestTools.TestRunner.TestRun.TestJobData", true);
+        _nativeFixture = Activator.CreateInstance(dataType, new object[] { new ExecutionSettings(new Filter { testMode = TestMode.PlayMode }) });
+        dataType.GetField("guid").SetValue(_nativeFixture, "validation-native-run");
+        dataType.GetField("isRunning").SetValue(_nativeFixture, true);
+        _nativeRuns.Add(_nativeFixture);
         Invoke("BeforeAssemblyReload");
         if (api != null || Field("_callbacks").GetValue(null) != null)
             throw new InvalidOperationException("Reload retained the owned API or callbacks");
@@ -174,6 +184,8 @@ public static class UnityMcpTestRunnerValidation
 
     private static void Reset()
     {
+        if (_nativeFixture != null) _nativeRuns.Remove(_nativeFixture);
+        _nativeFixture = null;
         Invoke("RestorePlayModeOptions");
         var api = Field("_testRunnerApi").GetValue(null) as TestRunnerApi;
         var callbacks = Field("_callbacks").GetValue(null) as ICallbacks;
@@ -181,7 +193,9 @@ public static class UnityMcpTestRunnerValidation
         Field("_callbacks").SetValue(null, null);
         Field("_testRunnerApi").SetValue(null, null);
         if (api != null) UnityEngine.Object.DestroyImmediate(api);
-        ((IDictionary)Field("_jobs").GetValue(null)).Clear();
+        var jobs = (IDictionary)Field("_jobs").GetValue(null);
+        foreach (var id in jobs.Keys) SessionState.EraseString("MCPTestRunner_Job_" + id);
+        jobs.Clear();
         Field("_currentJobId").SetValue(null, null);
         SessionState.EraseString("MCPTestRunner_Jobs");
         SessionState.EraseString("MCPTestRunner_CurrentJobId");

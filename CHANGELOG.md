@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Test job persistence
+- Save versioned per-job SessionState snapshots with available results, failure diagnostics, all filters and current-test timing; reuse unchanged snapshots. Keep existing summary fields readable.
+- Replace age-based failure with native serialized run identity checks; expose uncertain recovery and damaged snapshots without hiding other valid jobs or replaying tests.
+- Retain at most 128 jobs for 30 minutes, evict old completed snapshots under a 32 MiB serialized-data budget, and expose retention diagnostics. Protect active/newest oversized results and report the soft-budget exception.
+- Preserve progress when native RunStarted repeats after reload. Add twelve controlled persistence checks and an actual native reload fixture.
+- Let normal HTTP-worker thread aborts propagate without logging a Unity error or sending a 500 response. Add an owned-worker reproduction.
+
 ### Test discovery and results
 - Exclude empty suites from discovery, progress and result entries; use Unity's suite classification for parameterized tests. Report truncation only when another matching test exists.
 - Validate discovery limits as integers from 1 to 10,000, preserving the default of 200 and the returned-count meaning of `totalTests`. Stop collecting at the first matching overflow.

@@ -5,15 +5,15 @@ namespace UnityMCP.Editor
 {
     /// <summary>
     /// Applies the AnkleBreaker editor theme (deep warm-brown + molten-orange, the
-    /// studio website palette) to a window root. Loads the shared brand sheet the
-    /// welcome window ships (resolved by asset name, so it works across assemblies)
-    /// plus the dashboard-specific styles. Call once from <c>CreateGUI</c>; idempotent.
+    /// studio website palette) to a window root: the brand sheet (resolved by asset
+    /// name, as it once shipped in another assembly) plus the dashboard-specific
+    /// styles. Call once from <c>CreateGUI</c>; idempotent.
     /// </summary>
     internal static class MCPTheme
     {
         public const string ClassWindow = "ab-window";
 
-        private const string BaseSheetFilter = "UnityMcpWelcomeTheme t:StyleSheet";
+        private const string BaseSheetFilter = "MCPBrandTheme t:StyleSheet";
         private const string DashboardSheetFilter = "MCPDashboardStyles t:StyleSheet";
 
         private static StyleSheet _baseSheet;

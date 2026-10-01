@@ -1,5 +1,5 @@
 /* AnkleBreaker MCP Dashboard styles — layered on top of the shared brand sheet
- * (UnityMcpWelcomeTheme.uss: warm-brown bg, molten-orange accent #d97a2a/#f4a047).
+ * (MCPBrandTheme.uss: warm-brown bg, molten-orange accent #d97a2a/#f4a047).
  * BEM: block .ab-dash, elements __x, modifiers --y. */
 
 .hidden {

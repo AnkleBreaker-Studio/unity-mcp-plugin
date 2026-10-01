@@ -203,6 +203,25 @@ All notable changes to this package will be documented in this file.
 - Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
 - Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.
 - Add 40-way concurrent submission retries, cache-capacity checks and a real HTTP dispatcher test that creates one GameObject for repeated protected submissions and verifies existing queue/synchronous calls.
+## [2.40.1] - 2026-10-01
+
+### Added
+- **Review and discovery prompts in the AnkleBreaker Welcome.** A small window asks for a review three days after the plugin's first use on this machine (Rate / Later / "I already rated it"; asked twice at most, 30 days apart), and another one shows what is new in the AnkleBreaker catalogue when something really is (a release since your last look, or a sale you have not seen). Every AnkleBreaker package on the machine shares one slot: at most one such window every 14 days, never at launch, never in Play mode or while compiling. Nothing opens a web page by itself: the store only opens from a click.
+
+### Changed
+- The Welcome footer's "Leave a review" button stands out (filled, with a star) until you have rated, then steps back.
+- The review card in the Welcome and in `CLICKME` follows the same three-day rule instead of counting window openings, and remembers a review for the whole machine rather than per project.
+- The Welcome's Studio tab takes the order and visibility of its blocks from the online catalogue, and presents Nodary next to Mithrall and Kickdom.
+
+## [2.40.0] - 2026-09-29
+
+### Changed
+- **The AnkleBreaker Welcome window is the studio's canonical one, and now lives here.** The plugin's own welcome window (`1-Scripts/Editor/WelcomeWindow/`, menu `Window/AB Unity MCP/Welcome`) is replaced by the Welcome every AnkleBreaker package uses: getting started (install the MCP server, connect your AI client, check the bridge in the Dashboard), the AnkleBreaker catalogue, and the studio tab. Menu **`Tools/AnkleBreaker/Unity MCP/Welcome`**; it opens by itself once per project, never in batch mode, and waits for Unity to be the active application. Its own assembly `UnityMCP.Editor.Welcome` references nothing, so it draws whatever the plugin's main assembly does. The version it shows is read from this package's `package.json`.
+- The free Asset Store package *MCP For Unity* no longer ships a Welcome of its own: it installs this plugin, and its `CLICKME.asset` draws the hub stamped here (`UnityMcpWelcome.ClickMe.cs`, `MCPForUnity.clickme.json`). Before the plugin is installed, `CLICKME` says what to install instead. One Welcome for everyone, GitHub users included.
+- The Dashboard's brand sheet moved out of the old welcome folder: `Editor/MCPBrandTheme.uss` (content unchanged), loaded by `MCPTheme`.
+
+### Removed
+- `Window/AB Unity MCP/Welcome` and its "Don't show again" preference, with the old welcome's GitHub Sponsors and review sections.
 
 ## [2.39.7] - 2026-09-24
 

@@ -1,0 +1,747 @@
+/* AnkleBreaker Welcome window. Stamped from _WelcomeWindow/Template: edit the template.
+
+   Every colour is a variable on .abw and every one is redefined under .abw--light: adding that
+   class is the whole theme switch. Values come from boards 1 (dark) and 3 (light) of the design
+   canvas; `tools/welcome.py audit` measures the pairs listed in its table against both skins.
+
+   Portable to UI Toolkit 2022.3 on purpose: no gap (spacing is margins, rows use the negative
+   margin trick), no :first-child, no gradients, no shadows, no text-transform. */
+
+.abw {
+    flex-grow: 1;
+    background-color: var(--abw-bg);
+
+    --abw-bg: #232020;
+    --abw-header: #2b2521;
+    --abw-panel: #1d1a18;
+    --abw-footer: #1b1918;
+    --abw-edge: #151211;
+    --abw-surface: #2c2826;
+    --abw-surface-hover: #35302d;
+    --abw-raised: #332e2b;
+    --abw-tabs: #332c28;
+    --abw-tab-hover: #3e3631;
+    --abw-tab-on: #232020;
+    --abw-line: #3c3634;
+    --abw-line-strong: #4a4340;
+    --abw-rule: #332e2b;
+
+    --abw-text-strong: #e4e4e4;
+    --abw-text: #d6d6d6;
+    --abw-text-dim: #b0aca9;
+    --abw-text-muted: #9a9591;
+
+    --abw-accent: #e8a33d;
+    --abw-accent-fill: #e8a33d;
+    --abw-accent-fill-hover: #ecb461;
+    --abw-on-accent: #241a08;
+    --abw-accent-bg: rgba(232, 163, 61, 0.10);
+    --abw-accent-bg-hover: rgba(232, 163, 61, 0.18);
+    --abw-accent-line: rgba(232, 163, 61, 0.45);
+    --abw-pill: #e8a33d;
+    --abw-pill-text: #241a08;
+
+    --abw-ok: #6ec48a;
+    --abw-ok-text: #8fd8a6;
+    --abw-ok-bg: rgba(110, 196, 138, 0.09);
+    --abw-ok-line: rgba(110, 196, 138, 0.38);
+    --abw-warn: #e8a33d;
+    --abw-warn-text: #f5cf8f;
+    --abw-warn-bg: rgba(232, 163, 61, 0.10);
+    --abw-warn-line: rgba(232, 163, 61, 0.45);
+    --abw-error: #e07a70;
+    --abw-error-text: #f5b4ac;
+    --abw-error-bg: rgba(215, 95, 85, 0.10);
+    --abw-error-line: rgba(215, 95, 85, 0.50);
+    --abw-star: #d9b877;
+    --abw-veil: rgba(29, 26, 24, 0.62);
+    --abw-sale: #d93a3a;
+    --abw-sale-text: #ffffff;
+    --abw-sale-price: #ff8f84;
+    --abw-soon: #3a4a5c;
+    --abw-soon-text: #cfe1f5;
+}
+
+.abw.abw--light {
+    --abw-bg: #c8c8c8;
+    --abw-header: #cfc6b8;
+    --abw-panel: #bfbfbf;
+    --abw-footer: #bdbdbd;
+    --abw-edge: #8f8f8f;
+    --abw-surface: #d9d9d9;
+    --abw-surface-hover: #e3e3e3;
+    --abw-raised: #e6e6e6;
+    --abw-tabs: #c2b9aa;
+    --abw-tab-hover: #dbd3c7;
+    --abw-tab-on: #c8c8c8;
+    --abw-line: #a8a8a8;
+    --abw-line-strong: #9a9a9a;
+    --abw-rule: #a8a8a8;
+
+    --abw-text-strong: #141414;
+    --abw-text: #1f1f1f;
+    --abw-text-dim: #3d3d3d;
+    --abw-text-muted: #444444;
+
+    --abw-accent: #703e00;
+    --abw-accent-fill: #e8a33d;
+    --abw-accent-fill-hover: #ecb461;
+    --abw-on-accent: #241a08;
+    --abw-accent-bg: rgba(232, 163, 61, 0.22);
+    --abw-accent-bg-hover: rgba(232, 163, 61, 0.34);
+    --abw-accent-line: #703e00;
+    --abw-pill: #703e00;
+    --abw-pill-text: #ffe9c6;
+
+    --abw-ok: #1c743a;
+    --abw-ok-text: #104e26;
+    --abw-ok-bg: rgba(90, 190, 120, 0.20);
+    --abw-ok-line: rgba(28, 116, 58, 0.55);
+    --abw-warn: #8a5f10;
+    --abw-warn-text: #5a3200;
+    --abw-warn-bg: rgba(232, 163, 61, 0.26);
+    --abw-warn-line: #8a5f10;
+    --abw-error: #a8281e;
+    --abw-error-text: #70100a;
+    --abw-error-bg: rgba(215, 95, 85, 0.20);
+    --abw-error-line: #a8281e;
+    --abw-star: #6c4a00;
+    --abw-veil: rgba(191, 191, 191, 0.60);
+    --abw-sale: #b3261e;
+    --abw-sale-text: #ffffff;
+    --abw-sale-price: #8f1c16;
+    --abw-soon: #2f4a66;
+    --abw-soon-text: #ffffff;
+}
+
+.abw Label { color: var(--abw-text); white-space: normal; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+/* flex-shrink: 0 on header and footer, min-height: 0 on the body: without the pair, a window
+   shorter than its content squeezes the header to a few pixels and the title resolves to
+   height 0, with nothing in the console. */
+/* No bottom padding: the side column stretches to the header's bottom edge and the tabs sit on it. */
+.abw-header {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: stretch;
+    min-height: 92px;
+    padding: 0 24px;
+    background-color: var(--abw-header);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--abw-edge);
+}
+.abw-header__icon { width: 52px; height: 52px; min-width: 52px; margin-right: 16px; border-radius: 8px; align-self: center; }
+.abw-header__text { flex-grow: 1; flex-shrink: 1; justify-content: center; padding: 14px 0; }
+.abw .abw-header__title { font-size: 26px; -unity-font-style: bold; color: var(--abw-accent); }
+.abw .abw-header__tagline { font-size: 12px; color: var(--abw-text-dim); margin-top: 3px; }
+.abw-header__side { align-items: flex-end; justify-content: space-between; flex-shrink: 0; margin-left: 16px; padding-top: 12px; }
+
+.abw-badge {
+    flex-direction: row;
+    align-items: center;
+    padding: 3px 10px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: var(--abw-line-strong);
+    background-color: var(--abw-surface);
+}
+.abw .abw-badge Label { font-size: 10px; -unity-font-style: bold; color: var(--abw-text-dim); }
+.abw-badge--ok { background-color: var(--abw-ok-bg); border-color: var(--abw-ok-line); }
+.abw .abw-badge--ok Label { color: var(--abw-ok-text); }
+.abw-badge--warn { background-color: var(--abw-warn-bg); border-color: var(--abw-warn-line); }
+.abw .abw-badge--warn Label { color: var(--abw-warn-text); }
+
+/* Folder tabs: -1 px at the bottom covers the header's edge, so the active tab, borderless at
+   the bottom and in the colour of the content below, opens onto it. */
+.abw-tabs { flex-direction: row; align-items: flex-end; margin-bottom: -1px; }
+.abw-tab {
+    padding: 9px 20px;
+    margin-left: 4px;
+    border-width: 1px 1px 0 1px;
+    border-color: var(--abw-line);
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    background-color: var(--abw-tabs);
+}
+.abw-tab:hover { background-color: var(--abw-tab-hover); }
+.abw .abw-tab Label { font-size: 13px; color: var(--abw-text-dim); white-space: nowrap; }
+.abw .abw-tab:hover Label { color: var(--abw-text-strong); }
+.abw-tab--on, .abw-tab--on:hover {
+    padding: 9px 20px 10px 20px;
+    border-top-width: 3px;
+    border-color: var(--abw-edge);
+    border-top-color: var(--abw-accent-fill);
+    background-color: var(--abw-tab-on);
+}
+.abw-tabs--panel .abw-tab--on, .abw-tabs--panel .abw-tab--on:hover { background-color: var(--abw-panel); }
+.abw .abw-tab--on Label { color: var(--abw-text-strong); -unity-font-style: bold; }
+.abw-tab:focus { border-left-color: var(--abw-accent); border-right-color: var(--abw-accent); border-top-color: var(--abw-accent); }
+.abw .abw-tab:focus Label { color: var(--abw-accent); }
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.abw-body { flex-grow: 1; flex-shrink: 1; min-height: 0; flex-direction: row; }
+.abw-left { flex-grow: 1; flex-shrink: 1; min-width: 0; }
+.abw-full { flex-grow: 1; }
+.abw-scroll--left { padding: 18px 22px; }
+/* One grid, one right edge: 4 x 272 + 3 x 16 = 1136 = 1180 - 22 - 22. The vertical scroller
+   (13 px) is taken out of the right padding, not out of the Cards, or the fourth Card wraps. */
+.abw-scroll--full { padding: 18px 9px 18px 22px; }
+.abw-fill { flex-grow: 1; min-height: 6px; }
+
+/* ── Bands: the one-line state at the top of a column ───────────────────── */
+.abw-band {
+    flex-direction: row;
+    align-items: center;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+}
+.abw-band--ok { background-color: var(--abw-ok-bg); border-color: var(--abw-ok-line); }
+.abw-band--warn { background-color: var(--abw-warn-bg); border-color: var(--abw-warn-line); }
+.abw-band--error { background-color: var(--abw-error-bg); border-color: var(--abw-error-line); }
+.abw-band__mark { width: 22px; min-width: 22px; margin-right: 10px; -unity-text-align: middle-center; font-size: 15px; -unity-font-style: bold; }
+.abw .abw-band--ok .abw-band__mark { color: var(--abw-ok); }
+.abw .abw-band--warn .abw-band__mark { color: var(--abw-warn); }
+.abw .abw-band--error .abw-band__mark { color: var(--abw-error); }
+.abw-band__text { flex-grow: 1; flex-shrink: 1; }
+.abw .abw-band__title { font-size: 14px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-band__detail { font-size: 12px; color: var(--abw-text-dim); margin-top: 2px; }
+.abw-band .abw-btn { margin-left: 10px; }
+.abw-band__actions { flex-direction: row; flex-wrap: wrap; margin-top: 8px; }
+.abw-band__actions > .abw-btn { margin-left: 0; margin-right: 8px; margin-top: 2px; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+/* VisualElements with a Clickable rather than UIT Buttons: the editor theme styles
+   .unity-button with its own background, border and margins in every state, and fighting
+   that per state is one more thing to keep true on both skins. */
+.abw-btn {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 13px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: var(--abw-line-strong);
+    background-color: var(--abw-raised);
+    cursor: link;
+}
+.abw .abw-btn *,
+.abw .abw-hero *,
+.abw .abw-hero-alt *,
+.abw .abw-shortcut *,
+.abw .abw-tile *,
+.abw .abw-card *,
+.abw .abw-line *,
+.abw .abw-link *,
+.abw .abw-see-all *,
+.abw .abw-chip *,
+.abw .abw-devlog *,
+.abw .abw-catalog-next *,
+.abw .abw-tab,
+.abw .abw-tab * {
+    cursor: link;
+}
+.abw *:disabled {
+    cursor: arrow;
+}
+.abw-btn:hover { background-color: var(--abw-surface-hover); }
+.abw-band > .abw-btn, .abw-step > .abw-btn { flex-shrink: 0; }
+.abw .abw-btn Label { white-space: nowrap; }
+.abw .abw-btn Label { font-size: 11px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw-btn:disabled { opacity: 0.45; }
+.abw-btn--quiet { background-color: rgba(0, 0, 0, 0); border-color: var(--abw-line); }
+.abw .abw-btn--quiet Label { color: var(--abw-text-dim); -unity-font-style: normal; }
+.abw-btn--accent { background-color: var(--abw-accent-bg); border-color: var(--abw-accent-line); }
+.abw-btn--accent:hover { background-color: var(--abw-accent-bg-hover); }
+.abw .abw-btn--accent Label { color: var(--abw-accent); }
+
+.abw-hero-row { flex-direction: row; margin-bottom: 12px; }
+.abw-hero {
+    flex-grow: 1;
+    flex-shrink: 1;
+    flex-direction: row;
+    align-items: center;
+    padding: 14px 18px;
+    border-radius: 6px;
+    background-color: var(--abw-accent-fill);
+    cursor: link;
+}
+.abw-hero:hover { background-color: var(--abw-accent-fill-hover); }
+.abw-hero:disabled { opacity: 0.45; }
+.abw .abw-hero__glyph { font-size: 20px; color: var(--abw-on-accent); margin-right: 13px; -unity-font-style: bold; }
+.abw-hero__text { flex-shrink: 1; }
+.abw .abw-hero__title { font-size: 16px; -unity-font-style: bold; color: var(--abw-on-accent); }
+.abw .abw-hero__detail { font-size: 11px; color: var(--abw-on-accent); opacity: 0.8; margin-top: 2px; }
+.abw-hero-alt {
+    width: 152px;
+    min-width: 152px;
+    margin-left: 10px;
+    padding: 14px 10px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line-strong);
+    background-color: var(--abw-surface);
+    justify-content: center;
+    cursor: link;
+}
+.abw-hero-alt:hover { background-color: var(--abw-surface-hover); }
+.abw .abw-hero-alt Label { font-size: 12px; -unity-font-style: bold; color: var(--abw-text); -unity-text-align: middle-center; }
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+.abw-section { margin-bottom: 12px; }
+.abw-eyebrow { flex-direction: row; align-items: center; margin-bottom: 7px; }
+.abw .abw-eyebrow__text { font-size: 10px; -unity-font-style: bold; letter-spacing: 1px; color: var(--abw-text-muted); white-space: nowrap; }
+.abw .abw-eyebrow--accent .abw-eyebrow__text { color: var(--abw-accent); }
+.abw-eyebrow__rule { flex-grow: 1; height: 1px; margin-left: 9px; background-color: var(--abw-rule); }
+.abw .abw-eyebrow__aside { font-size: 10px; color: var(--abw-text-dim); margin-left: 9px; white-space: nowrap; }
+
+/* ── Steps ──────────────────────────────────────────────────────────────── */
+.abw-step {
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 13px;
+    margin-bottom: 7px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+}
+.abw-step--done { background-color: var(--abw-ok-bg); border-color: var(--abw-ok-line); }
+.abw .abw-step__index { width: 18px; min-width: 18px; margin-right: 12px; font-size: 14px; -unity-font-style: bold; -unity-text-align: middle-center; color: var(--abw-accent); }
+.abw .abw-step--done .abw-step__index { color: var(--abw-ok); }
+.abw-step__text { flex-grow: 1; flex-shrink: 1; margin-right: 12px; }
+.abw .abw-step__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-step__body { font-size: 11px; color: var(--abw-text-dim); margin-top: 1px; }
+
+/* ── Figures ────────────────────────────────────────────────────────────── */
+.abw-stats { flex-direction: row; flex-wrap: wrap; margin-right: -9px; }
+.abw-stat {
+    flex-grow: 1;
+    flex-basis: 90px;
+    padding: 9px 12px;
+    margin: 0 9px 9px 0;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+}
+.abw .abw-stat__value { font-size: 22px; -unity-font-style: bold; color: var(--abw-accent); }
+.abw .abw-stat__label { font-size: 10px; color: var(--abw-text-dim); }
+
+/* ── Help row, shortcut grid, utilities ─────────────────────────────────── */
+.abw-row { flex-direction: row; flex-wrap: wrap; margin-right: -9px; }
+.abw-row > .abw-btn { flex-grow: 1; margin: 0 9px 9px 0; padding: 9px; }
+.abw .abw-row > .abw-btn Label { font-size: 12px; -unity-font-style: normal; color: var(--abw-text); }
+
+.abw-shortcut {
+    flex-grow: 1;
+    flex-basis: 120px;
+    margin: 0 9px 9px 0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    cursor: link;
+}
+.abw-shortcut:hover { background-color: var(--abw-surface-hover); }
+.abw-shortcut:disabled { opacity: 0.45; }
+.abw .abw-shortcut__title { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-shortcut__detail { font-size: 10px; color: var(--abw-text-dim); margin-top: 1px; }
+
+/* ── Art pack: the prefab board ─────────────────────────────────────────── */
+.abw-board { flex-direction: row; flex-wrap: wrap; margin-right: -8px; }
+.abw-tile {
+    width: 98px;
+    margin: 0 8px 8px 0;
+    padding-bottom: 6px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    align-items: center;
+    overflow: hidden;
+    cursor: link;
+}
+.abw-tile:hover { background-color: var(--abw-surface-hover); border-color: var(--abw-accent-line); }
+.abw-tile__icon { width: 96px; height: 96px; }
+.abw .abw-tile__label { font-size: 10px; color: var(--abw-text-dim); -unity-text-align: upper-center; padding: 0 4px; }
+.abw-tile--group { justify-content: center; min-height: 118px; }
+.abw .abw-tile__count { font-size: 22px; -unity-font-style: bold; color: var(--abw-accent); }
+
+.abw-tie {
+    flex-direction: row;
+    align-items: center;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-accent-line);
+    background-color: var(--abw-accent-bg);
+}
+.abw-tie__text { flex-grow: 1; flex-shrink: 1; margin-right: 12px; }
+.abw .abw-tie__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-tie__body { font-size: 11px; color: var(--abw-text-dim); margin-top: 1px; }
+
+/* ── Review ─────────────────────────────────────────────────────────────── */
+.abw-review {
+    padding: 12px 14px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-accent-line);
+    background-color: var(--abw-accent-bg);
+}
+.abw .abw-review__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-review__body { font-size: 11px; color: var(--abw-text-dim); margin: 2px 0 9px 0; }
+.abw-review__actions { flex-direction: row; }
+.abw-review__actions > .abw-btn { margin-right: 8px; }
+.abw-review__actions { align-items: center; }
+.abw .abw-review__aside, .abw .abw-prompt__aside { font-size: 10px; color: var(--abw-text-muted); cursor: link; }
+
+/* ── Prompt (review and discovery popups) ───────────────────────────────── */
+.abw-prompt { padding: 16px 18px 14px 18px; }
+.abw-prompt__head { flex-direction: row; flex-grow: 1; }
+.abw-prompt__icon { width: 52px; height: 52px; flex-shrink: 0; margin-right: 14px; border-radius: 6px; }
+.abw-prompt__text { flex-grow: 1; flex-shrink: 1; }
+.abw-prompt__card { height: 283px; flex-shrink: 0; border-radius: 6px; margin-bottom: 12px; }
+.abw .abw-prompt__eyebrow { font-size: 10px; -unity-font-style: bold; color: var(--abw-accent); margin-bottom: 3px; }
+.abw .abw-prompt__title { font-size: 15px; -unity-font-style: bold; color: var(--abw-text-strong); white-space: normal; }
+.abw .abw-prompt__body { font-size: 11px; color: var(--abw-text-dim); white-space: normal; margin-top: 4px; }
+.abw-prompt__actions { flex-direction: row; align-items: center; flex-shrink: 0; margin-top: 12px; }
+.abw-prompt__secondary {
+    flex-direction: row; align-items: center; justify-content: center;
+    height: 36px; padding: 0 16px; margin-left: 10px; border-radius: 5px;
+    border-width: 1px; border-color: var(--abw-line); background-color: rgba(0, 0, 0, 0);
+    cursor: link;
+}
+.abw-prompt__secondary:hover { background-color: var(--abw-surface-hover); }
+.abw .abw-prompt__secondary Label { font-size: 12px; color: var(--abw-text-dim); white-space: nowrap; cursor: link; }
+.abw-prompt__primary {
+    flex-direction: row; align-items: center; justify-content: center;
+    height: 36px; min-width: 150px; padding: 0 24px; margin-left: 10px; border-radius: 5px;
+    background-color: var(--abw-accent-fill);
+    cursor: link;
+}
+.abw-prompt__primary:hover { background-color: var(--abw-accent-fill-hover); }
+.abw .abw-prompt__primary Label { font-size: 14px; -unity-font-style: bold; color: var(--abw-on-accent); white-space: nowrap; cursor: link; }
+
+/* ── Showcase panel ─────────────────────────────────────────────────────── */
+/* The panel never narrows: the Cards are its reason to exist. What gives way at the minimum
+   size is the left column, and the second shelf, which drops to embedded text lines. */
+/* Reserve scrollbar space so both columns retain the same image ratio. */
+.abw-panel {
+    width: 410px;
+    min-width: 410px;
+    flex-shrink: 0;
+    min-height: 0;
+    padding: 18px 12px 18px 18px;
+    background-color: var(--abw-panel);
+    border-left-width: 1px;
+    border-left-color: var(--abw-edge);
+}
+.abw-panel-scroll { flex-grow: 1; flex-shrink: 1; min-height: 0; }
+.abw-panel-content { padding-right: 6px; }
+.abw-panel-content > * { flex-shrink: 0; }
+
+.abw .abw-panel__title { font-size: 18px; -unity-font-style: bold; color: var(--abw-text-strong); margin-top: 4px; }
+.abw .abw-panel__blurb { font-size: 11px; color: var(--abw-text-dim); margin-top: 4px; margin-bottom: 13px; }
+.abw-shelf { flex-direction: row; flex-wrap: wrap; margin-right: -8px; margin-bottom: 6px; }
+
+.abw-card {
+    width: 176px;
+    margin: 0 8px 8px 0;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    overflow: hidden;
+    cursor: link;
+}
+.abw-card:hover { border-color: var(--abw-accent-line); background-color: var(--abw-surface-hover); }
+.abw-card--free { border-color: var(--abw-accent-line); }
+.abw-card--wide { width: 272px; margin: 0 16px 16px 0; }
+.abw-card__media { height: 117px; }
+.abw-card--wide .abw-card__media { height: 181px; }
+.abw-card__image { flex-grow: 1; }
+.abw-card__placeholder { justify-content: center; background-color: var(--abw-raised); }
+.abw .abw-card__placeholder-name { font-size: 16px; -unity-font-style: bold; color: var(--abw-text-dim); -unity-text-align: middle-center; }
+.abw-card__body { padding: 8px 9px; }
+.abw-card__name-row { flex-direction: row; align-items: center; }
+.abw .abw-card__name { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); flex-shrink: 1; }
+.abw .abw-card__blurb { font-size: 10px; color: var(--abw-text-dim); margin-top: 3px; }
+.abw-card__store { flex-direction: row; align-items: center; margin-top: 4px; }
+.abw .abw-card__rating { font-size: 10px; color: var(--abw-star); margin-right: 5px; }
+.abw .abw-card__reviews { font-size: 10px; color: var(--abw-text-muted); }
+.abw .abw-card__price { font-size: 11px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw-card__spacer { flex-grow: 1; }
+.abw .abw-card__link { font-size: 10px; -unity-font-style: bold; color: var(--abw-accent); margin-top: 4px; }
+
+/* A pill never wraps and never shrinks: the name next to it gives way instead ("FRE/E" otherwise). */
+.abw-pill { flex-shrink: 0; padding: 1px 5px; margin-left: 6px; border-radius: 6px; background-color: var(--abw-pill); }
+.abw .abw-pill Label { font-size: 8px; -unity-font-style: bold; color: var(--abw-pill-text); white-space: nowrap; }
+.abw-pill--quiet { background-color: var(--abw-raised); border-width: 1px; border-color: var(--abw-line); }
+.abw .abw-pill--quiet Label { color: var(--abw-text-dim); }
+.abw-pill--soon { background-color: var(--abw-soon); }
+.abw .abw-pill--soon Label { color: var(--abw-soon-text); }
+.abw-pill--sale { background-color: var(--abw-sale); }
+.abw .abw-pill--sale Label { color: var(--abw-sale-text); }
+
+/* Sale: the store's own percentage on the image, the pre-sale price struck through next to the
+   sale price. UIT 2022.3 has no text-decoration: the strike is an element (.abw-struck__line). */
+.abw-card--sale { border-color: var(--abw-sale); }
+.abw-card__sale { position: absolute; right: 6px; bottom: 6px; padding: 2px 7px; border-radius: 4px; background-color: var(--abw-sale); }
+.abw .abw-card__sale Label { font-size: 12px; -unity-font-style: bold; color: var(--abw-sale-text); }
+.abw .abw-card__price--sale { color: var(--abw-sale-price); }
+.abw-struck { margin-right: 6px; justify-content: center; }
+.abw .abw-struck__text { font-size: 10px; color: var(--abw-text-muted); }
+.abw-struck__line { position: absolute; left: -1px; right: -1px; top: 50%; height: 1px; background-color: var(--abw-text-muted); }
+.abw .abw-card__category { font-size: 9px; color: var(--abw-text-muted); margin-top: 1px; }
+
+/* Installed: the Card stays, under a veil, and says thank you. */
+.abw-card--installed .abw-card__image { opacity: 0.35; }
+.abw-card__veil {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--abw-veil);
+}
+.abw-card__veil-badge { flex-direction: row; align-items: center; padding: 3px 9px; border-radius: 9px; background-color: var(--abw-ok-bg); border-width: 1px; border-color: var(--abw-ok-line); }
+.abw .abw-card__veil-badge Label { font-size: 10px; -unity-font-style: bold; color: var(--abw-ok-text); }
+
+/* A product without its Card on disk: text only, same footprint as a line. */
+.abw-line {
+    flex-direction: row;
+    align-items: center;
+    padding: 7px 10px;
+    margin-bottom: 6px;
+    border-radius: 5px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    cursor: link;
+}
+.abw-line:hover { background-color: var(--abw-surface-hover); }
+.abw-line__text { flex-grow: 1; flex-shrink: 1; }
+
+.abw-family {
+    padding: 11px 12px;
+    margin-bottom: 13px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-accent-line);
+    background-color: var(--abw-accent-bg);
+}
+.abw .abw-family__title { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-family__body { font-size: 10px; color: var(--abw-text-dim); margin: 3px 0 7px 0; }
+.abw .abw-link { font-size: 11px; -unity-font-style: bold; color: var(--abw-accent); cursor: link; }
+
+.abw-see-all {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    padding: 12px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-accent-fill);
+    background-color: var(--abw-accent-bg);
+    cursor: link;
+}
+.abw-see-all:hover { background-color: var(--abw-accent-bg-hover); }
+.abw .abw-see-all Label { font-size: 13px; -unity-font-style: bold; color: var(--abw-accent); }
+
+/* ── Assets tab ─────────────────────────────────────────────────────────── */
+.abw-assets-head { flex-direction: row; align-items: flex-end; margin-bottom: 10px; }
+.abw-assets-head__text { flex-grow: 1; flex-shrink: 1; margin-right: 16px; }
+.abw .abw-assets-head__title { font-size: 18px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-assets-head__detail { font-size: 11px; color: var(--abw-text-dim); margin-top: 3px; }
+.abw-chips { flex-direction: row; flex-wrap: wrap; margin: -4px 0 14px -6px; }
+.abw-chip {
+    padding: 4px 11px;
+    margin-left: 6px;
+    margin-top: 4px;
+    border-radius: 11px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+    cursor: link;
+}
+.abw-chip:hover { background-color: var(--abw-surface-hover); }
+.abw .abw-chip Label { font-size: 11px; color: var(--abw-text-dim); }
+.abw-chip--on { background-color: var(--abw-accent-bg); border-color: var(--abw-accent-line); }
+.abw-chip--sale { border-color: var(--abw-sale); }
+.abw .abw-chip--on Label { color: var(--abw-accent); -unity-font-style: bold; }
+
+.abw-owned {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 9px 12px;
+    margin-bottom: 16px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-panel);
+}
+.abw-owned__item { flex-direction: row; align-items: center; padding: 3px 9px; margin: 2px 8px 2px 0; border-radius: 9px; background-color: var(--abw-surface); }
+.abw .abw-owned__item Label { font-size: 11px; color: var(--abw-text); }
+.abw .abw-owned__item--update Label { color: var(--abw-warn-text); }
+.abw-grid { flex-direction: row; flex-wrap: wrap; margin-right: -16px; }
+.abw-assets-section { flex-shrink: 0; }
+.abw-assets-section--separated { margin-top: 20px; padding-top: 22px; border-top-width: 2px; border-top-color: var(--abw-line-strong); }
+.abw .abw-assets-section__title { font-size: 18px; -unity-font-style: bold; color: var(--abw-text-strong); margin-bottom: 12px; }
+.abw .abw-assets-section__detail { font-size: 12px; color: var(--abw-text-dim); margin-top: -6px; margin-bottom: 16px; }
+
+
+/* ── Studio tab ─────────────────────────────────────────────────────────── */
+/* The devblog banner is dark on both skins, like the game cards: its text sits on the veiled
+   cover, or on the plain ground when the post has none. */
+.abw-devlog {
+    flex-shrink: 0;
+    min-height: 300px;
+    justify-content: center;
+    margin-bottom: 28px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #42464b;
+    background-color: #101419;
+    overflow: hidden;
+    cursor: link;
+}
+.abw-devlog:hover, .abw-devlog:focus { border-color: var(--abw-accent-fill); }
+.abw-devlog--plain { background-color: #1a2027; }
+.abw-devlog__backdrop, .abw-devlog__mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
+.abw-devlog__body { max-width: 640px; padding: 30px 34px 32px 34px; }
+.abw .abw-devlog__kicker { font-size: 44px; -unity-font-style: bold; letter-spacing: 6px; color: #ffffff; }
+.abw-devlog__rule { width: 56px; height: 4px; margin: 6px 0 16px 0; border-radius: 2px; background-color: var(--abw-accent-fill); }
+.abw .abw-devlog__date { font-size: 11px; -unity-font-style: bold; letter-spacing: 2px; color: #c4c9cc; }
+.abw .abw-devlog__title { font-size: 24px; -unity-font-style: bold; color: #ffffff; margin-top: 8px; }
+.abw .abw-devlog__summary { font-size: 14px; color: #e0e3e5; margin-top: 10px; max-width: 580px; }
+.abw-devlog__cta { align-self: flex-start; margin-top: 22px; padding: 10px 18px; border-radius: 4px; background-color: var(--abw-accent-fill); }
+.abw-devlog:hover .abw-devlog__cta { background-color: var(--abw-accent-fill-hover); }
+.abw .abw-devlog__cta Label { font-size: 13px; -unity-font-style: bold; color: var(--abw-on-accent); }
+.abw .abw-studio__title { font-size: 18px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw-games { margin-bottom: 28px; }
+.abw-game { flex-shrink: 0; margin-bottom: 24px; background-color: #101419; border-width: 1px; border-color: #42464b; border-radius: 10px; overflow: hidden; }
+.abw-game--selected { border-color: var(--abw-accent-fill); }
+.abw-game__backdrop, .abw-game__mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
+.abw-game__intro { height: 246px; flex-shrink: 0; padding: 30px 32px 18px 32px; }
+.abw-game__logo { position: absolute; right: 32px; top: 26px; width: 190px; height: 85px; }
+.abw-game__body { width: 60%; max-width: 570px; }
+.abw .abw-game__tagline { font-size: 10px; -unity-font-style: bold; color: #c4c9cc; letter-spacing: 2px; }
+.abw .abw-game__name { font-size: 34px; -unity-font-style: bold; color: #ffffff; margin: 8px 0; }
+.abw .abw-game__summary { font-size: 14px; color: #e0e3e5; white-space: normal; max-width: 470px; }
+.abw-game__links { flex-direction: row; flex-wrap: wrap; margin-top: 20px; }
+.abw .abw-game-link { margin: 0 8px 4px 0; padding: 10px 16px; border-radius: 4px; border-width: 1px; border-color: #737980; background-color: rgba(18,23,29,0.8); color: #f2f4f5; font-size: 12px; -unity-font-style: bold; }
+.abw .abw-game-link:hover { background-color: #353d45; }
+.abw .abw-game-link--primary { background-color: var(--abw-accent-fill); border-color: var(--abw-accent-fill); color: var(--abw-on-accent); }
+.abw .abw-game-link--primary:hover { background-color: var(--abw-accent-fill-hover); }
+.abw-game__packages { margin: 0 24px 22px 24px; padding-top: 14px; border-top-width: 1px; border-top-color: rgba(255,255,255,0.18); }
+.abw-game__carousel-heading { flex-direction: row; align-items: center; margin-bottom: 12px; }
+.abw .abw-game__usage-title { flex-grow: 1; font-size: 13px; -unity-font-style: bold; color: #edf0f2; }
+.abw .abw-game__position { font-size: 11px; color: #b7bfc5; margin-right: 14px; }
+.abw .abw-game__carousel-arrow { width: 30px; height: 28px; margin: 0 0 0 6px; padding: 0; border-radius: 4px; border-width: 1px; border-color: #626c75; background-color: #242d35; color: #ffffff; font-size: 16px; }
+.abw .abw-game__carousel-arrow:hover { background-color: #404d58; }
+.abw-game-carousel { height: 199px; flex-shrink: 0; }
+.abw-game-carousel .unity-scroll-view__content-container { flex-direction: row; }
+.abw .abw-game-product { width: 180px; min-width: 180px; height: 194px; flex-shrink: 0; margin: 0 12px 0 0; padding: 0; border-radius: 5px; border-width: 1px; border-color: #414b54; background-color: #1c242c; overflow: hidden; }
+.abw .abw-game-product:hover { background-color: #303c46; border-color: var(--abw-accent-fill); }
+.abw-game-product__image { width: 178px; height: 119px; flex-shrink: 0; }
+.abw .abw-game-product__name { height: 34px; flex-shrink: 0; margin: 8px 10px 0 10px; font-size: 12px; color: #f0f2f4; white-space: normal; -unity-font-style: bold; -unity-text-align: upper-left; }
+.abw .abw-game-product__role { margin: 4px 10px; font-size: 10px; color: #b9c6cf; -unity-text-align: middle-left; }
+.abw .abw-game__carousel-arrow:focus { border-color: var(--abw-accent-fill); }
+.abw-game-badges { flex-direction: row; flex-wrap: wrap; flex-shrink: 0; margin: 3px 0; }
+.abw .abw-game-badge { margin: 0 5px 3px 0; padding: 2px 5px; border-radius: 3px; border-width: 1px; border-color: var(--abw-accent-line); background-color: var(--abw-accent-bg); color: var(--abw-accent); font-size: 10px; white-space: nowrap; }
+.abw .abw-game-badge:hover { background-color: var(--abw-accent-bg-hover); }
+.abw .abw-game-badge:focus, .abw .abw-game-product:focus, .abw .abw-game-link:focus { border-color: var(--abw-accent); }
+.abw .abw-studio__body { font-size: 12px; color: var(--abw-text-dim); margin: 6px 0 16px 0; }
+/* A venture is a game card on its own dark cover, in both skins: literal colours, like the games. */
+.abw-venture { margin-bottom: 28px; background-color: #0a0d1a; border-color: #3b3566; }
+.abw-venture__intro { height: auto; min-height: 220px; }
+.abw .abw-venture__title { font-size: 28px; -unity-font-style: bold; color: #ffffff; margin: 8px 0; white-space: normal; }
+.abw-venture__features { flex-direction: row; margin: 12px -10px 0 0; }
+.abw-venture__feature { flex-grow: 1; flex-basis: 0; margin: 0 10px 0 0; padding: 10px 12px; border-radius: 5px; border-width: 1px; border-color: rgba(139,92,246,0.4); background-color: rgba(17,20,42,0.85); }
+.abw .abw-venture__feature-title { font-size: 12px; -unity-font-style: bold; color: #ffffff; white-space: normal; }
+.abw .abw-venture__feature-body { font-size: 11px; color: #b3b8d4; margin-top: 3px; white-space: normal; }
+.abw .abw-venture__footnote { font-size: 11px; color: #9297b5; margin-top: 12px; white-space: normal; }
+.abw-studio-card {
+    flex-grow: 1;
+    flex-basis: 200px;
+    padding: 13px 14px;
+    margin: 0 10px 10px 0;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: var(--abw-line);
+    background-color: var(--abw-surface);
+}
+.abw .abw-studio-card__title { font-size: 13px; -unity-font-style: bold; color: var(--abw-text-strong); }
+.abw .abw-studio-card__body { font-size: 11px; color: var(--abw-text-dim); margin: 3px 0 8px 0; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.abw-footer {
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    min-height: 54px;
+    padding: 0 22px;
+    background-color: var(--abw-footer);
+    border-top-width: 1px;
+    border-top-color: var(--abw-edge);
+}
+.abw-discord { padding: 9px 18px; margin-right: 14px; border-color: var(--abw-accent-fill); background-color: var(--abw-accent-bg); }
+.abw-discord:hover { background-color: var(--abw-accent-bg-hover); }
+.abw .abw-discord Label { font-size: 12px; color: var(--abw-accent); }
+.abw .abw-footer__note { font-size: 11px; color: var(--abw-text-muted); flex-shrink: 1; }
+.abw-footer .abw-btn { margin-left: 8px; padding: 7px 14px; }
+.abw-footer .abw-btn--close { padding: 7px 20px; }
+.abw-footer .abw-review-cta { padding: 9px 18px; border-color: var(--abw-accent-fill); background-color: var(--abw-accent-fill); }
+.abw-footer .abw-review-cta:hover { border-color: var(--abw-accent-fill-hover); background-color: var(--abw-accent-fill-hover); }
+.abw .abw-review-cta Label { font-size: 12px; -unity-font-style: bold; color: var(--abw-on-accent); }
+
+.abw-panel .abw-shelf { margin-right: 0; justify-content: space-between; }
+.abw-panel .abw-card { width: 48.8%; margin-right: 0; margin-bottom: 10px; flex-shrink: 0; }
+.abw-card__media { flex-shrink: 0; overflow: hidden; }
+.abw-card__image { width: 100%; height: 100%; }
+.abw-panel .abw-card__body { padding: 6px 9px; flex-grow: 1; }
+.abw-panel .abw-card__name-row { flex-direction: column; align-items: flex-start; }
+.abw-panel .abw-card__name { min-height: 28px; font-size: 12px; }
+.abw-panel .abw-card__blurb { display: none; }
+.abw-panel .abw-card__store { margin-top: 3px; padding-top: 3px; border-top-width: 1px; border-top-color: var(--abw-line); flex-wrap: wrap; }
+.abw-panel .abw-card__price { font-size: 13px; }
+.abw-panel .abw-card__name-row > .abw-pill { margin-left: 0; margin-top: 3px; }
+.abw-panel .abw-card__link { margin-top: 4px; }
+.abw-card--sale { border-color: var(--abw-line); }
+.abw .abw-pill > Label { white-space: nowrap; flex-shrink: 0; min-width: 22px; }
+
+.abw-line { padding: 10px; margin-bottom: 10px; border-color: var(--abw-accent-line); }
+.abw-line__image { width: 132px; height: 88px; flex-shrink: 0; margin-right: 10px; }
+.abw-line__heading { flex-direction: row; align-items: center; }
+.abw .abw-line__name { font-size: 12px; -unity-font-style: bold; color: var(--abw-text-strong); flex-shrink: 1; }
+.abw .abw-line__pitch { font-size: 11px; color: var(--abw-text-dim); margin-top: 4px; }
+.abw .abw-line__action { font-size: 10px; color: var(--abw-accent); margin-top: 5px; }
+.abw-panel__title { margin-bottom: 6px; }
+
+.abw-catalog-next {
+    flex-shrink: 0;
+    padding: 13px 14px;
+    margin-top: -4px;
+    margin-bottom: 14px;
+    border-radius: 6px;
+    background-color: var(--abw-accent-fill);
+    cursor: link;
+}
+.abw-catalog-next:hover { background-color: var(--abw-accent-fill-hover); }
+.abw .abw-catalog-next__title { font-size: 14px; -unity-font-style: bold; color: var(--abw-on-accent); }
+.abw .abw-catalog-next__subtitle { font-size: 11px; color: var(--abw-on-accent); margin-top: 3px; }
+
+.abw-card--wide .abw-card__body { flex-grow: 1; }
+.abw-card--wide .abw-card__store { margin-top: auto; padding-top: 8px; }
+.abw-card__thanks-row { justify-content: flex-end; }
+.abw .abw-card__thanks { font-size: 13px; -unity-font-style: bold; color: var(--abw-ok-text); }
+
+.abw .abw-card__price--free { font-size: 13px; color: var(--abw-accent); }

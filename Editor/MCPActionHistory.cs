@@ -213,6 +213,8 @@ namespace UnityMCP.Editor
                         targetPath = r.TargetPath ?? "",
                         targetType = r.TargetType ?? "",
                         undoGroup = r.UndoGroup,
+                        undoSessionId = r.UndoSessionId,
+                        undoSignature = r.UndoSignature,
                     });
                 }
 
@@ -257,6 +259,8 @@ namespace UnityMCP.Editor
                             TargetPath      = entry.targetPath,
                             TargetType      = entry.targetType,
                             UndoGroup       = entry.undoGroup,
+                            UndoSessionId   = entry.undoSessionId,
+                            UndoSignature   = entry.undoSignature,
                         });
                     }
 
@@ -296,6 +300,8 @@ namespace UnityMCP.Editor
             public string targetPath;
             public string targetType;
             public int    undoGroup;
+            public string undoSessionId;
+            public string undoSignature;
         }
     }
 }

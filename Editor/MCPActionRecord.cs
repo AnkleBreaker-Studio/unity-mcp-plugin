@@ -36,6 +36,8 @@ namespace UnityMCP.Editor
 
         // Undo support
         public int UndoGroup { get; set; } = -1; // -1 = no undo available
+        public string UndoSessionId { get; set; }
+        public string UndoSignature { get; set; }
 
         /// <summary>
         /// Extract the category from an action name path (e.g. "gameobject/create" → "gameobject").

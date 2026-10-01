@@ -105,6 +105,7 @@ The declared minimum remains **Unity 2021.3.18f1**. All 71 editor sources pass t
 | [Package Manager](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/packages.md) | Sequential requests across editor updates, expiration cleanup, legacy responses and local package add/remove with manifest restoration. |
 | [Result serialization](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/code-execution.md) | Valid JSON, bounded conversion/traversal and early HTTP byte limits; execution is not repeated after response failure. |
 | [Server HTTP downloads](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/response-limits.md#node-http-downloads) | The companion server bounds response reads with current and released plugins; overflow preserves unknown-outcome recovery without repeating commands. |
+| [Undo across agents](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/undo.md) | Native stack/session checks, explicit cascade handling and action identity preserved through script reload. |
 | [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, native cancellation, accurate results and retained job details through script reload. |
 | [Editor workflows](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md) | Scene reopening, enum/flags properties, object references, material/prefab assets and Scene capture cleanup. |
 | [Multiplayer](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/multiplayer.md) | MPPM 3.0 Host/Client launch, independent agent routing and shared script recompilation. |
@@ -130,6 +131,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | Default | Queue, HTTP dispatch, callbacks and timeout races |
 | `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
 | `-Suite Monitoring` | Error classification, history, persistence and create/undo |
+| `-Suite Undo` | Native Undo/Redo eligibility, agent/native cascades, session identity, group changes and history-window confirmation checks |
 | `-Suite Serialization` | JSON validity, output/traversal budgets, result conversion and owned HTTP writer checks |
 | `-Suite Testing` | Test Runner settings, callbacks, cancellation and UTC restoration |
 | `-Suite TestResults` | Discovery limits and authoritative final counts/details |

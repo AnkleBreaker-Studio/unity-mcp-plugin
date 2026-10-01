@@ -420,12 +420,15 @@ namespace UnityMCP.Editor
                 {
                     if (GUILayout.Button("Undo", EditorStyles.miniButton, GUILayout.Width(40)))
                     {
-                        if (EditorUtility.DisplayDialog("Undo Action",
-                            $"Undo '{MCPActionRecord.ExtractCommand(r.ActionName)}'?\n\nThis will revert all changes in this undo group.",
-                            "Undo", "Cancel"))
+                        var preview = MCPUndoCommands.PreviewRecordedAction(r);
+                        if (preview.TryGetValue("error", out var previewError))
+                            EditorUtility.DisplayDialog("Undo unavailable", previewError.ToString(), "OK");
+                        else if (EditorUtility.DisplayDialog("Undo Action", (string)preview["message"], "Revert changes", "Cancel"))
                         {
-                            Undo.RevertAllDownToGroup(r.UndoGroup);
-                            Debug.Log($"[MCP History] Reverted to undo group {r.UndoGroup}");
+                            var result = MCPUndoCommands.RevertRecordedAction(r, true, (string)preview["stackRevision"]);
+                            if (result.TryGetValue("error", out var revertError))
+                                EditorUtility.DisplayDialog("Undo unavailable", revertError.ToString(), "OK");
+                            else Debug.Log("[MCP History] " + result["message"]);
                         }
                     }
                 }

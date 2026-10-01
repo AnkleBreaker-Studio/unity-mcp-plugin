@@ -384,10 +384,9 @@ namespace UnityMCP.Editor
                     && !IsReadOperation(ticket.ActionName)
                     && !(ticket.ActionName != null && ticket.ActionName.StartsWith("undo/"));
                 int undoGroup = -1;
-                int undoRecordsBefore = -1;
                 if (opensUndoGroup)
                 {
-                    undoRecordsBefore = CountUndoRecords();
+                    UnityEditor.Undo.FlushUndoRecordObjects();
                     UnityEditor.Undo.IncrementCurrentGroup();
                     undoGroup = UnityEditor.Undo.GetCurrentGroup();
                     UnityEditor.Undo.SetCurrentGroupName(ticket.ActionName ?? "MCP Action");
@@ -422,24 +421,23 @@ namespace UnityMCP.Editor
                     Debug.LogError($"[Unity MCP Queue] Ticket {ticket.TicketId} ({ticket.ActionName}) failed: {ex.Message}");
                 }
 
-                // Fold everything this action registered into its single named group so one
-                // undo/last (or a native Ctrl+Z) reverts the whole action as one step.
+                // Seal the group before later editor work can join this action.
                 if (undoGroup >= 0)
-                    UnityEditor.Undo.CollapseUndoOperations(undoGroup);
-
-                // Empty groups must not hide real edits from undo/last; preserve the group if Unity cannot report its depth.
-                bool didRegisterUndo = undoGroup >= 0;
-                if (didRegisterUndo && undoRecordsBefore >= 0)
                 {
-                    int undoRecordsAfter = CountUndoRecords();
-                    if (undoRecordsAfter >= 0 && undoRecordsAfter <= undoRecordsBefore)
-                        didRegisterUndo = false;
+                    UnityEditor.Undo.FlushUndoRecordObjects();
+                    UnityEditor.Undo.CollapseUndoOperations(undoGroup);
                 }
+
+                bool didRegisterUndo = undoGroup >= 0;
+                string undoSignature = null;
+                if (didRegisterUndo && MCPUndoState.TryGetLatestGroup(out int latestGroup, out undoSignature))
+                    didRegisterUndo = latestGroup == undoGroup;
+                if (undoGroup >= 0) UnityEditor.Undo.IncrementCurrentGroup();
 
                 // Temporary execute-code objects must not replace an agent's real edit as its undo target.
                 int recordedUndoGroup = status == RequestStatus.Completed && didRegisterUndo
                     && ticket.ActionName != "editor/execute-code" ? undoGroup : -1;
-                TryCompleteTicket(ticket, status, result, error, recordedUndoGroup);
+                TryCompleteTicket(ticket, status, result, error, recordedUndoGroup, undoSignature);
             }
             FlushCompletedHistory();
         }
@@ -639,38 +637,6 @@ namespace UnityMCP.Editor
 
         private static bool IsReadOperation(string actionName) => MCPCommandPolicy.IsReadOnly(actionName);
 
-        // Cached reflection for UnityEditor.Undo.GetRecords(List<string>, List<string>) — the
-        // internal API the Undo History window uses. Lets us tell whether an action actually
-        // put something on the undo stack (see the undo-group logic in ProcessNextRequests).
-        private static System.Reflection.MethodInfo _getUndoRecords;
-        private static bool _getUndoRecordsResolved;
-        private static readonly List<string> _undoScratchU = new List<string>();
-        private static readonly List<string> _undoScratchR = new List<string>();
-
-        /// <summary>Current undo-stack depth, or -1 if the internal API is unavailable.</summary>
-        private static int CountUndoRecords()
-        {
-            try
-            {
-                if (!_getUndoRecordsResolved)
-                {
-                    _getUndoRecords = typeof(UnityEditor.Undo).GetMethod(
-                        "GetRecords",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static,
-                        null,
-                        new[] { typeof(List<string>), typeof(List<string>) },
-                        null);
-                    _getUndoRecordsResolved = true;
-                }
-                if (_getUndoRecords == null) return -1;
-                _undoScratchU.Clear();
-                _undoScratchR.Clear();
-                _getUndoRecords.Invoke(null, new object[] { _undoScratchU, _undoScratchR });
-                return _undoScratchU.Count;
-            }
-            catch { return -1; }
-        }
-
         private static void PurgeEmptyQueues()
         {
             for (int i = _rrOrder.Count - 1; i >= 0; i--)
@@ -701,7 +667,7 @@ namespace UnityMCP.Editor
             return session;
         }
 
-        private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error, int undoGroup = -1)
+        private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error, int undoGroup = -1, string undoSignature = null)
         {
             string commandError = null;
             bool commandFailed = status == RequestStatus.Completed && MCPCommandOutcome.TryGetError(result, out commandError);
@@ -749,6 +715,8 @@ namespace UnityMCP.Editor
                     ExecutionTimeMs = ticket.ExecutionTimeMs,
                     ErrorMessage = commandFailed ? commandError : error,
                     UndoGroup = undoGroup,
+                    UndoSessionId = undoGroup >= 0 ? MCPUndoState.SessionId : null,
+                    UndoSignature = undoGroup >= 0 ? undoSignature : null,
                 };
                 if (_pendingHistory.Count >= MaxPendingHistoryRecords)
                 {

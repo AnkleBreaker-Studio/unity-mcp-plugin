@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Native Undo state and cascade protection
+- Check retained MCP groups against Unity's actual Undo stack, editor-session identity and native entry signature. Reflect native Undo/Redo, clearing and external group changes instead of trusting historical group numbers.
+- Refuse newer native groups as well as newer MCP actions unless `force: true`; retain legacy MCP counts and add native-group details. Verify the resulting stack before reporting success.
+- Close synchronous groups before later editor work can join them. Keep deferred and execute-code targeting behavior unchanged.
+- Persist additive identity fields across script reload; keep old records readable without claiming that unverified groups can still be reverted.
+- Route the Action History window through the shared preview/revert checks, describe the cascade and lack of Redo, and reject stale confirmations. Add 18 controlled checks and a live multi-agent/reload fixture.
+
 ### Result serialization
 - Emit valid JSON for non-finite floating-point values, culture-independent integers and unpaired UTF-16 surrogates. Preserve ordinary numeric/list shapes and getter-failure nulls.
 - Detect cycles and bound generic traversal to 64 container levels / 1,000,000 values. Propagate nested serialization errors instead of returning partial JSON.

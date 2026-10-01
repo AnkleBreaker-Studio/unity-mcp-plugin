@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -16,8 +16,8 @@ New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'Assets/Editor
 Set-Content -LiteralPath (Join-Path $projectRoot '.unity-mcp-validation') -Value $pluginRoot
 $manifest = @{ dependencies = @{ 'com.anklebreaker.unity-mcp' = "file:$pluginRoot" } } | ConvertTo-Json
 [System.IO.File]::WriteAllText((Join-Path $projectRoot 'Packages/manifest.json'), $manifest)
-$runnerFile = switch ($Suite) { 'Serialization' { 'SerializationValidation.cs' } 'RequestShutdown' { 'RequestShutdownValidation.cs' } 'TestPersistence' { 'TestPersistenceValidation.cs' } 'TestResults' { 'TestResultsValidation.cs' } 'Testing' { 'TestRunnerValidation.cs' } 'Packages' { 'PackageManagerValidation.cs' } 'Dashboard' { 'DashboardValidation.cs' } 'Execution' { 'ExecutionValidation.cs' } 'Health' { 'QueueHealthValidation.cs' } 'Monitoring' { 'MonitoringValidation.cs' } default { 'ValidationRunner.cs' } }
-$runnerClass = switch ($Suite) { 'Serialization' { 'UnityMcpSerializationValidation' } 'RequestShutdown' { 'UnityMcpRequestShutdownValidation' } 'TestPersistence' { 'UnityMcpTestPersistenceValidation' } 'TestResults' { 'UnityMcpTestResultsValidation' } 'Testing' { 'UnityMcpTestRunnerValidation' } 'Packages' { 'UnityMcpPackageManagerValidation' } 'Dashboard' { 'UnityMcpDashboardValidation' } 'Execution' { 'UnityMcpExecutionValidation' } 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
+$runnerFile = switch ($Suite) { 'Undo' { 'UndoValidation.cs' } 'Serialization' { 'SerializationValidation.cs' } 'RequestShutdown' { 'RequestShutdownValidation.cs' } 'TestPersistence' { 'TestPersistenceValidation.cs' } 'TestResults' { 'TestResultsValidation.cs' } 'Testing' { 'TestRunnerValidation.cs' } 'Packages' { 'PackageManagerValidation.cs' } 'Dashboard' { 'DashboardValidation.cs' } 'Execution' { 'ExecutionValidation.cs' } 'Health' { 'QueueHealthValidation.cs' } 'Monitoring' { 'MonitoringValidation.cs' } default { 'ValidationRunner.cs' } }
+$runnerClass = switch ($Suite) { 'Undo' { 'UnityMcpUndoValidation' } 'Serialization' { 'UnityMcpSerializationValidation' } 'RequestShutdown' { 'UnityMcpRequestShutdownValidation' } 'TestPersistence' { 'UnityMcpTestPersistenceValidation' } 'TestResults' { 'UnityMcpTestResultsValidation' } 'Testing' { 'UnityMcpTestRunnerValidation' } 'Packages' { 'UnityMcpPackageManagerValidation' } 'Dashboard' { 'UnityMcpDashboardValidation' } 'Execution' { 'UnityMcpExecutionValidation' } 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportPath = Join-Path $projectRoot "Library/$runnerClass.json"

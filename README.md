@@ -4,15 +4,37 @@
 
 # AnkleBreaker Unity MCP Plugin
 
+[![Plugin route checks](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/actions/workflows/checks.yml/badge.svg?branch=Development-Unity66-Modernization)](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/actions/workflows/checks.yml?query=branch%3ADevelopment-Unity66-Modernization)
+[![Server regression tests](https://github.com/AnkleBreaker-Studio/unity-mcp-server/actions/workflows/test.yml/badge.svg?branch=Development-Unity66-Modernization)](https://github.com/AnkleBreaker-Studio/unity-mcp-server/actions/workflows/test.yml?query=branch%3ADevelopment-Unity66-Modernization)
+
 **The Unity side of a workflow built for multiple projects, multiple agents and multiplayer iteration.** This UPM package runs the editor bridge used by the companion [AnkleBreaker MCP server](https://github.com/AnkleBreaker-Studio/unity-mcp-server).
 
-[Install](#installation) · [Dashboard](#dashboard-and-monitoring) · [Architecture](#how-it-works) · [Validation](#compatibility-and-validation) · [Changelog](CHANGELOG.md)
+[Install](#installation) · [Watch demos](#see-the-workflow) · [Dashboard](#dashboard-and-monitoring) · [Performance](#measured-improvements) · [Architecture](#how-it-works) · [Validation](#compatibility-and-validation)
 
 | 338 registered editor routes | Fair scheduling between agents | Multiplayer scenario tools |
 |:---:|:---:|:---:|
 | Scenes through optional integrations | FIFO per agent, grouped reads | MPPM controls and clone discovery |
 
 The server also provides Hub and connection tools. Route counts describe the checked-in dispatcher; optional integrations require their own packages.
+
+## See the workflow
+
+**From a prompt to a playable prototype.** The recorded neon brick-breaker workflow combines scene authoring, materials, C# gameplay scripts and visual iteration through Unity MCP.
+
+[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](docs/unity-mcp-showcase-brickbreaker.gif)](Documentation~/media/showcase-brickbreaker.mp4)
+
+**[▶ Open video · 25 seconds](Documentation~/media/showcase-brickbreaker.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-brickbreaker.mp4) · [Village and castle demos](#build-environments-and-playable-levels)
+
+Accelerated excerpts from existing recordings. The silent MP4s contain the same frames as the GIFs; their duration is not a development-time benchmark. [Prompts and media details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/demos.md).
+
+### Why this bridge is built for a team of agents
+
+| Need | Plugin behavior | Evidence |
+|---|---|---|
+| **Share an editor fairly** | A FIFO queue per agent, round-robin scheduling and grouped reads. | [Queue checks](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-monitoring.md) |
+| **Keep projects independent** | A listener, queue and identity for each editor; the server pins each request to its target. | [Architecture](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/architecture.md) |
+| **Iterate on multiplayer** | Native MPPM scenario/player controls and ParrelSync clone identity. | [Host/Client](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/multiplayer.md) · [Clones](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/parrelsync.md) |
+| **Inspect and recover** | Attributed history, timings, supported Undo and protected ticket retries with an updated server. | [Undo](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/undo.md) · [Retry contract](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-protocol.md) |
 
 ## Installation
 
@@ -52,16 +74,41 @@ Optional integrations include ProBuilder, UMA, Amplify Shader Editor, Shader Gra
 
 UMA uses a separate assembly enabled by `UMA_INSTALLED`, keeping its references out of the core bridge. UMA V3.1f1 creation and rename workflows now pass on Unity 6.6, including legacy recipe references and preservation after file collisions. Actual UMA 2 execution and runtime avatar rendering remain unverified. [UMA setup, evidence and reproduction](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/uma.md).
 
-<details>
-<summary><strong>See a scene built with Unity MCP</strong></summary>
+## Build environments and playable levels
 
-<p align="center"><img src="docs/unity-mcp-showcase-village.gif" alt="Existing Unity MCP demonstration showing a village with terrain and houses" width="800" /></p>
+### Medieval village
 
-Other existing demonstrations: [brick breaker](docs/unity-mcp-showcase-brickbreaker.gif) and [castle](docs/unity-mcp-showcase-castle.gif).
+Terrain, reusable houses, materials, trees, fences and paths, created and refined in the Unity Editor.
 
-</details>
+[![Unity MCP recording showing a medieval village being built with terrain and houses](docs/unity-mcp-showcase-village.gif)](Documentation~/media/showcase-village.mp4)
+
+**[▶ Open video · 25 seconds](Documentation~/media/showcase-village.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-village.mp4)
+
+### Castle and walkthrough
+
+Multi-room construction, lighting adjustments and a first-person walkthrough in the recorded project.
+
+[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](docs/unity-mcp-showcase-castle.gif)](Documentation~/media/showcase-castle.mp4)
+
+**[▶ Open video · 18 seconds](Documentation~/media/showcase-castle.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/Development-Unity66-Modernization/Documentation~/media/showcase-castle.mp4)
+
+### Prompts for your own project
+
+> List my running editors, select my prototype and inspect its scene and compilation errors before making changes.
+
+> Discover the multiplayer tools, inspect the configured MPPM scenario and start its Host and Client players.
+
+> Run the selected EditMode tests, keep the job ID and retrieve its results in pages. Then show me the recent actions and which supported changes can be undone.
+
+Results depend on your model, project and installed packages. [More prompts and the full tool catalog](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/features.md).
 
 ## Dashboard and monitoring
+
+<p align="center">
+  <img src="Documentation~/media/dashboard-validation.png" alt="Actual Unity 6.6 Dashboard showing project bridge status, three agent sessions, request queue and HTTP activity" width="640" />
+</p>
+
+*Captured in a validation project. Long agent/request names deliberately exercise layout; the counters show that test session.*
 
 Open **Window → AB Unity MCP → Dashboard** in the project you want to inspect. Bridge controls, queue activity, agent cards and recent actions come first. Sections remember their state per project; long names and requests remain available in tooltips.
 
@@ -82,7 +129,11 @@ Outstanding work keeps a session visible. At most 1,024 sessions without outstan
 
 ## How it works
 
-[View the routing diagram](Documentation~/workflow.svg) / [Full architecture guide](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/architecture.md).
+<p align="center">
+  <img src="Documentation~/workflow.svg" alt="AI assistants route requests to independent Unity project queues, with per-agent scheduling and multiplayer scenario tools" width="960" />
+</p>
+
+[Full architecture guide](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/architecture.md).
 
 1. The MCP server sends a command with agent identity to the local bridge.
 2. The bridge returns a queue ticket. Legacy calls wait on a ticket internally.
@@ -98,9 +149,28 @@ Each editor has its own listener, queue and project identity. The server handles
 
 The bridge binds to loopback and checks incoming browser/host metadata. It is intended for the companion server on the same machine. Local code-execution tools have the authority of the editor process, so use trusted MCP clients. Queueing orders requests; it does not resolve conflicting edits by different agents. Undo applies to commands that register supported Unity undo operations, not every possible command or filesystem change.
 
+## Measured improvements
+
+<p align="center">
+  <img src="Documentation~/performance.svg" alt="Local before and after measurements: code calls 15.85 to 1.01 seconds, history repaint 72.45 to 1.80 milliseconds, paged test result construction 14.21 to 0.036 milliseconds" width="800" />
+</p>
+
+Compiler metadata reuse, visible-row history drawing and paginated result construction remove repeated work from three different editor workflows. These are separate Unity 6000.6.2f1 / Windows fixtures with historical baselines, not whole-editor or competing-product benchmarks.
+
+| Workload | Before → after | Reproduce and inspect |
+|---|---|---|
+| 20 small code calls | **15.85 s → 1.01 s** | [Execution report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/code-execution.md) |
+| History repaint, 5,000 retained actions | **72.45 ms → 1.80 ms** | [Window report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/history-window.md) |
+| Construct 20 results from 10,000 stored tests | **14.21 ms → 0.036 ms** | [Pagination report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/test-pagination.md) |
+
 ## Compatibility and validation
 
 The declared minimum remains **Unity 2021.3.18f1**. All 77 editor sources included in the minimum-version API compiler check pass. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
+
+The companion server has **263 passing tests on eight CI configurations** (Node 18/20/22/24, Windows/Linux); this plugin passes its **338-route registry check**. Native tests and live workflows provide separate Unity evidence. The [delivery summary](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization-audit.md) records the source checkpoints and limits; the broad compatibility matrix and later focused checks were not all run at one final commit.
+
+<details>
+<summary><strong>Explore the tested workflows and their evidence</strong></summary>
 
 | Coverage | Verified behavior |
 |---|---|
@@ -126,7 +196,9 @@ The declared minimum remains **Unity 2021.3.18f1**. All 77 editor sources includ
 | [Editor lifecycle](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md) | Two editors, four Play Mode reload configurations and lost-result handling after script reload. |
 | [Dashboard](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/dashboard.md) | Card reuse, section persistence through script reload, 360 px geometry and actual Windows pixel review at 360/640 px. |
 
-Older MPPM/ParrelSync versions, game networking, other OS/build platforms and additional optional packages need separate validation. [Full evidence and remaining work](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md).
+</details>
+
+Older MPPM/ParrelSync versions, game networking, other OS/build platforms and additional optional packages need separate validation. [Full evidence and follow-up limits](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md).
 
 <details>
 <summary><strong>Reproduce the Unity checks</strong></summary>

@@ -309,8 +309,9 @@ namespace UnityMCP.Editor
 
         public static object GetMeshInfo(Dictionary<string, object> args)
         {
-            string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
-            string gameObjectPath = args.ContainsKey("gameObjectPath") ? args["gameObjectPath"].ToString() : "";
+            string assetPath = args.TryGetValue("assetPath", out var path) ? path?.ToString() : "";
+            string gameObjectPath = args.TryGetValue("gameObjectPath", out var legacyPath) ? legacyPath?.ToString() : "";
+            if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = args.TryGetValue("objectPath", out var objectPath) ? objectPath?.ToString() : "";
 
             Mesh mesh = null;
             string source = "";
@@ -339,7 +340,8 @@ namespace UnityMCP.Editor
                             mesh = smr.sharedMesh;
                             source = assetPath + " (SkinnedMeshRenderer)";
                             isSkinned = true;
-                            boneCount = smr.bones != null ? smr.bones.Length : 0;
+                            var bones = smr.bones;
+                            boneCount = bones != null ? bones.Length : 0;
                         }
                         else
                         {
@@ -366,7 +368,8 @@ namespace UnityMCP.Editor
                         mesh = smr.sharedMesh;
                         source = gameObjectPath + " (SkinnedMeshRenderer)";
                         isSkinned = true;
-                        boneCount = smr.bones != null ? smr.bones.Length : 0;
+                        var bones = smr.bones;
+                        boneCount = bones != null ? bones.Length : 0;
                     }
                     else
                     {
@@ -381,33 +384,45 @@ namespace UnityMCP.Editor
             }
 
             if (mesh == null)
-                return new { error = "No mesh found. Provide assetPath to a mesh/model asset or gameObjectPath to a scene object with MeshFilter/SkinnedMeshRenderer." };
+                return new { error = "No mesh found. Provide assetPath to a mesh/model asset or objectPath (legacy: gameObjectPath) to a scene object with MeshFilter/SkinnedMeshRenderer." };
 
-            // Count UV channels
+            int vertexCount = mesh.vertexCount;
             int uvChannels = 0;
-            if (mesh.uv != null && mesh.uv.Length > 0) uvChannels++;
-            if (mesh.uv2 != null && mesh.uv2.Length > 0) uvChannels++;
-            if (mesh.uv3 != null && mesh.uv3.Length > 0) uvChannels++;
-            if (mesh.uv4 != null && mesh.uv4.Length > 0) uvChannels++;
+            if (vertexCount > 0)
+                for (int channel = 0; channel < 8; channel++)
+                    if (mesh.HasVertexAttribute((VertexAttribute)((int)VertexAttribute.TexCoord0 + channel))) uvChannels++;
 
             return new Dictionary<string, object>
             {
                 { "name", mesh.name },
                 { "source", source },
-                { "vertexCount", mesh.vertexCount },
-                { "triangleCount", mesh.triangles.Length / 3 },
+                { "vertexCount", vertexCount },
+                { "triangleCount", CountMeshTriangles(mesh) },
                 { "subMeshCount", mesh.subMeshCount },
                 { "bounds", BoundsToDict(mesh.bounds) },
                 { "uvChannelCount", uvChannels },
-                { "hasNormals", mesh.normals != null && mesh.normals.Length > 0 },
-                { "hasTangents", mesh.tangents != null && mesh.tangents.Length > 0 },
-                { "hasColors", mesh.colors != null && mesh.colors.Length > 0 },
+                { "hasNormals", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Normal) },
+                { "hasTangents", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Tangent) },
+                { "hasColors", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Color) },
                 { "blendShapeCount", mesh.blendShapeCount },
                 { "isSkinned", isSkinned },
                 { "boneCount", boneCount },
                 { "isReadable", mesh.isReadable },
                 { "indexFormat", mesh.indexFormat.ToString() },
             };
+        }
+
+        private static object CountMeshTriangles(Mesh mesh)
+        {
+            long count = 0;
+            for (int subMesh = 0; subMesh < mesh.subMeshCount; subMesh++)
+            {
+                // Match Unity's triangulated result without copying CPU index buffers.
+                var topology = mesh.GetTopology(subMesh);
+                if (topology == MeshTopology.Triangles) count += mesh.GetIndexCount(subMesh) / 3;
+                else if (topology == MeshTopology.Quads) count += (long)mesh.GetIndexCount(subMesh) / 4 * 2;
+            }
+            return count <= int.MaxValue ? (object)(int)count : count;
         }
 
         // ─── 6. Material Info (with preview) ───
@@ -623,9 +638,10 @@ namespace UnityMCP.Editor
 
         public static object GetRendererInfo(Dictionary<string, object> args)
         {
-            string gameObjectPath = args.ContainsKey("gameObjectPath") ? args["gameObjectPath"].ToString() : "";
+            string gameObjectPath = args.TryGetValue("gameObjectPath", out var legacyPath) ? legacyPath?.ToString() : "";
+            if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = args.TryGetValue("objectPath", out var objectPath) ? objectPath?.ToString() : "";
             if (string.IsNullOrEmpty(gameObjectPath))
-                return new { error = "gameObjectPath is required" };
+                return new { error = "objectPath (legacy: gameObjectPath) is required" };
 
             var go = GameObject.Find(gameObjectPath);
             if (go == null)
@@ -679,7 +695,8 @@ namespace UnityMCP.Editor
             {
                 mesh = smr.sharedMesh;
                 result["isSkinned"] = true;
-                result["boneCount"] = smr.bones != null ? smr.bones.Length : 0;
+                var bones = smr.bones;
+                result["boneCount"] = bones != null ? bones.Length : 0;
             }
             else
             {
@@ -695,7 +712,7 @@ namespace UnityMCP.Editor
                 {
                     { "name", mesh.name },
                     { "vertexCount", mesh.vertexCount },
-                    { "triangleCount", mesh.triangles.Length / 3 },
+                    { "triangleCount", CountMeshTriangles(mesh) },
                     { "assetPath", AssetDatabase.GetAssetPath(mesh) },
                 };
             }

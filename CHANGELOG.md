@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Mesh and renderer metadata
+- Honor documented `objectPath` for mesh and renderer inspection while retaining the legacy `gameObjectPath` and asset lookup precedence.
+- Count all eight UV channels. Read vertex attributes and submesh metadata without copying geometry buffers; preserve triangulated quad counts and empty-layout semantics.
+- Preserve ordinary C# integer results and shared mesh/material references; avoid duplicate bone-array reads.
+- Add twenty batch checks and live current/released-server coverage on Node 18/22, with minimum-version API compilation and local allocation/timing evidence.
+
 ### Responsive asset previews
 - Replace main-thread sleeps on all four preview routes with deferred polling: 50 ms per preview, four polls per update, a soft 5 ms allowance and at most 64 pending operations. Drop expired work and detach callbacks on reload/quit.
 - Honor asset/prefab sizes, material `includePreview` and texture `previewSize`; retain native dimensions when omitted. Support documented material `objectPath` alongside legacy `gameObjectPath`, and refuse invalid indices.

@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -20,6 +20,7 @@ $runnerFile = switch ($Suite) { 'RequestBody' { 'RequestBodyValidation.cs' } 'Ed
 $runnerClass = switch ($Suite) { 'RequestBody' { 'UnityMcpRequestBodyValidation' } 'EditorCapture' { 'UnityMcpCaptureFixture.UnityMcpEditorCaptureValidation' } 'HttpDiagnostics' { 'UnityMcpHttpDiagnosticsValidation' } 'RequestInput' { 'UnityMcpRequestInputValidation' } 'Undo' { 'UnityMcpUndoValidation' } 'Serialization' { 'UnityMcpSerializationValidation' } 'RequestShutdown' { 'UnityMcpRequestShutdownValidation' } 'TestPersistence' { 'UnityMcpTestPersistenceValidation' } 'TestResults' { 'UnityMcpTestResultsValidation' } 'Testing' { 'UnityMcpTestRunnerValidation' } 'Packages' { 'UnityMcpPackageManagerValidation' } 'Dashboard' { 'UnityMcpDashboardValidation' } 'Execution' { 'UnityMcpExecutionValidation' } 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
 if ($Suite -eq 'GraphicsCapture') { $runnerFile = 'GraphicsCaptureValidation.cs'; $runnerClass = 'UnityMcpGraphicsCaptureValidation' }
 if ($Suite -eq 'AssetPreview') { $runnerFile = 'AssetPreviewValidation.cs'; $runnerClass = 'UnityMcpAssetPreviewValidation' }
+if ($Suite -eq 'MeshMetadata') { $runnerFile = 'MeshMetadataValidation.cs'; $runnerClass = 'UnityMcpMeshMetadataValidation' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportName = $runnerClass.Split('.')[-1]

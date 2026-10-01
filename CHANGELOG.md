@@ -4,6 +4,9 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### JSON parser
+- Return the existing empty-input result at end of input instead of throwing while checking whitespace; preserve normal values and trailing-whitespace handling.
+
 ### Toolbar and menu access
 - Show the native MCP status element on first use even when the saved Unity toolbar layout hides it. Preserve a subsequent Hide choice and offer Show Toolbar Status in both menu roots.
 - Share the complete MCP dropdown between the main toolbar, Dashboard navigation, Action History navigation and the Window/Tools menus. Add direct Welcome, history, settings, documentation and Dashboard-section links.

@@ -171,7 +171,7 @@ namespace UnityMCP.Editor
 
             void EatWhitespace()
             {
-                while (Char.IsWhiteSpace(PeekChar)) { json.Read(); if (json.Peek() == -1) break; }
+                while (json.Peek() != -1 && Char.IsWhiteSpace(PeekChar)) json.Read();
             }
 
             char PeekChar => Convert.ToChar(json.Peek());

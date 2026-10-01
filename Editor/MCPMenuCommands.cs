@@ -8,7 +8,7 @@ namespace UnityMCP.Editor
         internal const string WindowRoot = "Window/AB Unity MCP";
         internal const string ToolsRoot = "Tools/AnkleBreaker/Unity MCP";
         internal const string WelcomePath = ToolsRoot + "/Welcome";
-        internal const string DocumentationUrl = "https://github.com/AnkleBreaker-Studio/unity-mcp-server/tree/Development-Unity66-Modernization#get-started";
+        internal const string DocumentationUrl = "https://github.com/AnkleBreaker-Studio/unity-mcp-server/tree/main#get-started";
 
         [MenuItem(ToolsRoot + "/Dashboard", false, -10)]
         [MenuItem("Tools/AnkleBreaker/MCP For Unity/Dashboard", false, -10)]

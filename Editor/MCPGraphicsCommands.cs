@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -20,6 +21,34 @@ namespace UnityMCP.Editor
             byte[] bytes = tex.EncodeToPNG();
             return System.Convert.ToBase64String(bytes);
         }
+
+        private static bool TryCaptureDimensions(Dictionary<string, object> args, out int width, out int height)
+        {
+            width = height = 512;
+            int deviceLimit = SystemInfo.maxTextureSize;
+            int maxSide = deviceLimit > 0 ? Math.Min(8192, deviceLimit) : 8192;
+            return TryDimension(args, "width", maxSide, out width) && TryDimension(args, "height", maxSide, out height)
+                && (long)width * height <= 33554432;
+        }
+
+        private static bool TryDimension(Dictionary<string, object> args, string key, int maxSide, out int result)
+        {
+            result = 512;
+            if (!args.TryGetValue(key, out var value)) return result <= maxSide;
+            if (value == null || value is bool) return false;
+            try
+            {
+                double number = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                if (double.IsNaN(number) || double.IsInfinity(number) || number < 1 || number > maxSide || number != Math.Floor(number)) return false;
+                result = (int)number; return true;
+            }
+            catch (Exception error) when (error is FormatException || error is InvalidCastException || error is OverflowException) { return false; }
+        }
+
+        private static object InvalidCaptureDimensions() => new {
+            error = "Capture dimensions must be integers from 1 to 8192 within the graphics-device limit, with at most 33554432 pixels in total.",
+            code = "invalid_capture_dimensions"
+        };
 
         /// <summary>
         /// AssetPreview.GetAssetPreview may return null on first call (async loading).
@@ -96,15 +125,15 @@ namespace UnityMCP.Editor
             // AssetPreview textures are not always readable, so copy to a readable texture
             RenderTexture rt = null;
             Texture2D readable = null;
+            var previousActive = RenderTexture.active;
             try
             {
                 rt = RenderTexture.GetTemporary(preview.width, preview.height, 0);
                 Graphics.Blit(preview, rt);
                 RenderTexture.active = rt;
                 readable = new Texture2D(preview.width, preview.height, TextureFormat.RGBA32, false);
-                readable.ReadPixels(new Rect(0, 0, preview.width, preview.height), 0, 0);
-                readable.Apply();
-                RenderTexture.active = null;
+                // PNG encoding reads CPU pixels; uploading this temporary texture to the GPU is unnecessary.
+                readable.ReadPixels(new Rect(0, 0, preview.width, preview.height), 0, 0, false);
 
                 string base64 = TextureToBase64(readable);
 
@@ -120,7 +149,7 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                RenderTexture.active = null;
+                RenderTexture.active = previousActive;
                 if (rt != null) RenderTexture.ReleaseTemporary(rt);
                 if (readable != null) UnityEngine.Object.DestroyImmediate(readable);
             }
@@ -130,21 +159,22 @@ namespace UnityMCP.Editor
 
         public static object CaptureSceneView(Dictionary<string, object> args)
         {
-            int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 512;
-            int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 512;
+            if (!TryCaptureDimensions(args, out int width, out int height)) return InvalidCaptureDimensions();
 
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
                 return new { error = "No active Scene View found" };
 
+            var camera = sceneView.camera;
+            if (camera == null) return new { error = "The active Scene View has no render camera" };
+            var previousTarget = camera.targetTexture;
+            var previousActive = RenderTexture.active;
             RenderTexture rt = null;
             Texture2D tex = null;
             try
             {
-                var camera = sceneView.camera;
-                // A backgrounded editor doesn't repaint the SceneView, so its camera can lag
-                // behind pivot/rotation/size changes made through code (LookAt, focus). Sync
-                // the render camera to the view state so captures reflect the requested view.
+                // Background SceneView cameras can lag behind scripted view changes.
+                // Sync the render camera so the captured frame uses the requested view.
                 camera.transform.rotation = sceneView.rotation;
                 camera.transform.position = sceneView.pivot - sceneView.rotation * Vector3.forward * sceneView.cameraDistance;
                 rt = new RenderTexture(width, height, 24);
@@ -153,8 +183,7 @@ namespace UnityMCP.Editor
 
                 RenderTexture.active = rt;
                 tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                tex.Apply();
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
 
                 string base64 = TextureToBase64(tex);
 
@@ -168,9 +197,8 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                if (sceneView != null && sceneView.camera != null)
-                    sceneView.camera.targetTexture = null;
-                RenderTexture.active = null;
+                if (camera != null) camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
                 if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
                 if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
             }
@@ -180,8 +208,7 @@ namespace UnityMCP.Editor
 
         public static object CaptureGameView(Dictionary<string, object> args)
         {
-            int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 512;
-            int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 512;
+            if (!TryCaptureDimensions(args, out int width, out int height)) return InvalidCaptureDimensions();
             string cameraName = args.ContainsKey("cameraName") ? args["cameraName"].ToString() : "";
 
             Camera camera = null;
@@ -189,14 +216,16 @@ namespace UnityMCP.Editor
             {
                 var go = GameObject.Find(cameraName);
                 if (go != null) camera = go.GetComponent<Camera>();
+                if (camera == null) return new { error = "No Camera found at '" + cameraName + "'. Check the active object's name or hierarchy path.", code = "camera_not_found" };
             }
-            if (camera == null) camera = Camera.main;
+            else camera = Camera.main;
             if (camera == null)
                 return new { error = "No camera found. Ensure a Camera exists with tag 'MainCamera' or specify cameraName." };
 
             RenderTexture rt = null;
             Texture2D tex = null;
             RenderTexture prevTarget = camera.targetTexture;
+            RenderTexture previousActive = RenderTexture.active;
             try
             {
                 rt = new RenderTexture(width, height, 24);
@@ -205,8 +234,7 @@ namespace UnityMCP.Editor
 
                 RenderTexture.active = rt;
                 tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                tex.Apply();
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
 
                 string base64 = TextureToBase64(tex);
 
@@ -221,8 +249,8 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                camera.targetTexture = prevTarget;
-                RenderTexture.active = null;
+                if (camera != null) camera.targetTexture = prevTarget;
+                RenderTexture.active = previousActive;
                 if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
                 if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
             }

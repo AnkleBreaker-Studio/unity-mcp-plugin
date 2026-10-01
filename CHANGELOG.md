@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Inline graphics captures
+- Explicit missing cameras previously fell back to `Camera.main`; return a camera error while retaining the default when no name is supplied.
+- Refuse invalid dimensions before rendering: whole pixels, 1-8192 per side within the device limit, at most 33,554,432 pixels. Preserve 512-square defaults and successful result fields.
+- Restore borrowed camera and active render targets for Game/Scene captures and asset previews. Avoid uploading CPU-only PNG textures back to the GPU.
+- Add `-Suite GraphicsCapture`: seventeen checks for decoded pixels, dimensions, render state and texture cleanup. Validate direct MCP calls with current/released servers on Node 18/22; rendering evidence uses Built-in/Direct3D12 on Unity 6.6.
+
 ### HTTP body completion and admission
 - Truncated HTTP bodies containing valid JSON could create a ticket. Check declared lengths and Mono chunk completion before parsing/dispatch; preserve fragmented final chunks and trailers.
 - Bound active body readers to eight and reserve at most 64 MiB of declared input, using 32 MiB per unknown-length body. Refuse excess admission with HTTP 503 and explicit non-acceptance.

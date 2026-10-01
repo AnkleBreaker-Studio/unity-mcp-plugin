@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -18,12 +18,14 @@ $manifest = @{ dependencies = @{ 'com.anklebreaker.unity-mcp' = "file:$pluginRoo
 [System.IO.File]::WriteAllText((Join-Path $projectRoot 'Packages/manifest.json'), $manifest)
 $runnerFile = switch ($Suite) { 'RequestBody' { 'RequestBodyValidation.cs' } 'EditorCapture' { 'EditorCaptureValidation.cs' } 'HttpDiagnostics' { 'HttpDiagnosticsValidation.cs' } 'RequestInput' { 'RequestInputValidation.cs' } 'Undo' { 'UndoValidation.cs' } 'Serialization' { 'SerializationValidation.cs' } 'RequestShutdown' { 'RequestShutdownValidation.cs' } 'TestPersistence' { 'TestPersistenceValidation.cs' } 'TestResults' { 'TestResultsValidation.cs' } 'Testing' { 'TestRunnerValidation.cs' } 'Packages' { 'PackageManagerValidation.cs' } 'Dashboard' { 'DashboardValidation.cs' } 'Execution' { 'ExecutionValidation.cs' } 'Health' { 'QueueHealthValidation.cs' } 'Monitoring' { 'MonitoringValidation.cs' } default { 'ValidationRunner.cs' } }
 $runnerClass = switch ($Suite) { 'RequestBody' { 'UnityMcpRequestBodyValidation' } 'EditorCapture' { 'UnityMcpCaptureFixture.UnityMcpEditorCaptureValidation' } 'HttpDiagnostics' { 'UnityMcpHttpDiagnosticsValidation' } 'RequestInput' { 'UnityMcpRequestInputValidation' } 'Undo' { 'UnityMcpUndoValidation' } 'Serialization' { 'UnityMcpSerializationValidation' } 'RequestShutdown' { 'UnityMcpRequestShutdownValidation' } 'TestPersistence' { 'UnityMcpTestPersistenceValidation' } 'TestResults' { 'UnityMcpTestResultsValidation' } 'Testing' { 'UnityMcpTestRunnerValidation' } 'Packages' { 'UnityMcpPackageManagerValidation' } 'Dashboard' { 'UnityMcpDashboardValidation' } 'Execution' { 'UnityMcpExecutionValidation' } 'Health' { 'UnityMcpQueueHealthValidation' } 'Monitoring' { 'UnityMcpMonitoringValidation' } default { 'UnityMcpValidation' } }
+if ($Suite -eq 'GraphicsCapture') { $runnerFile = 'GraphicsCaptureValidation.cs'; $runnerClass = 'UnityMcpGraphicsCaptureValidation' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportName = $runnerClass.Split('.')[-1]
 $reportPath = Join-Path $projectRoot "Library/$reportName.json"
 if (Test-Path -LiteralPath $reportPath) { Remove-Item -LiteralPath $reportPath }
 $arguments = @('-batchmode', '-nographics', '-projectPath', ('"{0}"' -f $projectRoot), '-executeMethod', "$runnerClass.Run", '-logFile', ('"{0}"' -f $logPath))
+if ($Suite -eq 'GraphicsCapture') { $arguments = $arguments | Where-Object { $_ -ne '-nographics' } }
 $previousTemp = $env:TEMP
 $previousTmp = $env:TMP
 try {

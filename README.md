@@ -113,6 +113,7 @@ The declared minimum remains **Unity 2021.3.18f1**. All 74 editor sources includ
 | [Undo across agents](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/undo.md) | Native stack/session checks, explicit cascade handling and action identity preserved through script reload. |
 | [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/testing.md) | Failure cleanup, native cancellation, accurate results and retained job details through script reload. |
 | [Editor workflows](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/editor-workflows.md) | Scene reopening, enum/flags properties, object references, material/prefab assets and Scene capture cleanup. |
+| [Inline captures](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/graphics-capture.md) | Camera selection, dimension bounds, borrowed render-target restoration and decoded PNG checks on Built-in/Direct3D12. |
 | [Multiplayer](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/multiplayer.md) | MPPM 3.0 Host/Client launch, independent agent routing and shared script recompilation. |
 | [Builds](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/builds.md) | Five Windows Mono builds verify managed diagnostics and restoration of project settings. |
 | [Editor lifecycle](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md) | Two editors, four Play Mode reload configurations and lost-result handling after script reload. |
@@ -147,6 +148,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | `-Suite Dashboard` | Card reuse, refresh allocations, interface reconstruction and saved preferences |
 | `-Suite HttpDiagnostics` | HTTP status/byte counters, input rejection, output failures and aggregate invariants |
 | `-Suite EditorCapture` | Windows capture selection, tab restoration, native pixels, GDI/texture cleanup and image bounds |
+| `-Suite GraphicsCapture` | Inline camera/asset pixels, invalid dimensions, render-target restoration and warmed texture counts; requires a graphics device |
 
 Batch UI checks exclude interactive rendering. The measured empty queue loop has zero allocation events after warmup; this is not a whole-plugin allocation claim.
 

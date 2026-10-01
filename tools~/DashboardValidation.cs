@@ -139,16 +139,18 @@ public static class UnityMcpDashboardValidation
         if (control == 0) throw new Exception("Allocation recorder failed its positive control");
         var watch = Stopwatch.StartNew();
         long allocations;
-        long allocatedBytes;
+        long rawRecorderValue;
+        string rawRecorderUnit;
         using (var recorder = Recorder())
         {
             for (int i = 0; i < 100; i++) refresh();
             recorder.Stop();
             watch.Stop();
             allocations = recorder.Valid && recorder.Count > 0 ? recorder.GetSample(0).Count : 0;
-            allocatedBytes = recorder.Valid && recorder.Count > 0 ? recorder.GetSample(0).Value : 0;
+            rawRecorderValue = recorder.Valid && recorder.Count > 0 ? recorder.GetSample(0).Value : 0;
+            rawRecorderUnit = recorder.UnitType.ToString();
         }
-        return new { iterations = 100, elapsedMs = watch.Elapsed.TotalMilliseconds, allocations, allocatedBytes, profilerControlAllocations = control };
+        return new { iterations = 100, elapsedMs = watch.Elapsed.TotalMilliseconds, allocations, rawRecorderValue, rawRecorderUnit, profilerControlAllocations = control };
     }
 
     private static ProfilerRecorder Recorder() => ProfilerRecorder.StartNew(ProfilerCategory.Internal, "GC.Alloc", 1,

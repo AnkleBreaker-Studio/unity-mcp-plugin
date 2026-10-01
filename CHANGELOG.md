@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Action History drawing and resource cleanup
+- Draw only the visible fixed-height rows while preserving full scroll range, row identity, target links and details. Clamp scrolling after filters shrink.
+- Replace the generated selection texture with direct rectangle drawing; release cached records/styles on disable. Sixteen baseline textures survived window destruction; the corrected window creates none.
+- Add native GUI sampling and interaction validation across current/released servers on Node 18/22, with minimum-version API compilation.
+- Correct allocation instrumentation: use GC.Alloc sample Count for events, expose raw Value with UnitType, and stop reporting nanosecond marker values as allocated bytes.
+
 ### Action history persistence
 - Validate complete snapshots before replacing history, apply retention during load/save and preserve the highest action ID. Normalize invalid negative preferences without changing valid positive limits or zero retention.
 - Bound input/output to 32 MiB and align save/load JSON value budgets. Preserve old field names, numeric target identities, Unicode and Undo metadata.

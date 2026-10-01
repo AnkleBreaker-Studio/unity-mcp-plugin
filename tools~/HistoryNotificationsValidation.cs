@@ -162,16 +162,17 @@ public static class UnityMcpHistoryNotificationsValidation
                     long control;
                     using (var recorder = Allocations()) { var bytes = new byte[1024]; recorder.Stop(); GC.KeepAlive(bytes); control = recorder.Count > 0 ? recorder.GetSample(0).Count : 0; }
                     Require(control > 0, "Allocation recorder failed its positive control");
-                    var clock = System.Diagnostics.Stopwatch.StartNew(); long allocated; bool coalesced;
+                    var clock = System.Diagnostics.Stopwatch.StartNew(); long allocations, rawRecorderValue; string rawRecorderUnit; bool coalesced;
                     using (var recorder = Allocations()) {
                         for (int i = 0; i < 500; i++) Record(agent: "history-agent-" + (i % 20));
                         Drain(); coalesced = ReferenceEquals(before, Field(window, "_filteredRecords"));
-                        Refresh(window); recorder.Stop(); clock.Stop(); allocated = recorder.Count > 0 ? recorder.GetSample(0).Value : 0;
+                        Refresh(window); recorder.Stop(); clock.Stop(); allocations = recorder.Count > 0 ? recorder.GetSample(0).Count : 0;
+                        rawRecorderValue = recorder.Count > 0 ? recorder.GetSample(0).Value : 0; rawRecorderUnit = recorder.UnitType.ToString();
                     }
                     var refreshed = Field(window, "_filteredRecords");
                     Require(((List<MCPActionRecord>)refreshed).Count == 500, "Window did not observe the burst");
                     Refresh(window); bool idleReused = ReferenceEquals(refreshed, Field(window, "_filteredRecords"));
-                    Checks.Add(new { name = "500-record window cost observation", passed = true, evidence = new { allocatedBytes = allocated, elapsedMs = clock.Elapsed.TotalMilliseconds, profilerControlAllocations = control, coalesced, idleReused } });
+                    Checks.Add(new { name = "500-record window cost observation", passed = true, evidence = new { allocations, rawRecorderValue, rawRecorderUnit, elapsedMs = clock.Elapsed.TotalMilliseconds, profilerControlAllocations = control, coalesced, idleReused } });
                     Require(coalesced && idleReused, "History window rebuilds per notification or while idle");
                     MCPActionHistory.Clear(); Refresh(window); Require(((List<MCPActionRecord>)Field(window, "_filteredRecords")).Count == 0, "Window missed a clear without an event");
                     return new { coalesced, idleReused, clearObserved = true };

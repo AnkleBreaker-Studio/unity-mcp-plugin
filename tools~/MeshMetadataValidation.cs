@@ -90,12 +90,13 @@ public static class UnityMcpMeshMetadataValidation
     private static object Measure(Func<object> action)
     {
         for (int i = 0; i < 5; i++) action();
-        long controlCount, controlValue;
+        long controlCount, controlValue; string rawRecorderUnit;
         using (var recorder = Recorder())
         {
             var bytes = new byte[1024 * 1024]; recorder.Stop(); GC.KeepAlive(bytes);
             controlCount = recorder.Valid && recorder.Count > 0 ? recorder.GetSample(0).Count : 0;
             controlValue = recorder.Valid && recorder.Count > 0 ? recorder.GetSample(0).Value : 0;
+            rawRecorderUnit = recorder.UnitType.ToString();
         }
         Require(controlCount > 0, "Allocation recorder failed its positive control");
         var samples = new List<object>();
@@ -111,7 +112,7 @@ public static class UnityMcpMeshMetadataValidation
                     rawRecorderValue = recorder.GetSample(0).Value });
             }
         }
-        return new { vertices = 120000, iterationsPerSample = 20, controlCount, controlValue, byteMeasurementSupported = controlValue >= 1024 * 1024, samples };
+        return new { vertices = 120000, iterationsPerSample = 20, controlCount, controlValue, rawRecorderUnit, byteMeasurementSupported = rawRecorderUnit == "Bytes" && controlValue >= 1024 * 1024, samples };
     }
     public static void Run()
     {

@@ -137,6 +137,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | Suite option | Scope |
 |---|---|
 | Default | Queue, HTTP dispatch, callbacks and timeout races |
+| `-Suite QueueAdmission` | HTTP command count/argument budgets, replay at capacity and terminal release; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/command-admission.md) |
 | `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
 | `-Suite Monitoring` | Error classification, history, persistence and create/undo |
 | `-Suite RequestInput` | Byte/Unicode boundaries, strict request parsing, queue/legacy/deferred rejection and guarded submission compatibility |

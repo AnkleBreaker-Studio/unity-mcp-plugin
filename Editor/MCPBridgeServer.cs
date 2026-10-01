@@ -496,7 +496,8 @@ namespace UnityMCP.Editor
                     HandleQueueSubmit(response, agentId, body, apiPath == "queue/submit-once");
                     return;
                 }
-                var parsedBody = ParseJson(body);
+                var parsedBody = MCPRequestInput.ParseObject(body, out long argumentCost);
+                argumentCost += 2L * (agentId.Length + apiPath.Length);
                 if (apiPath == "queue/status" || apiPath == "queue/status-scoped")
                 {
                     HandleQueueStatus(response, request, apiPath == "queue/status-scoped");
@@ -527,8 +528,8 @@ namespace UnityMCP.Editor
                 // Preserve legacy responses while Unity completes the request on later editor updates.
                 if (_deferredRoutes.ContainsKey(apiPath))
                 {
-                    var result = MCPRequestQueue.ExecuteDeferredWithTracking(agentId, apiPath,
-                        (resolve, isActive) => RouteDeferredRequest(apiPath, parsedBody, resolve, isActive));
+                    var result = MCPRequestQueue.ExecuteHttpDeferredWithTracking(agentId, apiPath,
+                        (resolve, isActive) => RouteDeferredRequest(apiPath, parsedBody, resolve, isActive), argumentCost);
                     SendJson(response, 200, result);
                     return;
                 }
@@ -545,8 +546,9 @@ namespace UnityMCP.Editor
 
                 // ═══ Legacy synchronous path (blocks until main thread processes) ═══
                 {
-                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                        () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, parsedBody)));
+                    string method = request.HttpMethod;
+                    var result = MCPRequestQueue.ExecuteHttpWithTracking(agentId, apiPath,
+                        () => ExecuteOnMainThread(() => RouteRequest(apiPath, method, parsedBody)), argumentCost);
                     SendJson(response, 200, result);
                 }
             }
@@ -597,14 +599,15 @@ namespace UnityMCP.Editor
                 if (args.ContainsKey("agentId") && !string.IsNullOrEmpty(args["agentId"]?.ToString()))
                     agentId = args["agentId"].ToString();
 
-                var parsedBody = ParseJson(innerBody);
+                var parsedBody = MCPRequestInput.ParseObject(innerBody, out long argumentCost);
+                argumentCost += 2L * (agentId.Length + apiPath.Length);
                 Func<MCPRequestQueue.RequestTicket> submit = () =>
                 {
                     if (_deferredRoutes.ContainsKey(apiPath))
-                        return MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, (resolve, isActive) =>
-                            RouteDeferredRequest(apiPath, parsedBody, resolve, isActive));
-                    return MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
-                        RouteRequest(apiPath, "POST", parsedBody));
+                        return MCPRequestQueue.SubmitHttpDeferredRequest(agentId, apiPath, (resolve, isActive) =>
+                            RouteDeferredRequest(apiPath, parsedBody, resolve, isActive), argumentCost);
+                    return MCPRequestQueue.SubmitHttpRequest(agentId, apiPath, () =>
+                        RouteRequest(apiPath, "POST", parsedBody), argumentCost);
                 };
                 MCPRequestQueue.RequestTicket ticket;
                 if (requireGuard || args.ContainsKey("requestId") || args.ContainsKey("queueSessionId") || args.ContainsKey("expiresAtMs"))

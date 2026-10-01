@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'QueueAdmission', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -21,6 +21,7 @@ $runnerClass = switch ($Suite) { 'RequestBody' { 'UnityMcpRequestBodyValidation'
 if ($Suite -eq 'GraphicsCapture') { $runnerFile = 'GraphicsCaptureValidation.cs'; $runnerClass = 'UnityMcpGraphicsCaptureValidation' }
 if ($Suite -eq 'AssetPreview') { $runnerFile = 'AssetPreviewValidation.cs'; $runnerClass = 'UnityMcpAssetPreviewValidation' }
 if ($Suite -eq 'MeshMetadata') { $runnerFile = 'MeshMetadataValidation.cs'; $runnerClass = 'UnityMcpMeshMetadataValidation' }
+if ($Suite -eq 'QueueAdmission') { $runnerFile = 'QueueAdmissionValidation.cs'; $runnerClass = 'UnityMcpQueueAdmissionValidation' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportName = $runnerClass.Split('.')[-1]

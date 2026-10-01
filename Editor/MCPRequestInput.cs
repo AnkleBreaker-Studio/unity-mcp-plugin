@@ -186,10 +186,16 @@ namespace UnityMCP.Editor
         }
 
         internal static Dictionary<string, object> ParseObject(string text)
+            => ParseObject(text, out _);
+
+        internal static Dictionary<string, object> ParseObject(string text, out long argumentCost)
         {
+            argumentCost = 128;
             if (string.IsNullOrEmpty(text)) return new Dictionary<string, object>();
             var parser = new Parser(text);
             object value = parser.Parse();
+            // Charge strings and decoded nodes without a second tree walk; this is accounting, not heap measurement.
+            argumentCost += 2L * text.Length + 64L * parser.ValueCount;
             if (value is Dictionary<string, object> result) return result;
             throw new RequestInputException(400, "invalid_request", "Request JSON must be an object.");
         }
@@ -200,6 +206,7 @@ namespace UnityMCP.Editor
             private readonly string text;
             private int index;
             private int values;
+            internal int ValueCount => values;
             internal Parser(string text) { this.text = text; }
             private RequestInputException Invalid(string message) => new RequestInputException(400, "invalid_json", message + " At character " + index + ".");
             private void Space()

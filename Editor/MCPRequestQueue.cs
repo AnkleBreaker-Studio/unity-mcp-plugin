@@ -65,6 +65,8 @@ namespace UnityMCP.Editor
 
             // Deferred work whose result arrives via callback (async Unity APIs)
             internal Action<Action<object>> DeferredAction { get; set; }
+            internal bool HasHttpAdmission;
+            internal long HttpArgumentCost;
 
             // Result / error
             public object Result       { get; set; }
@@ -141,6 +143,10 @@ namespace UnityMCP.Editor
 
         // Single lock for all mutable state
         private static readonly object _queueLock = new object();
+        private const int MaxHttpCommands = 256;
+        private const long MaxHttpArgumentCost = 256L * 1024 * 1024;
+        private static int _httpCommands, _peakHttpCommands;
+        private static long _httpArgumentCost, _peakHttpArgumentCost, _httpAdmissionRefusals;
         private static readonly List<long> _expiredTicketIds = new List<long>();
         private static readonly List<long> _staleExecutingIds = new List<long>();
         private static readonly List<string> _expiredSubmissionKeys = new List<string>();
@@ -263,6 +269,41 @@ namespace UnityMCP.Editor
             return ExecuteAndWait(() => SubmitRequest(agentId, actionName, action));
         }
 
+        internal static RequestTicket SubmitHttpRequest(string agentId, string actionName, Func<object> action, long argumentCost)
+            => SubmitHttp(() => SubmitRequest(agentId, actionName, action), argumentCost);
+
+        internal static RequestTicket SubmitHttpDeferredRequest(string agentId, string actionName,
+            Action<Action<object>, Func<bool>> action, long argumentCost)
+            => SubmitHttp(() => SubmitDeferredRequest(agentId, actionName, action), argumentCost);
+
+        private static RequestTicket SubmitHttp(Func<RequestTicket> submit, long argumentCost)
+        {
+            if (argumentCost < 0) throw new ArgumentOutOfRangeException(nameof(argumentCost));
+            lock (_queueLock)
+            {
+                if (_httpCommands >= MaxHttpCommands || argumentCost > MaxHttpArgumentCost - _httpArgumentCost)
+                {
+                    _httpAdmissionRefusals++;
+                    throw new RequestInputException(503, "command_queue_busy", "Command queue admission is full. No command was accepted; retry after outstanding commands complete.");
+                }
+                var ticket = submit();
+                ticket.HasHttpAdmission = true;
+                ticket.HttpArgumentCost = argumentCost;
+                _httpCommands++;
+                _httpArgumentCost += argumentCost;
+                _peakHttpCommands = Math.Max(_peakHttpCommands, _httpCommands);
+                _peakHttpArgumentCost = Math.Max(_peakHttpArgumentCost, _httpArgumentCost);
+                return ticket;
+            }
+        }
+
+        internal static object ExecuteHttpWithTracking(string agentId, string actionName, Func<object> action, long argumentCost)
+            => ExecuteAndWait(() => SubmitHttpRequest(agentId, actionName, action, argumentCost));
+
+        internal static object ExecuteHttpDeferredWithTracking(string agentId, string actionName,
+            Action<Action<object>, Func<bool>> action, long argumentCost)
+            => ExecuteAndWait(() => SubmitHttpDeferredRequest(agentId, actionName, action, argumentCost));
+
         // Only the HTTP worker waits; Unity callbacks must remain free to run on future editor updates.
         public static object ExecuteDeferredWithTracking(string agentId, string actionName,
             Action<Action<object>, Func<bool>> action)
@@ -274,12 +315,16 @@ namespace UnityMCP.Editor
         {
             var waiter = new ManualResetEventSlim(false);
             RequestTicket ticket;
-            lock (_queueLock)
+            try
             {
-                // Register before the main thread can complete and signal this ticket.
-                ticket = submit();
-                _waiters[ticket.TicketId] = waiter;
+                lock (_queueLock)
+                {
+                    // Register before the main thread can complete and signal this ticket.
+                    ticket = submit();
+                    _waiters[ticket.TicketId] = waiter;
+                }
             }
+            catch { waiter.Dispose(); throw; }
 
             try
             {
@@ -500,6 +545,14 @@ namespace UnityMCP.Editor
                     { "queueRetryWindowMs", RetryWindowMs },
                     { "maxRequestBodyBytes", MCPRequestInput.MaxBodyBytes },
                     { "retryCacheSize", _submissions.Count },
+                    { "httpCommands", new Dictionary<string, object>
+                        {
+                            { "activeCount", _httpCommands }, { "maxCount", MaxHttpCommands },
+                            { "argumentCostBytes", _httpArgumentCost }, { "maxArgumentCostBytes", MaxHttpArgumentCost },
+                            { "peakCount", _peakHttpCommands }, { "peakArgumentCostBytes", _peakHttpArgumentCost },
+                            { "admissionRefusals", _httpAdmissionRefusals },
+                        }
+                    },
                     { "http", MCPHttpDiagnostics.Read().ToDict() },
                 };
             }
@@ -711,6 +764,13 @@ namespace UnityMCP.Editor
                 ticket.CompletedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 ticket.Action = null;
                 ticket.DeferredAction = null;
+                if (ticket.HasHttpAdmission)
+                {
+                    ticket.HasHttpAdmission = false;
+                    _httpCommands--;
+                    _httpArgumentCost -= ticket.HttpArgumentCost;
+                    ticket.HttpArgumentCost = 0;
+                }
 
                 if (_pendingTickets.Remove(ticket.TicketId)
                     && _agentQueues.TryGetValue(ticket.AgentId, out var queue))

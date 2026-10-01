@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Retained HTTP commands
+- Bound admitted HTTP commands to 256 outstanding tickets and 256 MiB of accounted argument cost across queued, legacy and deferred dispatch. Refuse before ticket creation with `command_queue_busy` and `requestAccepted: false`.
+- Keep protected replay/polling available at capacity and release admission once on terminal completion. Report current/peak counters and refusals in queue info; accounting is not a total managed-memory quota.
+- Add fifteen Unity admission checks and current/released-server live saturation coverage. Preserve native C# submission APIs and repair the package validation fixture's outdated dispatcher argument type.
+
 ### Mesh and renderer metadata
 - Honor documented `objectPath` for mesh and renderer inspection while retaining the legacy `gameObjectPath` and asset lookup precedence.
 - Count all eight UV channels. Read vertex attributes and submesh metadata without copying geometry buffers; preserve triangulated quad counts and empty-layout semantics.

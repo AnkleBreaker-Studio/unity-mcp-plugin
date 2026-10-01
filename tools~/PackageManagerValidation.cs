@@ -187,7 +187,7 @@ public static class UnityMcpPackageManagerValidation
             foreach (string path in new[] { "packages/list", "packages/add", "packages/remove", "packages/search", "packages/info", "testing/list-tests" })
             {
                 object result = null;
-                route.Invoke(null, new object[] { path, "{}", (Action<object>)(value => result = value), (Func<bool>)(() => true) });
+                route.Invoke(null, new object[] { path, new Dictionary<string, object>(), (Action<object>)(value => result = value), (Func<bool>)(() => true) });
                 Check(MiniJson.Serialize(result).Contains("disabled"), "Deferred route bypassed category settings: " + path);
             }
             MCPSettingsManager.SetCategoryEnabled("packagemanager", true);
@@ -196,7 +196,7 @@ public static class UnityMcpPackageManagerValidation
                 foreach (string body in new[] { "{}", "{\"identifier\":null,\"name\":null,\"query\":null}" })
                 {
                     object result = null;
-                    route.Invoke(null, new object[] { path, body, (Action<object>)(value => result = value), (Func<bool>)(() => true) });
+                    route.Invoke(null, new object[] { path, MiniJson.Deserialize(body), (Action<object>)(value => result = value), (Func<bool>)(() => true) });
                     Check(MiniJson.Serialize(result).Contains("required"), "Missing argument was not rejected: " + path);
                 }
             }

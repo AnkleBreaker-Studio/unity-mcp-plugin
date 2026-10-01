@@ -23,10 +23,7 @@ namespace UnityMCP.Editor
         public bool     CommandFailed   { get; set; }
         public string DisplayStatus => CommandFailed ? "Command error" : Status;
 
-        // Target object tracking. String because Unity 6.5 EntityIds are 64-bit
-        // values carried as opaque decimal strings on the wire (see MCPObjectId) —
-        // an int here silently truncated them. null/empty = no target. Old int-typed
-        // persisted entries: JsonUtility parses the scalar-type mismatch to "".
+        // Opaque decimal strings preserve Unity 6.5+ 64-bit identities and legacy numeric history IDs.
         public string TargetInstanceId { get; set; }
         public string TargetPath       { get; set; }
         public string TargetType       { get; set; } // GameObject, Component, Asset, Script, Scene, etc.

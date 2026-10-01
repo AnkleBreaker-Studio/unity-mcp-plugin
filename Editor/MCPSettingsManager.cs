@@ -182,8 +182,8 @@ namespace UnityMCP.Editor
 
         public static int ActionHistoryMaxEntries
         {
-            get => EditorPrefs.GetInt(ProjectPrefix + "ActionHistoryMaxEntries", 500);
-            set => EditorPrefs.SetInt(ProjectPrefix + "ActionHistoryMaxEntries", value);
+            get { int value = EditorPrefs.GetInt(ProjectPrefix + "ActionHistoryMaxEntries", 500); return value < 0 ? 500 : value; }
+            set => EditorPrefs.SetInt(ProjectPrefix + "ActionHistoryMaxEntries", value < 0 ? 500 : value);
         }
 
         // ─── Category Management (project-scoped) ───

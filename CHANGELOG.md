@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Action history persistence
+- Validate complete snapshots before replacing history, apply retention during load/save and preserve the highest action ID. Normalize invalid negative preferences without changing valid positive limits or zero retention.
+- Bound input/output to 32 MiB and align save/load JSON value budgets. Preserve old field names, numeric target identities, Unicode and Undo metadata.
+- Write a complete temporary snapshot before replacement; preserve failed-load sources until recovery or explicit Clear. Expose warnings, counters and load statistics through `historyPersistence`.
+- Add eighteen controlled checks, existing monitoring/queue/observer regressions and real current/released-server Undo/reload runs on Node 18/22. The 77-source Unity 2021 API compiler check passes; older-editor execution remains deferred.
+
 ### Action history observers and window updates
 - Replace per-record `delayCall` closures with deferred editor-update delivery only when observers exist. Retain at most 10,000 notifications, drain up to 100 per update, and report pressure drops through `historyNotifications`.
 - Cancel pending delivery on clear/reload/quit, release unsubscribed backlogs, and isolate subscriber exceptions. Preserve the public event signature and ordered asynchronous delivery within capacity.

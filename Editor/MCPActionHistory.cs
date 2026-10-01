@@ -11,7 +11,7 @@ namespace UnityMCP.Editor
     /// supports filtering, and optionally persists to disk (Library/MCPActionHistory.json).
     /// </summary>
     [InitializeOnLoad]
-    public static class MCPActionHistory
+    public static partial class MCPActionHistory
     {
         // ═══════════════════════════════════════════════════════
         //  State
@@ -81,8 +81,8 @@ namespace UnityMCP.Editor
                 _revision++;
 
                 // Trim ring buffer
-                while (_history.Count > maxEntries)
-                    _history.RemoveAt(0);
+                if (_history.Count > maxEntries)
+                    _history.RemoveRange(0, _history.Count - maxEntries);
             }
 
             if (OnActionRecorded == null) return;
@@ -259,136 +259,15 @@ namespace UnityMCP.Editor
                 _revision++;
             }
 
+            ResetPersistenceWarning();
+
             // Delete persistence file
             if (File.Exists(PersistencePath))
             {
                 try { File.Delete(PersistencePath); }
-                catch (Exception ex) { Debug.LogWarning($"[MCP History] Failed to delete persistence file: {ex.Message}"); }
+                catch (Exception ex) { PersistenceFailure("clear", ex, true); }
             }
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  Persistence
-        // ═══════════════════════════════════════════════════════
-
-        private static void SaveToDisk()
-        {
-            try
-            {
-                List<MCPActionRecord> snapshot;
-                lock (_lock) { snapshot = new List<MCPActionRecord>(_history); }
-
-                // Simple JSON array serialization using JsonUtility wrapper
-                var wrapper = new HistoryWrapper();
-                wrapper.records = new List<HistoryEntry>();
-
-                foreach (var r in snapshot)
-                {
-                    wrapper.records.Add(new HistoryEntry
-                    {
-                        id = r.Id,
-                        timestamp = r.Timestamp.ToString("O"),
-                        agentId = r.AgentId ?? "",
-                        actionName = r.ActionName ?? "",
-                        category = r.Category ?? "",
-                        status = r.Status ?? "",
-                        commandFailed = r.CommandFailed,
-                        executionTimeMs = r.ExecutionTimeMs,
-                        errorMessage = r.ErrorMessage ?? "",
-                        targetInstanceId = r.TargetInstanceId ?? "",
-                        targetPath = r.TargetPath ?? "",
-                        targetType = r.TargetType ?? "",
-                        undoGroup = r.UndoGroup,
-                        undoSessionId = r.UndoSessionId,
-                        undoSignature = r.UndoSignature,
-                    });
-                }
-
-                string json = JsonUtility.ToJson(wrapper, true);
-                File.WriteAllText(PersistencePath, json);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[MCP History] Failed to save: {ex.Message}");
-            }
-        }
-
-        private static void LoadFromDisk()
-        {
-            if (!File.Exists(PersistencePath)) return;
-
-            try
-            {
-                string json = File.ReadAllText(PersistencePath);
-                var wrapper = JsonUtility.FromJson<HistoryWrapper>(json);
-
-                if (wrapper?.records == null) return;
-
-                lock (_lock)
-                {
-                    _history.Clear();
-                    foreach (var entry in wrapper.records)
-                    {
-                        DateTime.TryParse(entry.timestamp, out var ts);
-                        _history.Add(new MCPActionRecord
-                        {
-                            Id              = entry.id,
-                            Timestamp       = ts,
-                            AgentId         = entry.agentId,
-                            ActionName      = entry.actionName,
-                            Category        = entry.category,
-                            Status          = entry.status,
-                            CommandFailed   = entry.commandFailed,
-                            ExecutionTimeMs = entry.executionTimeMs,
-                            ErrorMessage    = entry.errorMessage,
-                            TargetInstanceId = entry.targetInstanceId,
-                            TargetPath      = entry.targetPath,
-                            TargetType      = entry.targetType,
-                            UndoGroup       = entry.undoGroup,
-                            UndoSessionId   = entry.undoSessionId,
-                            UndoSignature   = entry.undoSignature,
-                        });
-                    }
-
-                    // Restore ID counter
-                    if (_history.Count > 0)
-                        _nextId = _history[_history.Count - 1].Id;
-                    _revision++;
-                }
-
-                Debug.Log($"[MCP History] Loaded {wrapper.records.Count} records from disk.");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[MCP History] Failed to load: {ex.Message}");
-            }
-        }
-
-        // JsonUtility-compatible wrappers (no Dictionary support)
-        [Serializable]
-        private class HistoryWrapper
-        {
-            public List<HistoryEntry> records;
-        }
-
-        [Serializable]
-        private class HistoryEntry
-        {
-            public long   id;
-            public string timestamp;
-            public string agentId;
-            public string actionName;
-            public string category;
-            public string status;
-            public bool commandFailed;
-            public long   executionTimeMs;
-            public string errorMessage;
-            public string targetInstanceId; // string since 64-bit EntityId support. JsonUtility tolerates the old int→string scalar mismatch (parses to ""); LoadFromDisk is try/catch-guarded so a hard failure would drop the whole history file, not one field.
-            public string targetPath;
-            public string targetType;
-            public int    undoGroup;
-            public string undoSessionId;
-            public string undoSignature;
-        }
     }
 }

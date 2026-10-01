@@ -552,6 +552,7 @@ namespace UnityMCP.Editor
                     { "droppedHistoryRecords", _droppedHistoryRecords },
                     { "maxPendingHistoryRecords", MaxPendingHistoryRecords },
                     { "historyNotifications", MCPActionHistory.GetNotificationInfo() },
+                    { "historyPersistence", MCPActionHistory.GetPersistenceInfo() },
                     { "protocolVersion", ProtocolVersion },
                     { "queueSessionId", SessionId },
                     { "queueSessionTimeMs", SessionTimeMs },

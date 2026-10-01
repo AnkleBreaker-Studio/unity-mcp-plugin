@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$EditorPath,
     [Parameter(Mandatory = $true)][string]$ProjectPath,
-    [ValidateSet('Queue', 'QueueAdmission', 'ResultRetention', 'ParrelSync', 'HistoryNotifications', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
+    [ValidateSet('Queue', 'QueueAdmission', 'ResultRetention', 'ParrelSync', 'HistoryNotifications', 'HistoryPersistence', 'Health', 'Monitoring', 'Execution', 'Dashboard', 'Packages', 'Testing', 'TestResults', 'TestPersistence', 'RequestShutdown', 'Serialization', 'Undo', 'RequestInput', 'RequestBody', 'HttpDiagnostics', 'EditorCapture', 'GraphicsCapture', 'AssetPreview', 'MeshMetadata')][string]$Suite = 'Queue'
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $EditorPath -PathType Leaf)) { throw "Unity executable not found: $EditorPath" }
@@ -25,6 +25,7 @@ if ($Suite -eq 'QueueAdmission') { $runnerFile = 'QueueAdmissionValidation.cs'; 
 if ($Suite -eq 'ResultRetention') { $runnerFile = 'ResultRetentionValidation.cs'; $runnerClass = 'UnityMcpResultRetentionValidation' }
 if ($Suite -eq 'ParrelSync') { $runnerFile = 'ParrelSyncValidation.cs'; $runnerClass = 'UnityMcpParrelSyncValidation' }
 if ($Suite -eq 'HistoryNotifications') { $runnerFile = 'HistoryNotificationsValidation.cs'; $runnerClass = 'UnityMcpHistoryNotificationsValidation' }
+if ($Suite -eq 'HistoryPersistence') { $runnerFile = 'HistoryPersistenceValidation.cs'; $runnerClass = 'UnityMcpHistoryPersistenceValidation' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $runnerFile) -Destination (Join-Path $projectRoot "Assets/Editor/$runnerFile")
 $logPath = Join-Path $projectRoot 'validation.log'
 $reportName = $runnerClass.Split('.')[-1]

@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Test Runner lifecycle
+- Restore Play Mode settings and release callbacks after startup exceptions, framework errors and forced clears. Bind callbacks to their job so a stale callback cannot mutate its replacement.
+- Retain native run IDs and request cancellation when the installed Test Framework exposes it. Reject new jobs while native execution or cleanup remains active; report unavailable state detection explicitly.
+- Make clearing an absent job a no-op instead of starting all EditMode tests. Preserve existing fields and add native cancellation diagnostics.
+- Unregister callbacks and release the owned API before reload/shutdown. Restore persisted dates as UTC so older jobs do not sort ahead of newer jobs after reload.
+- Add `-Suite Testing` and intentional live test fixtures. The minimum-version API check covers 70 sources; older-editor execution remains deferred. See the companion server's `docs/testing.md` for real-editor evidence and limitations.
+
 ### Package Manager
 - Replace main-thread sleep loops in all five package commands with sequential requests observed on editor updates. Preserve tool arguments and successful result payloads.
 - Skip pending requests whose tickets expire; let started Unity requests retain their slot until completion without overwriting timed-out outcomes. Unsubscribe polling when idle and clear it before reload/shutdown.

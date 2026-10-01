@@ -1,0 +1,5 @@
+{
+  "name": "UnityMcpValidation.EditMode",
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
@@ -21,6 +23,8 @@ namespace UnityMCP.Editor
         private static string _currentJobId;
         private static TestRunnerApi _testRunnerApi;
         private static MCPTestCallbacks _callbacks;
+        private static readonly MethodInfo NativeRunActive = typeof(TestRunnerApi).GetMethod("IsRunActive", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo NativeCancelRun = typeof(TestRunnerApi).GetMethod("CancelTestRun", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
 
         private const int MaxFailuresTracked = 50;
         private const double StuckThresholdSeconds = 120.0;
@@ -33,6 +37,8 @@ namespace UnityMCP.Editor
 
         static MCPTestRunnerCommands()
         {
+            AssemblyReloadEvents.beforeAssemblyReload += BeforeAssemblyReload;
+            EditorApplication.quitting += OnEditorQuitting;
             // Restore state after domain reload
             RestoreFromSessionState();
 
@@ -61,24 +67,31 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object RunTests(Dictionary<string, object> args)
         {
+            bool clearStuck = args.ContainsKey("clearStuck") && Convert.ToBoolean(args["clearStuck"]);
             // Check if a test run is already in progress
             if (_currentJobId != null && _jobs.TryGetValue(_currentJobId, out var existing)
                 && existing.Status == TestJobStatus.Running)
             {
                 // Allow force-clear of stuck jobs
-                bool clearStuck = args.ContainsKey("clearStuck") && Convert.ToBoolean(args["clearStuck"]);
                 if (clearStuck)
                 {
-                    existing.Status = TestJobStatus.Failed;
-                    existing.Error = "Force-cleared by user";
-                    existing.CompletedAt = DateTime.UtcNow;
-                    _currentJobId = null;
-                    SaveToSessionState();
+                    FailJob(existing.JobId, "Force-cleared by user");
+                    bool cancellationRequested = false;
+                    string cancellationError = null;
+                    try
+                    {
+                        if (NativeCancelRun != null && !string.IsNullOrEmpty(existing.NativeRunId))
+                            cancellationRequested = (bool)NativeCancelRun.Invoke(null, new object[] { existing.NativeRunId });
+                    }
+                    catch (Exception error) { cancellationError = error.GetBaseException().Message; }
                     return new Dictionary<string, object>
                     {
                         { "success", true },
                         { "message", "Stuck job cleared" },
-                        { "clearedJobId", existing.JobId }
+                        { "clearedJobId", existing.JobId },
+                        { "cancellationRequested", cancellationRequested },
+                        { "cancellationError", cancellationError },
+                        { "nativeRunMayContinue", IsNativeRunActive(out var ignored) || ignored != null }
                     };
                 }
 
@@ -89,6 +102,15 @@ namespace UnityMCP.Editor
                     { "hint", "Use clearStuck=true to force-clear if the job appears stuck" }
                 };
             }
+
+            if (clearStuck)
+                return new { success = true, message = "No active MCP test job to clear", clearedJobId = (string)null,
+                    cancellationRequested = false, cancellationError = (string)null,
+                    nativeRunMayContinue = IsNativeRunActive(out var clearStateError) || clearStateError != null };
+
+            // Unity broadcasts test callbacks globally, so another native run must finish cleanup before admission.
+            if (IsNativeRunActive(out var nativeStateError) || nativeStateError != null)
+                return new { error = nativeStateError ?? "Unity Test Runner is still running or cleaning up a test run. Wait for it to finish before starting another job." };
 
             // Check for Play Mode — don't run tests while playing
             if (EditorApplication.isPlaying)
@@ -109,7 +131,7 @@ namespace UnityMCP.Editor
             }
 
             // Parse mode
-            string modeStr = args.ContainsKey("mode") ? args["mode"].ToString() : "EditMode";
+            string modeStr = args.ContainsKey("mode") ? args["mode"]?.ToString() ?? "" : "EditMode";
             TestMode testMode;
             switch (modeStr.ToLowerInvariant())
             {
@@ -168,17 +190,18 @@ namespace UnityMCP.Editor
             if (groupNames != null && groupNames.Length > 0)
                 filter.groupNames = groupNames;
 
-            // For PlayMode tests, disable domain reload to preserve callbacks
-            if (testMode == TestMode.PlayMode)
+            try
             {
-                SaveAndDisableDomainReload();
+                if (testMode == TestMode.PlayMode) SaveAndDisableDomainReload();
+                EnsureCallbacksRegistered();
+                var executionSettings = new ExecutionSettings(filter);
+                job.NativeRunId = _testRunnerApi.Execute(executionSettings);
+                SaveToSessionState();
             }
+            catch (Exception error) { FailJob(job.JobId, error.GetBaseException().Message); }
 
-            // Start the test run
-            EnsureCallbacksRegistered();
-
-            var executionSettings = new ExecutionSettings(filter);
-            _testRunnerApi.Execute(executionSettings);
+            if (job.Status == TestJobStatus.Failed)
+                return new { error = job.Error, jobId = job.JobId };
 
             Debug.Log($"[MCP TestRunner] Started test job {job.JobId} (mode={testMode})");
 
@@ -186,7 +209,7 @@ namespace UnityMCP.Editor
             {
                 { "success", true },
                 { "jobId", job.JobId },
-                { "status", "running" },
+                { "status", job.Status.ToString().ToLowerInvariant() },
                 { "mode", testMode.ToString() }
             };
         }
@@ -286,17 +309,76 @@ namespace UnityMCP.Editor
                 _testRunnerApi = ScriptableObject.CreateInstance<TestRunnerApi>();
             }
 
-            if (_callbacks == null)
+            if (_currentJobId == null || _callbacks?.JobId == _currentJobId) return;
+            UnregisterCallbacks();
+            _callbacks = new MCPTestCallbacks(_currentJobId);
+            _testRunnerApi.RegisterCallbacks(_callbacks);
+        }
+
+        private static bool IsNativeRunActive(out string error)
+        {
+            error = null;
+            try
             {
-                _callbacks = new MCPTestCallbacks();
-                _testRunnerApi.RegisterCallbacks(_callbacks);
+                if (NativeRunActive == null || NativeRunActive.ReturnType != typeof(bool))
+                    throw new InvalidOperationException("The installed Test Framework does not expose native run state");
+                return (bool)NativeRunActive.Invoke(null, null);
+            }
+            catch (Exception failure)
+            {
+                error = "Cannot determine whether Unity Test Runner is busy: " + failure.GetBaseException().Message;
+                return false;
             }
         }
 
-        internal static void OnRunStarted(int totalTests)
+        internal static bool IsRunningJob(string jobId) => jobId != null && jobId == _currentJobId
+            && _jobs.TryGetValue(jobId, out var job) && job.Status == TestJobStatus.Running;
+
+        private static void UnregisterCallbacks()
         {
-            if (_currentJobId == null || !_jobs.TryGetValue(_currentJobId, out var job))
-                return;
+            var callbacks = _callbacks;
+            _callbacks = null;
+            if (_testRunnerApi != null && callbacks != null) _testRunnerApi.UnregisterCallbacks(callbacks);
+        }
+
+        private static void ReleaseJob()
+        {
+            _currentJobId = null;
+            UnregisterCallbacks();
+            RestorePlayModeOptions();
+            SaveToSessionState();
+        }
+
+        internal static void FailJob(string jobId, string error)
+        {
+            if (!IsRunningJob(jobId)) return;
+            var job = _jobs[jobId];
+            job.Status = TestJobStatus.Failed;
+            job.Error = error;
+            job.CompletedAt = DateTime.UtcNow;
+            job.CurrentTestName = null;
+            job.CurrentTestStartedAt = null;
+            ReleaseJob();
+        }
+
+        private static void BeforeAssemblyReload()
+        {
+            SaveToSessionState();
+            UnregisterCallbacks();
+            if (_testRunnerApi != null) UnityEngine.Object.DestroyImmediate(_testRunnerApi);
+            _testRunnerApi = null;
+        }
+
+        private static void OnEditorQuitting()
+        {
+            RestorePlayModeOptions();
+            BeforeAssemblyReload();
+        }
+
+        internal static void OnRunStarted(string jobId, int totalTests)
+        {
+            if (!IsRunningJob(jobId)) return;
+            var job = _jobs[jobId];
 
             job.TotalTests = totalTests;
             job.CompletedTests = 0;
@@ -304,20 +386,20 @@ namespace UnityMCP.Editor
             Debug.Log($"[MCP TestRunner] Job {job.JobId}: Run started, {totalTests} tests to execute");
         }
 
-        internal static void OnTestStarted(string testFullName)
+        internal static void OnTestStarted(string jobId, string testFullName)
         {
-            if (_currentJobId == null || !_jobs.TryGetValue(_currentJobId, out var job))
-                return;
+            if (!IsRunningJob(jobId)) return;
+            var job = _jobs[jobId];
 
             job.CurrentTestName = testFullName;
             job.CurrentTestStartedAt = DateTime.UtcNow;
         }
 
-        internal static void OnTestFinished(string testFullName, string testName, TestStatus resultStatus,
+        internal static void OnTestFinished(string jobId, string testFullName, string testName, TestStatus resultStatus,
             double durationSeconds, string message, string stackTrace)
         {
-            if (_currentJobId == null || !_jobs.TryGetValue(_currentJobId, out var job))
-                return;
+            if (!IsRunningJob(jobId)) return;
+            var job = _jobs[jobId];
 
             job.CompletedTests++;
             job.CurrentTestName = null;
@@ -352,11 +434,11 @@ namespace UnityMCP.Editor
             }
         }
 
-        internal static void OnRunFinished(int totalPassed, int totalFailed, int totalSkipped,
+        internal static void OnRunFinished(string jobId, int totalPassed, int totalFailed, int totalSkipped,
             int totalInconclusive, double totalDuration)
         {
-            if (_currentJobId == null || !_jobs.TryGetValue(_currentJobId, out var job))
-                return;
+            if (!IsRunningJob(jobId)) return;
+            var job = _jobs[jobId];
 
             job.Status = totalFailed > 0 ? TestJobStatus.Failed : TestJobStatus.Succeeded;
             job.CompletedAt = DateTime.UtcNow;
@@ -364,14 +446,7 @@ namespace UnityMCP.Editor
             job.CurrentTestName = null;
             job.CurrentTestStartedAt = null;
 
-            // Restore PlayMode options if we disabled domain reload
-            if (job.Mode == TestMode.PlayMode)
-            {
-                RestorePlayModeOptions();
-            }
-
-            _currentJobId = null;
-            SaveToSessionState();
+            ReleaseJob();
 
             Debug.Log($"[MCP TestRunner] Job {job.JobId}: Finished — " +
                       $"{totalPassed} passed, {totalFailed} failed, {totalSkipped} skipped " +
@@ -520,6 +595,7 @@ namespace UnityMCP.Editor
                     jobList.Add(new Dictionary<string, object>
                     {
                         { "jobId", j.JobId },
+                        { "nativeRunId", j.NativeRunId ?? "" },
                         { "mode", j.Mode.ToString() },
                         { "status", j.Status.ToString() },
                         { "startedAt", j.StartedAt.ToString("O") },
@@ -565,6 +641,7 @@ namespace UnityMCP.Editor
                     var job = new TestJob
                     {
                         JobId = dict["jobId"].ToString(),
+                        NativeRunId = dict.TryGetValue("nativeRunId", out var nativeRunId) ? nativeRunId?.ToString() : null,
                         Mode = Enum.TryParse<TestMode>(dict["mode"].ToString(), out var m) ? m : TestMode.EditMode,
                         Status = Enum.TryParse<TestJobStatus>(dict["status"].ToString(), out var s)
                             ? s
@@ -577,11 +654,11 @@ namespace UnityMCP.Editor
                         TotalDuration = Convert.ToDouble(dict["totalDuration"]),
                     };
 
-                    if (DateTime.TryParse(dict["startedAt"].ToString(), out var started))
-                        job.StartedAt = started;
+                    if (DateTime.TryParse(dict["startedAt"].ToString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var started))
+                        job.StartedAt = started.ToUniversalTime();
                     if (!string.IsNullOrEmpty(dict["completedAt"]?.ToString()) &&
-                        DateTime.TryParse(dict["completedAt"].ToString(), out var completed))
-                        job.CompletedAt = completed;
+                        DateTime.TryParse(dict["completedAt"].ToString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var completed))
+                        job.CompletedAt = completed.ToUniversalTime();
                     if (!string.IsNullOrEmpty(dict["error"]?.ToString()))
                         job.Error = dict["error"].ToString();
 
@@ -691,6 +768,7 @@ namespace UnityMCP.Editor
         internal class TestJob
         {
             public string JobId;
+            public string NativeRunId;
             public TestMode Mode;
             public TestJobStatus Status;
             public DateTime StartedAt;
@@ -734,37 +812,48 @@ namespace UnityMCP.Editor
     /// <summary>
     /// Test Runner API callbacks that forward events to MCPTestRunnerCommands.
     /// </summary>
-    internal class MCPTestCallbacks : ICallbacks
+    internal class MCPTestCallbacks : IErrorCallbacks
     {
+        internal string JobId { get; }
+
+        internal MCPTestCallbacks(string jobId) { JobId = jobId; }
+
+        public void OnError(string message) => MCPTestRunnerCommands.FailJob(JobId, message);
+
         public void RunStarted(ITestAdaptor testsToRun)
         {
+            if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
             int leafCount = CountLeafTests(testsToRun);
-            MCPTestRunnerCommands.OnRunStarted(leafCount);
+            MCPTestRunnerCommands.OnRunStarted(JobId, leafCount);
         }
 
         public void RunFinished(ITestResultAdaptor result)
         {
+            if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
             int passed = 0, failed = 0, skipped = 0, inconclusive = 0;
             double totalDuration = result.Duration;
 
             CountResults(result, ref passed, ref failed, ref skipped, ref inconclusive);
 
-            MCPTestRunnerCommands.OnRunFinished(passed, failed, skipped, inconclusive, totalDuration);
+            MCPTestRunnerCommands.OnRunFinished(JobId, passed, failed, skipped, inconclusive, totalDuration);
         }
 
         public void TestStarted(ITestAdaptor test)
         {
+            if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
             if (!test.HasChildren)
             {
-                MCPTestRunnerCommands.OnTestStarted(test.FullName);
+                MCPTestRunnerCommands.OnTestStarted(JobId, test.FullName);
             }
         }
 
         public void TestFinished(ITestResultAdaptor result)
         {
+            if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
             if (!result.Test.HasChildren)
             {
                 MCPTestRunnerCommands.OnTestFinished(
+                    JobId,
                     result.Test.FullName,
                     result.Test.Name,
                     result.TestStatus,

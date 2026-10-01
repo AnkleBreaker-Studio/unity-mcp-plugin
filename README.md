@@ -34,6 +34,8 @@ The default port is 7890; multiple editors can claim different ports. Discover t
 
 Server and plugin versions advance independently. Queue and legacy synchronous paths remain available; version numbers do not need to match.
 
+The current companion server verifies the resolved identity when selecting by name and prevents stale discovery from replacing a newer project choice. Per-agent selections stay independent; include the discovered `port` on concurrent editor calls. [Selection behavior and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/discovery.md).
+
 On the modernization branch, protocol 2 adds protected submission retries and session-scoped polling. An updated server can recover the original ticket when its acknowledgement is lost. Older clients keep using their existing endpoints; their retry behavior does not change. [Protocol and compatibility details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-protocol.md).
 
 ## What you can do
@@ -98,7 +100,7 @@ The bridge binds to loopback and checks incoming browser/host metadata. It is in
 
 ## Compatibility and validation
 
-The declared minimum remains **Unity 2021.3.18f1**. All 71 editor sources pass the minimum-version API compiler check. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
+The declared minimum remains **Unity 2021.3.18f1**. All 74 editor sources included in the minimum-version API compiler check pass. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
 
 | Coverage | Verified behavior |
 |---|---|

@@ -29,6 +29,24 @@ public static class UnityMcpDashboardValidation
             var refresh = (Action)Delegate.CreateDelegate(typeof(Action), window, typeof(MCPDashboardWindow).GetMethod("RefreshAll", HiddenInstance));
             refresh();
             report["idle"] = Measure(refresh);
+            var queueRefresh = (Action)Delegate.CreateDelegate(typeof(Action), window, typeof(MCPDashboardWindow).GetMethod("RefreshQueue", HiddenInstance));
+            report["unchangedQueueSection"] = Measure(queueRefresh);
+            var httpRefresh = (Action)Delegate.CreateDelegate(typeof(Action), window, typeof(MCPDashboardWindow).GetMethod("RefreshHttpActivity", HiddenInstance));
+            report["unchangedHttpSection"] = Measure(httpRefresh);
+            var httpRows = window.rootVisualElement.Query<Foldout>().ToList().Single(f => f.text == "HTTP Activity");
+            var httpLabels = httpRows.Query<Label>().ToList();
+            var metrics = typeof(MCPBridgeServer).Assembly.GetType("UnityMCP.Editor.MCPHttpDiagnostics", true);
+            var begin = metrics.GetMethod("Begin", BindingFlags.Static | BindingFlags.NonPublic);
+            var finish = metrics.GetMethod("Finish", BindingFlags.Static | BindingFlags.NonPublic);
+            var completedResponse = metrics.GetMethod("ResponseCompleted", BindingFlags.Static | BindingFlags.NonPublic);
+            object observation = begin.Invoke(null, null);
+            httpRefresh();
+            Check(httpRows.Query<Label>().ToList().Any(label => label.text.Contains("1 active")), "httpActiveRequestVisible", report, failures);
+            completedResponse.Invoke(null, new object[] { 403 });
+            finish.Invoke(null, new[] { observation });
+            httpRefresh();
+            Check(httpRows.Query<Label>().ToList().Any(label => label.text.Contains("1 4xx")), "httpRefusalVisible", report, failures);
+            Check(httpLabels.SequenceEqual(httpRows.Query<Label>().ToList()), "httpControlsReused", report, failures);
             for (int i = 0; i < 20; i++)
             {
                 string id = "__McpDashboard" + Guid.NewGuid().ToString("N");
@@ -77,6 +95,7 @@ public static class UnityMcpDashboardValidation
             var queueFoldout = window.rootVisualElement.Query<Foldout>().ToList().Single(f => f.text == "Request Queue");
             bool desiredQueueState = !queueFoldout.value;
             EditorPrefs.SetBool("UnityMCP_Dashboard_" + Application.dataPath + "_Request Queue", desiredQueueState);
+            EditorPrefs.SetBool("UnityMCP_Dashboard_" + Application.dataPath + "_HTTP Activity", true);
             window.CreateGUI();
             refresh();
             int rootsAfter = window.rootVisualElement.Query<ScrollView>().ToList().Count;
@@ -85,6 +104,8 @@ public static class UnityMcpDashboardValidation
             Check(rootsAfter == rootsBefore, "recreateGuiDoesNotDuplicateControls", report, failures);
             Check(window.rootVisualElement.Query<Foldout>().ToList().Single(f => f.text == "Request Queue").value == desiredQueueState,
                 "savedFoldoutStateRestored", report, failures);
+            var recreatedHttp = window.rootVisualElement.Query<Foldout>().ToList().Single(f => f.text == "HTTP Activity");
+            Check(recreatedHttp.value && recreatedHttp.Query<Label>().ToList().Any(label => label.text.Contains("1 4xx")), "httpPreferenceAndCountersRestored", report, failures);
             report["failures"] = failures;
             report["passed"] = failures.Count == 0;
         }

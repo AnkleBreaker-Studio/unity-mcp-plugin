@@ -500,6 +500,7 @@ namespace UnityMCP.Editor
                     { "queueRetryWindowMs", RetryWindowMs },
                     { "maxRequestBodyBytes", MCPRequestInput.MaxBodyBytes },
                     { "retryCacheSize", _submissions.Count },
+                    { "http", MCPHttpDiagnostics.Read().ToDict() },
                 };
             }
         }
@@ -523,6 +524,29 @@ namespace UnityMCP.Editor
                     return s.GetLog();
             }
             return new List<string>();
+        }
+
+        internal struct DashboardQueueSnapshot
+        {
+            internal int TotalQueued, Executing, Cached;
+            internal bool Matches(DashboardQueueSnapshot other) =>
+                TotalQueued == other.TotalQueued && Executing == other.Executing && Cached == other.Cached;
+        }
+
+        internal static DashboardQueueSnapshot CopyDashboardQueue(List<KeyValuePair<string, int>> destination)
+        {
+            destination.Clear();
+            lock (_queueLock)
+            {
+                var snapshot = new DashboardQueueSnapshot { Executing = _executingTickets.Count, Cached = _completedTickets.Count };
+                foreach (var pair in _agentQueues)
+                {
+                    int count = pair.Value.Count;
+                    destination.Add(new KeyValuePair<string, int>(pair.Key, count));
+                    snapshot.TotalQueued += count;
+                }
+                return snapshot;
+            }
         }
 
         internal static void CopyDashboardSessions(List<MCPAgentSession.DashboardSnapshot> destination)

@@ -63,6 +63,8 @@ Other existing demonstrations: [brick breaker](docs/unity-mcp-showcase-brickbrea
 
 Open **Window → AB Unity MCP → Dashboard** in the project you want to inspect. Bridge controls, queue activity, agent cards and recent actions come first. Sections remember their state per project; long names and requests remain available in tooltips.
 
+**HTTP Activity** adds response codes, active/peak requests, body traffic, rejected input, serialization failures and handler timings. Reload counts persist for the editor session; HTTP counters reset on domain reload. These transport counters stay separate from command outcomes. [Fields, limits and validation](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/http-monitoring.md).
+
 | Inspect | What you can see |
 |---|---|
 | **Queue** | Pending/running counts, per-agent backlog and retention counters through `unity_queue_info`. |
@@ -140,6 +142,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | `-Suite TestPersistence` | Reload snapshots, native identity, corruption and history retention |
 | `-Suite RequestShutdown` | HTTP worker interruption without a false Unity error |
 | `-Suite Dashboard` | Card reuse, refresh allocations, interface reconstruction and saved preferences |
+| `-Suite HttpDiagnostics` | HTTP status/byte counters, input rejection, output failures and aggregate invariants |
 
 Batch UI checks exclude interactive rendering. The measured empty queue loop has zero allocation events after warmup; this is not a whole-plugin allocation claim.
 

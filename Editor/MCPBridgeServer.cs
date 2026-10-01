@@ -429,6 +429,7 @@ namespace UnityMCP.Editor
         {
             var request = context.Request;
             var response = context.Response;
+            var previousObservation = MCPHttpDiagnostics.Begin();
 
             try
             {
@@ -537,12 +538,14 @@ namespace UnityMCP.Editor
             }
             catch (RequestInputException ex)
             {
+                MCPHttpDiagnostics.RejectInput();
                 // An unread oversized body must not be drained to reuse this connection.
                 if (ex.Code == "request_too_large") response.KeepAlive = false;
                 SendJson(response, ex.Status, new { error = ex.Message, code = ex.Code, requestAccepted = false });
             }
             catch (ThreadAbortException)
             {
+                MCPHttpDiagnostics.Abort();
                 // Domain reload aborts waiting HTTP workers; logging an error would fail native tests.
                 throw;
             }
@@ -552,6 +555,7 @@ namespace UnityMCP.Editor
                 Debug.LogError($"[AB-UMCP] Request failed: {ex.Message}\n{ex.StackTrace}");
                 SendJson(response, 500, new { error = ex.Message });
             }
+            finally { MCPHttpDiagnostics.Finish(previousObservation); }
         }
 
         // ─── Queue Submit (async) ───
@@ -621,6 +625,7 @@ namespace UnityMCP.Editor
             }
             catch (RequestInputException ex)
             {
+                MCPHttpDiagnostics.RejectInput();
                 SendJson(response, ex.Status, new { error = ex.Message, code = ex.Code, requestAccepted = false });
             }
             catch (ThreadAbortException) { throw; }
@@ -1585,6 +1590,7 @@ namespace UnityMCP.Editor
             try { json = MiniJson.Serialize(data, ResponseHardLimitBytes); }
             catch (MiniJson.SerializationException error)
             {
+                MCPHttpDiagnostics.SerializationFailed();
                 bool oversized = error.Reason == "byte_limit";
                 string message = error.Message.Length > 2048 ? error.Message.Substring(0, 2048) : error.Message;
                 var errorData = new Dictionary<string, object>
@@ -1613,7 +1619,9 @@ namespace UnityMCP.Editor
 
             response.ContentLength64 = buffer.Length;
             response.OutputStream.Write(buffer, 0, buffer.Length);
+            MCPHttpDiagnostics.WroteBytes(buffer.Length);
             response.OutputStream.Close();
+            MCPHttpDiagnostics.ResponseCompleted(response.StatusCode);
         }
 
         private static string GetProjectPath()

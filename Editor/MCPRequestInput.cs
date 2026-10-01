@@ -40,6 +40,7 @@ namespace UnityMCP.Editor
             {
                 int read = source.Read(buffer, offset, (int)Math.Min(count, limit - received + 1));
                 received += read;
+                MCPHttpDiagnostics.ReadBytes(read);
                 if (received > limit)
                     throw new RequestInputException(413, "request_too_large", "Request body exceeded the " + limit + "-byte limit.");
                 return read;

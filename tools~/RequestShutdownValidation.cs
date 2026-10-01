@@ -24,6 +24,8 @@ public static class UnityMcpRequestShutdownValidation
         string failure = null;
         string clientResult = null, workerFailure = null;
         bool waiterObserved = false;
+        var before = (Dictionary<string, object>)MCPRequestQueue.GetQueueInfo()["http"];
+        Dictionary<string, object> active = null;
         Application.logMessageReceivedThreaded += capture;
         try
         {
@@ -48,6 +50,7 @@ public static class UnityMcpRequestShutdownValidation
             do { lock (gate) waiterObserved = waiters.Count > 0; if (!waiterObserved) Thread.Sleep(10); }
             while (!waiterObserved && DateTime.UtcNow < deadline);
             if (!waiterObserved) throw new InvalidOperationException("HTTP worker did not reach its main-thread wait");
+            active = (Dictionary<string, object>)MCPRequestQueue.GetQueueInfo()["http"];
             worker.Abort();
             if (!worker.Join(5000)) throw new InvalidOperationException("Aborted HTTP worker did not exit");
         }
@@ -58,9 +61,16 @@ public static class UnityMcpRequestShutdownValidation
             if (worker != null && worker.IsAlive) { worker.Abort(); worker.Join(5000); }
             client?.Join(6000);
             Application.logMessageReceivedThreaded -= capture;
-            bool passed = failure == null && waiterObserved && loggedErrors.Count == 0;
+            var after = (Dictionary<string, object>)MCPRequestQueue.GetQueueInfo()["http"];
+            bool metricsPassed = active != null && Convert.ToInt64(active["activeRequests"]) == Convert.ToInt64(before["activeRequests"]) + 1
+                && Convert.ToInt64(after["activeRequests"]) == Convert.ToInt64(before["activeRequests"])
+                && Convert.ToInt64(after["abortedRequests"]) == Convert.ToInt64(before["abortedRequests"]) + 1
+                && Convert.ToInt64(after["incompleteRequests"]) == Convert.ToInt64(before["incompleteRequests"]) + 1
+                && Convert.ToInt64(after["completedRequests"]) == Convert.ToInt64(before["completedRequests"]) + 1;
+            bool passed = failure == null && workerFailure == null && waiterObserved && loggedErrors.Count == 0 && metricsPassed;
             File.WriteAllText("Library/UnityMcpRequestShutdownValidation.json", MiniJson.Serialize(new {
                 unityVersion = Application.unityVersion, passed, waiterObserved, requestErrorLogs = loggedErrors.Count, failure, clientResult, workerFailure,
+                metricsPassed, before, active, after,
                 scope = "Owned loopback HTTP worker aborted while waiting for the editor; no domain reload or native tests"
             }));
             EditorApplication.Exit(passed ? 0 : 1);

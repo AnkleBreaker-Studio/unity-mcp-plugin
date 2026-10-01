@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### HTTP activity and Dashboard refresh
+- Expose aggregate HTTP status, active/peak requests, body bytes, handler timings, input rejections, serialization failures and interruptions in `queue/info.http` and the Dashboard's HTTP Activity section.
+- Record domain reload count, hook-to-initialization duration and active requests at reload through editor SessionState. Keep HTTP and command outcomes distinct; retain no per-request payloads or identities.
+- Read typed queue snapshots in the Dashboard and reuse comparison buffers. Unchanged queue/HTTP sections allocate nothing in the warmed-up fixture; total idle refresh allocation events fall from 33,700 to 30,400 per 100 refreshes.
+- Add controlled HTTP checks, interrupted-worker counter validation and Dashboard label/control/persistence checks. Preserve existing queue fields, routes and tool schemas.
+
 ### Request input validation
 - Enforce the existing 32 MiB inbound limit on actual bytes before decoding, including chunked bodies and BOMs. Close oversized uploads without draining them for connection reuse.
 - Reject malformed/non-object JSON before ticket creation or execution; bound request parsing to 64 container levels and 1,000,000 values/property names. Preserve valid number/container shapes and existing asset-file readers.

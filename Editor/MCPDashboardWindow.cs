@@ -51,7 +51,13 @@ namespace UnityMCP.Editor
         private Label _portRestartHint;
         private Toggle _mppmToggle;
 
-        private string _statusSig, _newsSig, _queueSig, _contextSig, _actionSig, _categorySig;
+        private string _statusSig, _newsSig, _contextSig, _actionSig, _categorySig;
+        private MCPRequestQueue.DashboardQueueSnapshot _queueSnapshot;
+        private bool _hasQueueSnapshot;
+        private readonly List<KeyValuePair<string, int>> _queueDepths = new List<KeyValuePair<string, int>>();
+        private readonly List<KeyValuePair<string, int>> _shownQueueDepths = new List<KeyValuePair<string, int>>();
+        private long _httpRevision = -1;
+        private Label _httpActivity, _httpResponses, _httpFailures, _httpBytes, _httpTiming, _httpReloads;
         private string _expandedTestCategory;
         private IVisualElementScheduledItem _refreshSchedule;
         private readonly List<MCPAgentSession.DashboardSnapshot> _agentSnapshots = new List<MCPAgentSession.DashboardSnapshot>();
@@ -81,6 +87,8 @@ namespace UnityMCP.Editor
             MCPNewsService.Changed -= OnNewsChanged;
             rootVisualElement.Clear();
             _agentViews.Clear();
+            _hasQueueSnapshot = false;
+            _httpRevision = -1;
             MCPTheme.Apply(rootVisualElement);
             MCPNewsService.Changed += OnNewsChanged;
 
@@ -93,6 +101,7 @@ namespace UnityMCP.Editor
             BuildControls(scroll);
             BuildFoldout(scroll, "Request Queue", true, out _queueRows);
             BuildFoldout(scroll, "Active Agent Sessions", true, out _agentRows);
+            BuildHttpActivity(scroll);
             BuildActions(scroll);
             BuildContext(scroll);
             BuildCategories(scroll);
@@ -115,7 +124,8 @@ namespace UnityMCP.Editor
             Guarded(RefreshStatus, () => _statusSig = null);
             Guarded(RefreshControls, null);
             Guarded(RefreshNews, () => _newsSig = null);
-            Guarded(RefreshQueue, () => _queueSig = null);
+            Guarded(RefreshQueue, () => _hasQueueSnapshot = false);
+            Guarded(RefreshHttpActivity, () => _httpRevision = -1);
             Guarded(RefreshContext, () => _contextSig = null);
             Guarded(RefreshAgents, InvalidateAgentViews);
             Guarded(RefreshActions, () => _actionSig = null);
@@ -382,19 +392,16 @@ namespace UnityMCP.Editor
 
         private void RefreshQueue()
         {
-            var info = MCPRequestQueue.GetQueueInfo();
-            int totalQueued = ReadInt(info, "totalQueued");
-            int executing = ReadInt(info, "executingCount");
-            int cacheSize = ReadInt(info, "completedCacheSize");
-
-            var sb = new StringBuilder();
-            sb.Append(totalQueued).Append('|').Append(executing).Append('|').Append(cacheSize);
-            var perAgent = info.TryGetValue("perAgentQueued", out var pa) ? pa as Dictionary<string, object> : null;
-            if (perAgent != null)
-                foreach (var kvp in perAgent) sb.Append('|').Append(kvp.Key).Append(':').Append(kvp.Value);
-            string sig = sb.ToString();
-            if (sig == _queueSig && _queueRows.childCount > 0) return;
-            _queueSig = sig;
+            var snapshot = MCPRequestQueue.CopyDashboardQueue(_queueDepths);
+            bool unchanged = _hasQueueSnapshot && snapshot.Matches(_queueSnapshot) && _queueDepths.Count == _shownQueueDepths.Count;
+            for (int i = 0; unchanged && i < _queueDepths.Count; i++)
+                unchanged = _queueDepths[i].Key == _shownQueueDepths[i].Key && _queueDepths[i].Value == _shownQueueDepths[i].Value;
+            if (unchanged && _queueRows.childCount > 0) return;
+            _queueSnapshot = snapshot;
+            _shownQueueDepths.Clear();
+            _shownQueueDepths.AddRange(_queueDepths);
+            _hasQueueSnapshot = true;
+            int totalQueued = snapshot.TotalQueued, executing = snapshot.Executing, cacheSize = snapshot.Cached;
 
             _queueRows.Clear();
 
@@ -407,13 +414,12 @@ namespace UnityMCP.Editor
             var summaryText = Text(summary, statusText, "ab-dash__label");
             summaryText.style.whiteSpace = WhiteSpace.Normal;
 
-            if (perAgent != null && perAgent.Count > 0)
+            if (_queueDepths.Count > 0)
             {
                 Text(_queueRows, "Per-agent queue depth:", "ab-dash__mini");
-                foreach (var kvp in perAgent)
+                foreach (var kvp in _queueDepths)
                 {
-                    int depth = 0;
-                    int.TryParse(kvp.Value.ToString(), out depth);
+                    int depth = kvp.Value;
                     var row = Row(_queueRows);
                     Dot(row, depth > 0 ? "ab-dash__dot--yellow" : "ab-dash__dot--green");
                     var name = Text(row, kvp.Key, "ab-dash__label");
@@ -424,6 +430,48 @@ namespace UnityMCP.Editor
                     Text(row, $"{depth} pending", "ab-dash__mini");
                 }
             }
+        }
+
+        private void BuildHttpActivity(VisualElement parent)
+        {
+            var foldout = BuildFoldout(parent, "HTTP Activity", false, out var rows);
+            foldout.tooltip = "Bridge HTTP requests, including discovery and polling. Command outcomes are shown in agent sessions.";
+            _httpActivity = HttpLine(rows);
+            _httpResponses = HttpLine(rows);
+            _httpFailures = HttpLine(rows);
+            _httpBytes = HttpLine(rows);
+            _httpTiming = HttpLine(rows);
+            _httpReloads = HttpLine(rows);
+            _httpResponses.tooltip = "HTTP status codes do not describe command success. Incomplete means no response finished writing.";
+            _httpFailures.tooltip = "Input rejects occur before a ticket is accepted. Serialization failures can occur after execution.";
+            _httpBytes.tooltip = "Body bytes read and successful response-body writes, aggregated when each handler ends. Excludes headers and active handlers; writing does not confirm client receipt.";
+            _httpTiming.tooltip = "From entry into the HTTP worker to its exit, including queue waits. Excludes network latency and time waiting for a worker.";
+            _httpReloads.tooltip = "Reload count persists for this editor session. Duration runs from the before-reload hook to diagnostics initialization; it excludes script compilation and does not measure bridge readiness.";
+            var note = HttpLine(rows);
+            note.text = "HTTP counters reset on domain reload.";
+            note.AddToClassList("ab-dash__mini");
+        }
+
+        private static Label HttpLine(VisualElement parent)
+        {
+            var label = Text(parent, "", "ab-dash__label");
+            label.style.whiteSpace = WhiteSpace.Normal;
+            label.style.minWidth = 0;
+            return label;
+        }
+
+        private void RefreshHttpActivity()
+        {
+            var snapshot = MCPHttpDiagnostics.Read();
+            if (_httpRevision == snapshot.Revision) return;
+            _httpActivity.text = $"{snapshot.Completed} completed · {snapshot.Active} active · peak {snapshot.PeakActive}";
+            _httpResponses.text = $"Responses: {snapshot.Responses2xx} 2xx · {snapshot.Responses4xx} 4xx · {snapshot.Responses5xx} 5xx · {snapshot.OtherResponses} other · {snapshot.Incomplete} incomplete";
+            _httpFailures.text = $"{snapshot.InputRejected} input rejects · {snapshot.SerializationFailures} serialization failures · {snapshot.Aborted} interrupted";
+            _httpBytes.text = $"Body traffic: {snapshot.InputBytes:N0} B read · {snapshot.OutputBytes:N0} B written";
+            _httpTiming.text = $"Handler time: {snapshot.AverageDurationMs:F1} ms average · {snapshot.MaxDurationMs:F1} ms maximum";
+            _httpReloads.text = snapshot.DomainReloads == 0 ? "Domain reloads: none recorded this session"
+                : $"Domain reloads: {snapshot.DomainReloads} · last {snapshot.LastReloadMs:F0} ms · {snapshot.ActiveAtLastReload} active at reload";
+            _httpRevision = snapshot.Revision;
         }
 
         // ─── Project context ─────────────────────────────────────────────
@@ -834,7 +882,9 @@ namespace UnityMCP.Editor
             if (EditorUtility.DisplayDialog("Reset Settings", "Reset all MCP settings to defaults?", "Reset", "Cancel"))
             {
                 MCPSettingsManager.ResetToDefaults();
-                _statusSig = _newsSig = _queueSig = _contextSig = _actionSig = _categorySig = null;
+                _statusSig = _newsSig = _contextSig = _actionSig = _categorySig = null;
+                _hasQueueSnapshot = false;
+                _httpRevision = -1;
                 InvalidateAgentViews();
             }
         }
@@ -901,12 +951,5 @@ namespace UnityMCP.Editor
         private static string Read(Dictionary<string, object> dict, string key, string fallback) =>
             dict.TryGetValue(key, out var v) && v != null ? v.ToString() : fallback;
 
-        private static int ReadInt(Dictionary<string, object> dict, string key)
-        {
-            int value = 0;
-            if (dict.TryGetValue(key, out var v) && v != null)
-                int.TryParse(v.ToString(), out value);
-            return value;
-        }
     }
 }

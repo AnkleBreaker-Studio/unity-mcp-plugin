@@ -505,7 +505,7 @@ namespace UnityMCP.Editor
 
             if (!enabled)
             {
-                Text(_contextRows, "Project context is disabled. Agents will not receive project documentation.", "ab-dash__mini");
+                Text(_contextRows, "Project context is disabled. Agents will not receive project documentation.", "ab-dash__mini").style.whiteSpace = WhiteSpace.Normal;
                 return;
             }
 
@@ -530,7 +530,7 @@ namespace UnityMCP.Editor
             }
 
             if (!anyFiles)
-                Text(_contextRows, "No context files found. Click 'Create Templates' to get started.", "ab-dash__mini");
+                Text(_contextRows, "No context files found. Click 'Create Templates' to get started.", "ab-dash__mini").style.whiteSpace = WhiteSpace.Normal;
         }
 
         private void OnContextToggled(ChangeEvent<bool> evt) => MCPSettingsManager.ContextEnabled = evt.newValue;

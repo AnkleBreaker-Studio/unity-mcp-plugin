@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Docked capture and Dashboard rendering
+- Docked captures included the tab strip and cut off the bottom of the content. Resolve the host's content rectangle from its actual borders; return an error if the bounds are unavailable.
+- Wrap Project Context explanations so help text remains inside the Dashboard at its 360 px minimum width.
+- Add owned floating/docked rendering fixtures for UI Toolkit, IMGUI and Dashboard review, with foreground/tab checks and cleanup on completion or assembly reload.
+
 ### Editor-window capture
 - Remove keyboard-focus changes from captures. Refuse inactive/unshown views by default; optional `activateTab` selects an existing tab and restores its predecessor on success or failure.
 - Refuse duplicate full type names and return candidate `id:` selectors backed by string object IDs. Preserve existing type/title matching priority.

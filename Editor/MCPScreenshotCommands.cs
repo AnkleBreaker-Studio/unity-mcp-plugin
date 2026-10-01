@@ -275,7 +275,8 @@ namespace UnityMCP.Editor
                 {
                     hwnd = main; whole = false;
                     float ppp = EditorGUIUtility.pixelsPerPoint;
-                    var rp = win.position;
+                    if (!TryGetDockedContentRect(win, out var rp))
+                        return Err("Could not resolve the docked window's content bounds.");
                     px = (int)Math.Round(rp.x * ppp); py = (int)Math.Round(rp.y * ppp);
                     pw = (int)Math.Round(rp.width * ppp); ph = (int)Math.Round(rp.height * ppp);
                     if (pw <= 0 || ph <= 0) return Err("Bad panel rect " + pw + "x" + ph);
@@ -310,6 +311,26 @@ namespace UnityMCP.Editor
                 return parent?.GetType().GetProperty("actualView", flags)?.GetValue(parent, null) as EditorWindow;
             }
             catch { return null; }
+        }
+
+        static bool TryGetDockedContentRect(EditorWindow win, out Rect rect)
+        {
+            rect = default;
+            try
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var parent = typeof(EditorWindow).GetField("m_Parent", flags)?.GetValue(win);
+                if (parent == null) return false;
+                var type = parent.GetType();
+                if (!(type.GetProperty("screenPosition", flags)?.GetValue(parent, null) is Rect hostRect)
+                    || !(type.GetProperty("borderSize", flags)?.GetValue(parent, null) is RectOffset border))
+                    return false;
+                // EditorWindow.position starts at the dock's tab strip, while its size already excludes it.
+                // The host's content rectangle works for both IMGUI and UI Toolkit without a fixed tab height.
+                rect = border.Remove(hostRect);
+                return rect.width > 0 && rect.height > 0;
+            }
+            catch { return false; }
         }
 
         static string ValidateCaptureSize(int windowWidth, int windowHeight, int cropWidth, int cropHeight, int cap)

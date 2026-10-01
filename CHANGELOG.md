@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Completed results and history snapshots
+- Bound the polling cache to 4,096 terminal tickets and 256 MiB of weighted result cost, with oldest-first pressure eviction, age cleanup and additive queue metrics. Preserve synchronous/native result references and protected retry identities.
+- Remove full result graphs from pending history. Capture bounded scalar target metadata without custom conversions/comparers; retain editor-thread insertion, Undo behavior and raw ticket diagnostics.
+- Add fourteen controlled checks, weak-reference release evidence, existing queue/monitoring/serialization regressions and real current/published-server workflows on Node 18/22. Accounting is not a total heap quota.
+
 ### Retained HTTP commands
 - Bound admitted HTTP commands to 256 outstanding tickets and 256 MiB of accounted argument cost across queued, legacy and deferred dispatch. Refuse before ticket creation with `command_queue_busy` and `requestAccepted: false`.
 - Keep protected replay/polling available at capacity and release admission once on terminal completion. Report current/peak counters and refusals in queue info; accounting is not a total managed-memory quota.

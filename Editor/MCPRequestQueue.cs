@@ -67,6 +67,8 @@ namespace UnityMCP.Editor
             internal Action<Action<object>> DeferredAction { get; set; }
             internal bool HasHttpAdmission;
             internal long HttpArgumentCost;
+            internal long CompletedResultCost;
+            internal LinkedListNode<long> CompletedCacheNode;
 
             // Result / error
             public object Result       { get; set; }
@@ -116,6 +118,9 @@ namespace UnityMCP.Editor
         // Completed/failed tickets cached for polling
         private static readonly Dictionary<long, RequestTicket> _completedTickets
             = new Dictionary<long, RequestTicket>();
+        private const int MaxCompletedTickets = 4096;
+        private static readonly LinkedList<long> _completedOrder = new LinkedList<long>();
+        private static long _completedResultCost, _peakCompletedResultCost, _evictedCompletedTickets, _uncachedOversizedResults;
 
         // In-flight tickets (dequeued, currently executing on main thread)
         // Prevents 404 race condition when polling during slow executions (e.g. execute_code)
@@ -154,7 +159,6 @@ namespace UnityMCP.Editor
         private class PendingHistory
         {
             public MCPActionRecord Record;
-            public object Result;
         }
 
         private const int MaxPendingHistoryRecords = 10_000;
@@ -531,6 +535,14 @@ namespace UnityMCP.Editor
                     { "activeAgents",         _agentQueues.Count },
                     { "executingCount",       _executingTickets.Count },
                     { "completedCacheSize",   _completedTickets.Count },
+                    { "completedResults", new Dictionary<string, object>
+                        {
+                            { "count", _completedTickets.Count }, { "maxCount", MaxCompletedTickets },
+                            { "costBytes", _completedResultCost }, { "maxCostBytes", MCPResultRetention.MaxCost },
+                            { "peakCostBytes", _peakCompletedResultCost }, { "evictions", _evictedCompletedTickets },
+                            { "oversizedNotCached", _uncachedOversizedResults },
+                        }
+                    },
                     { "perAgentQueued",        perAgent },
                     { "totalSessionsTracked", _sessions.Count },
                     { "evictedSessions", _evictedSessions },
@@ -749,6 +761,8 @@ namespace UnityMCP.Editor
         {
             string commandError = null;
             bool commandFailed = status == RequestStatus.Completed && MCPCommandOutcome.TryGetError(result, out commandError);
+            long resultCost = MCPResultRetention.Measure(result, 256L + 2L * ((long)(ticket.AgentId?.Length ?? 0)
+                + (ticket.ActionName?.Length ?? 0) + (error?.Length ?? 0) + (commandError?.Length ?? 0)));
             lock (_queueLock)
             {
                 // Late callbacks and racing waiters must not overwrite a terminal outcome.
@@ -785,7 +799,7 @@ namespace UnityMCP.Editor
                     PurgeEmptyQueues();
                 }
                 _executingTickets.Remove(ticket.TicketId);
-                _completedTickets[ticket.TicketId] = ticket;
+                CacheCompletedTicket(ticket, resultCost);
                 if (_sessions.TryGetValue(ticket.AgentId, out var session))
                     session.RecordCompletion(ticket);
 
@@ -798,24 +812,25 @@ namespace UnityMCP.Editor
                     Status = status.ToString(),
                     CommandFailed = commandFailed,
                     ExecutionTimeMs = ticket.ExecutionTimeMs,
-                    ErrorMessage = commandFailed ? commandError : error,
+                    ErrorMessage = commandFailed ? commandError : (error != null && error.Length > 2048 ? error.Substring(0, 2048) : error),
                     UndoGroup = undoGroup,
                     UndoSessionId = undoGroup >= 0 ? MCPUndoState.SessionId : null,
                     UndoSignature = undoGroup >= 0 ? undoSignature : null,
                 };
+                record.CaptureTargetFromResult(result);
                 if (_pendingHistory.Count >= MaxPendingHistoryRecords)
                 {
                     _pendingHistory.Dequeue();
                     _droppedHistoryRecords++;
                 }
-                _pendingHistory.Enqueue(new PendingHistory { Record = record, Result = result });
+                _pendingHistory.Enqueue(new PendingHistory { Record = record });
                 if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
                     waiter.Set();
                 return true;
             }
         }
 
-        // Callback threads cannot read EditorPrefs or inspect Unity targets; the editor update drains this bounded buffer.
+        // Callback threads cannot read EditorPrefs or notify editor UI; the editor update drains metadata records.
         internal static void FlushCompletedHistory(int maxRecords = 100)
         {
             for (int i = 0; i < maxRecords; i++)
@@ -828,7 +843,6 @@ namespace UnityMCP.Editor
                 }
                 try
                 {
-                    pending.Record.ExtractTargetFromResult(pending.Result);
                     MCPActionHistory.RecordAction(pending.Record);
                     lock (_queueLock)
                     {
@@ -871,7 +885,7 @@ namespace UnityMCP.Editor
                 }
 
                 foreach (var id in _expiredTicketIds)
-                    _completedTickets.Remove(id);
+                    RemoveCompletedTicket(id);
                 _expiredTicketIds.Clear();
 
                 // Queue wait does not consume an asynchronous operation's execution deadline.
@@ -888,6 +902,37 @@ namespace UnityMCP.Editor
                         "Timed out after 120s of execution; the operation may already have made changes");
                 _staleExecutingIds.Clear();
             }
+        }
+
+        // Eviction only drops the polling-cache reference. A synchronous waiter or native caller keeps its own ticket/result.
+        private static void CacheCompletedTicket(RequestTicket ticket, long cost)
+        {
+            if (cost > MCPResultRetention.MaxCost)
+            {
+                _uncachedOversizedResults++;
+                return;
+            }
+            while (_completedOrder.First != null
+                && (_completedTickets.Count >= MaxCompletedTickets || cost > MCPResultRetention.MaxCost - _completedResultCost))
+            {
+                RemoveCompletedTicket(_completedOrder.First.Value);
+                _evictedCompletedTickets++;
+            }
+            ticket.CompletedResultCost = cost;
+            ticket.CompletedCacheNode = _completedOrder.AddLast(ticket.TicketId);
+            _completedTickets.Add(ticket.TicketId, ticket);
+            _completedResultCost += cost;
+            _peakCompletedResultCost = Math.Max(_peakCompletedResultCost, _completedResultCost);
+        }
+
+        private static void RemoveCompletedTicket(long id)
+        {
+            if (!_completedTickets.TryGetValue(id, out var ticket)) return;
+            _completedTickets.Remove(id);
+            if (ticket.CompletedCacheNode != null) _completedOrder.Remove(ticket.CompletedCacheNode);
+            ticket.CompletedCacheNode = null;
+            _completedResultCost -= ticket.CompletedResultCost;
+            ticket.CompletedResultCost = 0;
         }
 
         private static void CleanupSessions(long now)

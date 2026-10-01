@@ -94,6 +94,29 @@ namespace UnityMCP.Editor
                 TargetType = InferTargetType(Category);
         }
 
+        // Queue callbacks may run off the editor thread. Copy small scalar metadata without retaining the result graph.
+        internal void CaptureTargetFromResult(object result)
+        {
+            if (!(result is Dictionary<string, object> values)) return;
+            var comparer = values.Comparer;
+            if (!ReferenceEquals(comparer, EqualityComparer<string>.Default)
+                && !ReferenceEquals(comparer, StringComparer.Ordinal)
+                && !ReferenceEquals(comparer, StringComparer.OrdinalIgnoreCase)) return;
+            TargetInstanceId = TargetValue(values, "instanceId");
+            TargetPath = TargetValue(values, "path") ?? TargetValue(values, "gameObjectPath") ?? TargetValue(values, "hierarchyPath");
+            if (string.IsNullOrEmpty(TargetPath)) TargetPath = TargetValue(values, "name");
+            TargetType = InferTargetType(Category);
+        }
+
+        private static string TargetValue(Dictionary<string, object> values, string key)
+        {
+            if (!values.TryGetValue(key, out var value) || value == null) return null;
+            string text = value as string;
+            if (text == null && (value.GetType().IsPrimitive || value is decimal))
+                text = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+            return text == null || text.Length <= 4096 ? text : text.Substring(0, 4096);
+        }
+
         private static string InferTargetType(string category)
         {
             switch (category)

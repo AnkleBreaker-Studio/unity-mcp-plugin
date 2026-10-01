@@ -227,6 +227,16 @@ namespace UnityMCP.Editor.Welcome
             return wrong;
         }
 
+        /// <summary>An art pack whose materials render magenta here and whose pipeline band can
+        /// fix them: the same count the band shows.</summary>
+        public static bool PipelineNeedsFix(UnityMcpWelcomeContext c)
+        {
+            if (c.Config.profile != "art") return false;
+            UnityMcpPipeline band = c.Config.pipelineBand;
+            if (band == null || !MenuExists(band.fixMenu)) return false;
+            return ScopedMismatchedMaterials(c.Resolve(band.materials), band.materialGuids).Count > 0;
+        }
+
         public static bool IsInstalled(UnityMcpProduct product)
         {
             foreach (string rule in product.detect)
@@ -858,11 +868,18 @@ namespace UnityMCP.Editor.Welcome
 
             foreach (UnityMcpWelcomeContext context in UnityMcpWelcomeServices.LoadContexts())
             {
-                if (UnityMcpWelcomeServices.ShouldAutoOpen(context))
+                // Seen already, but its materials render magenta in this project (a new project,
+                // a pipeline switch): the pipeline band is the fix, so the window comes back once
+                // per editor session until they are converted.
+                string pipelineKey = UnityMcpWelcomeServices.PREFS + ".PipelineOpened." + context.Guid;
+                bool pipeline = !SessionState.GetBool(pipelineKey, false) && UnityMcpWelcomeServices.PipelineNeedsFix(context);
+                if (UnityMcpWelcomeServices.ShouldAutoOpen(context) || pipeline)
                 {
+                    SessionState.SetBool(pipelineKey, true);
                     // Tells every package's prompt scheduler to leave this session alone.
                     SessionState.SetBool(UnityMcpWelcomePrompts.SESSION_AUTO_OPENED, true);
                     UnityMcpWelcome.Open(context.Guid);
+                    UnityMcpWelcome.OnAutoOpened(context);
                     return;
                 }
             }

@@ -25,6 +25,9 @@ namespace UnityMCP.Editor
         private static MCPTestCallbacks _callbacks;
         private static readonly MethodInfo NativeRunActive = typeof(TestRunnerApi).GetMethod("IsRunActive", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo NativeCancelRun = typeof(TestRunnerApi).GetMethod("CancelTestRun", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+        private static readonly Type PlayerTestAssemblyProvider = typeof(UnityEngine.TestTools.UnityTestAttribute).Assembly.GetType("UnityEngine.TestTools.Utils.PlayerTestAssemblyProvider");
+        private static readonly FieldInfo ReloadClearedTestAssemblyCache = PlayerTestAssemblyProvider?.GetMethod("ResetStaticsOnLoad", BindingFlags.Static | BindingFlags.NonPublic) != null
+            ? PlayerTestAssemblyProvider.GetField("m_LoadedAssemblies", BindingFlags.Static | BindingFlags.NonPublic) : null;
 
         private const int MaxFailuresTracked = 50;
         private const double StuckThresholdSeconds = 120.0;
@@ -192,7 +195,11 @@ namespace UnityMCP.Editor
 
             try
             {
-                if (testMode == TestMode.PlayMode) SaveAndDisableDomainReload();
+                if (testMode == TestMode.PlayMode)
+                {
+                    SaveAndDisableDomainReload();
+                    ResetPlayModeTestAssemblyCache();
+                }
                 EnsureCallbacksRegistered();
                 var executionSettings = new ExecutionSettings(filter);
                 job.NativeRunId = _testRunnerApi.Execute(executionSettings);
@@ -250,7 +257,7 @@ namespace UnityMCP.Editor
         // RetrieveTestList completes on a future editor update; the caller must keep the main thread free.
         public static void ListTests(Dictionary<string, object> args, Action<object> resolve)
         {
-            string modeStr = args.ContainsKey("mode") ? args["mode"].ToString() : "EditMode";
+            string modeStr = args.ContainsKey("mode") ? args["mode"]?.ToString() ?? "" : "EditMode";
             TestMode testMode;
             switch (modeStr.ToLowerInvariant())
             {
@@ -270,8 +277,15 @@ namespace UnityMCP.Editor
                     return;
             }
 
-            string nameFilter = args.ContainsKey("nameFilter") ? args["nameFilter"].ToString() : null;
-            int maxResults = args.ContainsKey("maxResults") ? Convert.ToInt32(args["maxResults"]) : 200;
+            string nameFilter = args.ContainsKey("nameFilter") ? args["nameFilter"]?.ToString() : null;
+            int maxResults = 200;
+            if ((args.TryGetValue("maxResults", out var limit)
+                && (limit == null || !int.TryParse(Convert.ToString(limit, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out maxResults)))
+                || maxResults < 1 || maxResults > 10000)
+            {
+                resolve(new { error = "maxResults must be an integer from 1 to 10000" });
+                return;
+            }
 
             EnsureCallbacksRegistered();
 
@@ -288,19 +302,26 @@ namespace UnityMCP.Editor
                 }
 
                 var tests = new List<Dictionary<string, object>>();
-                CollectLeafTests(root, tests, nameFilter, maxResults);
+                bool truncated = CollectLeafTests(root, tests, nameFilter, maxResults);
 
                 resolve(new Dictionary<string, object>
                 {
                     { "mode", testMode.ToString() },
                     { "totalTests", tests.Count },
-                    { "truncated", tests.Count >= maxResults },
+                    { "truncated", truncated },
                     { "tests", tests }
                 });
             });
         }
 
         // ─── Test Runner Callbacks ───────────────────────────────────
+
+        private static void ResetPlayModeTestAssemblyCache()
+        {
+            // Test Framework 1.8 clears this list on Play entry, but only loads assemblies when it is null.
+            if (ReloadClearedTestAssemblyCache != null && typeof(System.Collections.IList).IsAssignableFrom(ReloadClearedTestAssemblyCache.FieldType))
+                ReloadClearedTestAssemblyCache.SetValue(null, null);
+        }
 
         private static void EnsureCallbacksRegistered()
         {
@@ -440,7 +461,12 @@ namespace UnityMCP.Editor
             if (!IsRunningJob(jobId)) return;
             var job = _jobs[jobId];
 
-            job.Status = totalFailed > 0 ? TestJobStatus.Failed : TestJobStatus.Succeeded;
+            job.PassedCount = totalPassed;
+            job.FailedCount = totalFailed;
+            job.SkippedCount = totalSkipped + totalInconclusive;
+            job.CompletedTests = job.PassedCount + job.FailedCount + job.SkippedCount;
+            job.TotalTests = Math.Max(job.TotalTests, job.CompletedTests);
+            job.Status = totalFailed > 0 || job.Error != null ? TestJobStatus.Failed : TestJobStatus.Succeeded;
             job.CompletedAt = DateTime.UtcNow;
             job.TotalDuration = totalDuration;
             job.CurrentTestName = null;
@@ -453,7 +479,40 @@ namespace UnityMCP.Editor
                       $"({totalDuration:F1}s)");
         }
 
-        // ─── Serialization ───────────────────────────────────────────
+        internal static void ReconcileResults(string jobId, ITestResultAdaptor root)
+        {
+            if (!IsRunningJob(jobId)) return;
+            // The final tree can recover results missed during callback delivery or reload.
+            var job = _jobs[jobId];
+            job.FailuresSoFar.Clear();
+            int resultCount = 0;
+            CollectResults(job, root, ref resultCount);
+            if (resultCount < job.AllResults.Count) job.AllResults.RemoveRange(resultCount, job.AllResults.Count - resultCount);
+            job.LastUpdatedAt = DateTime.UtcNow;
+            if (root.TestStatus == TestStatus.Failed && root.FailCount == 0)
+                job.Error = string.IsNullOrEmpty(root.Message) ? "Unity reported a suite-level failure" : root.Message;
+        }
+
+        private static void CollectResults(TestJob job, ITestResultAdaptor result, ref int resultCount)
+        {
+            if (!result.Test.IsSuite)
+            {
+                TestResult entry;
+                if (resultCount < job.AllResults.Count) entry = job.AllResults[resultCount];
+                else { entry = new TestResult(); job.AllResults.Add(entry); }
+                resultCount++;
+                entry.FullName = result.Test.FullName;
+                entry.Name = result.Test.Name;
+                entry.Status = result.TestStatus.ToString();
+                entry.Duration = result.Duration;
+                entry.Message = result.Message;
+                entry.StackTrace = result.StackTrace;
+                if (result.TestStatus == TestStatus.Failed && job.FailuresSoFar.Count < MaxFailuresTracked)
+                    job.FailuresSoFar.Add(entry);
+            }
+            else if (result.Children != null)
+                foreach (var child in result.Children) CollectResults(job, child, ref resultCount);
+        }
 
         private static Dictionary<string, object> SerializeJob(TestJob job, bool includeDetails, bool includeFailedOnly)
         {
@@ -463,6 +522,7 @@ namespace UnityMCP.Editor
                 { "status", job.Status.ToString().ToLowerInvariant() },
                 { "mode", job.Mode.ToString() },
                 { "startedAt", job.StartedAt.ToString("O") },
+                { "resultsComplete", job.AllResults.Count == job.CompletedTests },
             };
 
             // Progress info
@@ -549,16 +609,16 @@ namespace UnityMCP.Editor
 
         // ─── Test Discovery Helpers ──────────────────────────────────
 
-        private static void CollectLeafTests(ITestAdaptor test, List<Dictionary<string, object>> results,
+        private static bool CollectLeafTests(ITestAdaptor test, List<Dictionary<string, object>> results,
             string nameFilter, int maxResults)
         {
-            if (results.Count >= maxResults) return;
-
-            if (!test.HasChildren)
+            if (!test.IsSuite)
             {
                 // Leaf test
                 if (nameFilter != null && test.FullName.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) < 0)
-                    return;
+                    return false;
+
+                if (results.Count >= maxResults) return true;
 
                 results.Add(new Dictionary<string, object>
                 {
@@ -568,14 +628,14 @@ namespace UnityMCP.Editor
                     { "runState", test.RunState.ToString() }
                 });
             }
-            else
+            else if (test.Children != null)
             {
                 foreach (var child in test.Children)
                 {
-                    CollectLeafTests(child, results, nameFilter, maxResults);
-                    if (results.Count >= maxResults) break;
+                    if (CollectLeafTests(child, results, nameFilter, maxResults)) return true;
                 }
             }
+            return false;
         }
 
         // ─── Session State Persistence ───────────────────────────────
@@ -830,18 +890,14 @@ namespace UnityMCP.Editor
         public void RunFinished(ITestResultAdaptor result)
         {
             if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
-            int passed = 0, failed = 0, skipped = 0, inconclusive = 0;
-            double totalDuration = result.Duration;
-
-            CountResults(result, ref passed, ref failed, ref skipped, ref inconclusive);
-
-            MCPTestRunnerCommands.OnRunFinished(JobId, passed, failed, skipped, inconclusive, totalDuration);
+            MCPTestRunnerCommands.ReconcileResults(JobId, result);
+            MCPTestRunnerCommands.OnRunFinished(JobId, result.PassCount, result.FailCount, result.SkipCount, result.InconclusiveCount, result.Duration);
         }
 
         public void TestStarted(ITestAdaptor test)
         {
             if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
-            if (!test.HasChildren)
+            if (!test.IsSuite)
             {
                 MCPTestRunnerCommands.OnTestStarted(JobId, test.FullName);
             }
@@ -850,7 +906,7 @@ namespace UnityMCP.Editor
         public void TestFinished(ITestResultAdaptor result)
         {
             if (!MCPTestRunnerCommands.IsRunningJob(JobId)) return;
-            if (!result.Test.HasChildren)
+            if (!result.Test.IsSuite)
             {
                 MCPTestRunnerCommands.OnTestFinished(
                     JobId,
@@ -866,39 +922,11 @@ namespace UnityMCP.Editor
 
         private static int CountLeafTests(ITestAdaptor test)
         {
-            if (!test.HasChildren) return 1;
+            if (!test.IsSuite) return 1;
             int count = 0;
-            foreach (var child in test.Children)
-                count += CountLeafTests(child);
+            if (test.Children != null)
+                foreach (var child in test.Children) count += CountLeafTests(child);
             return count;
-        }
-
-        private static void CountResults(ITestResultAdaptor result,
-            ref int passed, ref int failed, ref int skipped, ref int inconclusive)
-        {
-            if (!result.Test.HasChildren)
-            {
-                switch (result.TestStatus)
-                {
-                    case TestStatus.Passed:
-                        passed++;
-                        break;
-                    case TestStatus.Failed:
-                        failed++;
-                        break;
-                    case TestStatus.Skipped:
-                        skipped++;
-                        break;
-                    case TestStatus.Inconclusive:
-                        inconclusive++;
-                        break;
-                }
-            }
-            else if (result.Children != null)
-            {
-                foreach (var child in result.Children)
-                    CountResults(child, ref passed, ref failed, ref skipped, ref inconclusive);
-            }
         }
     }
 }

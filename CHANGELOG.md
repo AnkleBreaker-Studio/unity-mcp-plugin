@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Test discovery and results
+- Exclude empty suites from discovery, progress and result entries; use Unity's suite classification for parameterized tests. Report truncation only when another matching test exists.
+- Validate discovery limits as integers from 1 to 10,000, preserving the default of 200 and the returned-count meaning of `totalTests`. Stop collecting at the first matching overflow.
+- Reconcile completed jobs with Unity's aggregate counts and final result tree after missed or duplicated intermediate callbacks. Reuse existing result records and preserve suite-level failures.
+- Add `resultsComplete` to identify missing detailed results without changing job status or the legacy skipped/inconclusive count. Add `-Suite TestResults` and real parameterized/mixed/setup-failure fixtures.
+- Invalidate the affected Test Framework assembly cache before PlayMode execution when its private subsystem reset hook exists. The inspected 1.8 implementation otherwise keeps an empty initialized cache and runs zero tests on later entries without domain reload; the inspected 1.1.31 implementation is unaffected.
+
 ### Test Runner lifecycle
 - Restore Play Mode settings and release callbacks after startup exceptions, framework errors and forced clears. Bind callbacks to their job so a stale callback cannot mutate its replacement.
 - Retain native run IDs and request cancellation when the installed Test Framework exposes it. Reject new jobs while native execution or cleanup remains active; report unavailable state detection explicitly.

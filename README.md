@@ -106,6 +106,7 @@ The declared minimum remains **Unity 2021.3.18f1**. All 75 editor sources includ
 |---|---|
 | [Server-plugin matrix](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/compatibility.md) | All four released/current pairs with Node 18 and 22; object edits, undo, errors, history and concurrent agents across mixed plugin versions. |
 | [Queue and monitoring](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-monitoring.md) | Fair scheduling, read batching, duplicate/late callbacks, real timeout races, retention and error history. |
+| [Action History](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/history-notifications.md) | Bounded observer backlog, grouped window refreshes, stable selection/filters and real reload checks. |
 | [Package Manager](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/packages.md) | Sequential requests across editor updates, expiration cleanup, legacy responses and local package add/remove with manifest restoration. |
 | [Result serialization](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/code-execution.md) | Valid JSON, bounded conversion/traversal and early HTTP byte limits; execution is not repeated after response failure. |
 | [Server HTTP downloads](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/response-limits.md#node-http-downloads) | The companion server bounds response reads with current and released plugins; overflow preserves unknown-outcome recovery without repeating commands. |
@@ -141,6 +142,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | `-Suite QueueAdmission` | HTTP command count/argument budgets, replay at capacity and terminal release; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/command-admission.md) |
 | `-Suite ResultRetention` | Completed-result budgets, history payload release and protected/synchronous recovery; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/result-retention.md) |
 | `-Suite ParrelSync` | Native marker, numeric/unknown index and original-project identity without the optional package installed; [live lifecycle evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/parrelsync.md) |
+| `-Suite HistoryNotifications` | Deferred observer delivery, pressure/clear/reentrancy, weak-reference collection, grouped window updates and stable selection/filters |
 | `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
 | `-Suite Monitoring` | Error classification, history, persistence and create/undo |
 | `-Suite RequestInput` | Byte/Unicode boundaries, strict request parsing, queue/legacy/deferred rejection and guarded submission compatibility |

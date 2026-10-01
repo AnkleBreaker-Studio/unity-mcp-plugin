@@ -31,6 +31,7 @@ namespace UnityMCP.Editor
         // Cached results
         private List<MCPActionRecord> _filteredRecords = new List<MCPActionRecord>();
         private double _lastRefreshTime;
+        private long _lastHistoryRevision = -1;
         private const double RefreshInterval = 0.5;
 
         // Layout
@@ -75,30 +76,28 @@ namespace UnityMCP.Editor
 
         private void OnEnable()
         {
-            MCPActionHistory.OnActionRecorded += OnNewAction;
-            RefreshFilters();
-            RefreshList();
-        }
-
-        private void OnDisable()
-        {
-            MCPActionHistory.OnActionRecorded -= OnNewAction;
-        }
-
-        private void OnNewAction(MCPActionRecord record)
-        {
-            RefreshFilters();
-            RefreshList();
-            Repaint();
+            RefreshHistory();
         }
 
         private void OnInspectorUpdate()
         {
             if (EditorApplication.timeSinceStartup - _lastRefreshTime > RefreshInterval)
             {
-                RefreshList();
+                _lastRefreshTime = EditorApplication.timeSinceStartup;
+                if (_lastHistoryRevision != MCPActionHistory.Revision)
+                {
+                    RefreshHistory();
+                }
+                // Native Undo/target availability can change without a new MCP action.
                 Repaint();
             }
+        }
+
+        private void RefreshHistory()
+        {
+            RefreshFilters();
+            RefreshList();
+            _lastHistoryRevision = MCPActionHistory.Revision;
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -164,6 +163,8 @@ namespace UnityMCP.Editor
 
         private void RefreshFilters()
         {
+            string selectedAgent = _agentFilterIndex > 0 && _agentFilterIndex < _agentOptions.Length ? _agentOptions[_agentFilterIndex] : null;
+            string selectedCategory = _categoryFilterIndex > 0 && _categoryFilterIndex < _categoryOptions.Length ? _categoryOptions[_categoryFilterIndex] : null;
             var agents = MCPActionHistory.GetDistinctAgents();
             _agentOptions = new string[agents.Count + 1];
             _agentOptions[0] = "All Agents";
@@ -176,9 +177,9 @@ namespace UnityMCP.Editor
             for (int i = 0; i < cats.Count; i++)
                 _categoryOptions[i + 1] = cats[i];
 
-            // Clamp filter indices
-            if (_agentFilterIndex >= _agentOptions.Length) _agentFilterIndex = 0;
-            if (_categoryFilterIndex >= _categoryOptions.Length) _categoryFilterIndex = 0;
+            // Retention can remove earlier options without removing the selected agent/category.
+            _agentFilterIndex = selectedAgent == null ? 0 : Math.Max(0, Array.IndexOf(_agentOptions, selectedAgent));
+            _categoryFilterIndex = selectedCategory == null ? 0 : Math.Max(0, Array.IndexOf(_categoryOptions, selectedCategory));
         }
 
         private void RefreshList()
@@ -193,6 +194,8 @@ namespace UnityMCP.Editor
 
             // Reverse so newest is first
             _filteredRecords.Reverse();
+            _selectedIndex = _selectedRecord == null ? -1 : _filteredRecords.IndexOf(_selectedRecord);
+            if (_selectedIndex < 0) _selectedRecord = null;
         }
 
         // ═══════════════════════════════════════════════════════════

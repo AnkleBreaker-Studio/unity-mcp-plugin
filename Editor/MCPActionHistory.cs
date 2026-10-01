@@ -20,10 +20,18 @@ namespace UnityMCP.Editor
         private static readonly List<MCPActionRecord> _history = new List<MCPActionRecord>();
         private static readonly object _lock = new object();
         private static long _nextId;
+        private static long _revision;
+        private const int MaxPendingNotifications = 10_000;
+        private const int NotificationsPerUpdate = 100;
+        private static readonly Queue<MCPActionRecord> _notifications = new Queue<MCPActionRecord>();
+        private static bool _notificationScheduled, _dispatchingNotifications;
+        private static long _notificationGeneration, _deliveredNotifications, _droppedNotifications;
+
+        internal static long Revision { get { lock (_lock) return _revision; } }
 
         private const string PersistencePath = "Library/MCPActionHistory.json";
 
-        /// <summary>Fires on the main thread whenever a new action is recorded.</summary>
+        /// <summary>Deferred editor-thread delivery; pressure drops oldest notifications to bound observer retention.</summary>
         public static event Action<MCPActionRecord> OnActionRecorded;
 
         // ═══════════════════════════════════════════════════════
@@ -44,6 +52,7 @@ namespace UnityMCP.Editor
         private static void OnBeforeReload()
         {
             MCPRequestQueue.FlushCompletedHistory(10_000);
+            ClearNotifications();
             if (MCPSettingsManager.ActionHistoryPersistence)
                 SaveToDisk();
         }
@@ -51,6 +60,7 @@ namespace UnityMCP.Editor
         private static void OnQuitting()
         {
             MCPRequestQueue.FlushCompletedHistory(10_000);
+            ClearNotifications();
             if (MCPSettingsManager.ActionHistoryPersistence)
                 SaveToDisk();
         }
@@ -68,14 +78,88 @@ namespace UnityMCP.Editor
             {
                 record.Id = ++_nextId;
                 _history.Add(record);
+                _revision++;
 
                 // Trim ring buffer
                 while (_history.Count > maxEntries)
                     _history.RemoveAt(0);
             }
 
-            // Fire event on main thread for UI refresh
-            EditorApplication.delayCall += () => OnActionRecorded?.Invoke(record);
+            if (OnActionRecorded == null) return;
+            lock (_lock)
+            {
+                if (_notifications.Count >= MaxPendingNotifications)
+                {
+                    _notifications.Dequeue();
+                    _droppedNotifications++;
+                }
+                _notifications.Enqueue(record);
+            }
+            ScheduleNotifications();
+        }
+
+        private static void ScheduleNotifications()
+        {
+            if (_notificationScheduled || _dispatchingNotifications) return;
+            _notificationScheduled = true;
+            // Inspector-dependent delayCall can stall while hidden editors still process MCP updates.
+            EditorApplication.update += DispatchNotifications;
+        }
+
+        private static void DispatchNotifications()
+        {
+            EditorApplication.update -= DispatchNotifications;
+            _notificationScheduled = false;
+            if (_dispatchingNotifications) return;
+            _dispatchingNotifications = true;
+            long generation;
+            int count;
+            lock (_lock) { generation = _notificationGeneration; count = Math.Min(NotificationsPerUpdate, _notifications.Count); }
+            try
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    MCPActionRecord record;
+                    lock (_lock)
+                    {
+                        if (generation != _notificationGeneration || _notifications.Count == 0) break;
+                        record = _notifications.Dequeue();
+                    }
+                    var observers = OnActionRecorded;
+                    if (observers == null) { ClearNotifications(); break; }
+                    foreach (Action<MCPActionRecord> observer in observers.GetInvocationList())
+                    {
+                        try { observer(record); }
+                        catch (Exception error) { Debug.LogException(error); }
+                    }
+                    lock (_lock) _deliveredNotifications++;
+                }
+            }
+            finally
+            {
+                _dispatchingNotifications = false;
+                if (OnActionRecorded == null) ClearNotifications();
+                bool pending;
+                lock (_lock) pending = _notifications.Count > 0;
+                if (pending) ScheduleNotifications();
+            }
+        }
+
+        private static void ClearNotifications()
+        {
+            EditorApplication.update -= DispatchNotifications;
+            _notificationScheduled = false;
+            lock (_lock) { _notifications.Clear(); _notificationGeneration++; }
+        }
+
+        internal static Dictionary<string, object> GetNotificationInfo()
+        {
+            lock (_lock) return new Dictionary<string, object>
+            {
+                { "pendingCount", _notifications.Count }, { "maxPendingCount", MaxPendingNotifications },
+                { "maxPerUpdate", NotificationsPerUpdate }, { "delivered", _deliveredNotifications },
+                { "dropped", _droppedNotifications },
+            };
         }
 
         /// <summary>
@@ -168,9 +252,11 @@ namespace UnityMCP.Editor
         public static void Clear()
         {
             MCPRequestQueue.ClearPendingHistory();
+            ClearNotifications();
             lock (_lock)
             {
                 _history.Clear();
+                _revision++;
             }
 
             // Delete persistence file
@@ -267,6 +353,7 @@ namespace UnityMCP.Editor
                     // Restore ID counter
                     if (_history.Count > 0)
                         _nextId = _history[_history.Count - 1].Id;
+                    _revision++;
                 }
 
                 Debug.Log($"[MCP History] Loaded {wrapper.records.Count} records from disk.");

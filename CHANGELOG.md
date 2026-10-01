@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Action history observers and window updates
+- Replace per-record `delayCall` closures with deferred editor-update delivery only when observers exist. Retain at most 10,000 notifications, drain up to 100 per update, and report pressure drops through `historyNotifications`.
+- Cancel pending delivery on clear/reload/quit, release unsubscribed backlogs, and isolate subscriber exceptions. Preserve the public event signature and ordered asynchronous delivery within capacity.
+- Refresh the Action History lists by revision while retaining periodic repaint and immediate filter/search changes. Preserve selected filters and record identity as older entries expire.
+- Validate thirteen controlled checks, weak-reference release, measured burst costs, existing queue/monitoring regressions and four live current/released-server runs on Node 18/22.
+
 ### ParrelSync identity
 - Use the native `.clone` file instead of a folder-name guess, preserving normal projects named `_clone_<index>` and recognizing renamed clones.
 - Resolve `mainProjectPath` to a verifiable sibling Unity project using ParrelSync's final suffix convention; leave renamed/orphaned parent identity unknown.

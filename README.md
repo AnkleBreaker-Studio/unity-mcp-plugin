@@ -56,6 +56,14 @@ The default port is 7890; multiple editors can claim different ports. Discover t
 
 Server and plugin versions advance independently. Queue and legacy synchronous paths remain available; version numbers do not need to match.
 
+### Toolbar and navigation
+
+The **MCP** status dropdown appears automatically in Unity's main toolbar after import. It shows the bridge state and active-agent count; hover for port and diagnostic details. A later manual Hide choice is respected. **Show Toolbar Status** restores it without resetting the rest of your layout.
+
+The same primary destinations are available under **Window → AB Unity MCP** and **Tools → AnkleBreaker → Unity MCP**: Dashboard, Welcome, Action History, settings, self-tests and documentation. The Dashboard's **MCP Menu ▼** and the history window's **MCP ▼** open the complete shared dropdown, including server controls and category switches. The canonical Welcome remains the one supplied by the upstream package.
+
+[Automatic visibility, menu map and validation →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/toolbar.md)
+
 The current companion server verifies the resolved identity when selecting by name and prevents stale discovery from replacing a newer project choice. Per-agent selections stay independent; include the discovered `port` on concurrent editor calls. [Selection behavior and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/discovery.md).
 
 On the modernization branch, protocol 2 adds protected submission retries and session-scoped polling. An updated server can recover the original ticket when its acknowledgement is lost. Older clients keep using their existing endpoints; their retry behavior does not change. [Protocol and compatibility details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/queue-protocol.md).
@@ -165,7 +173,7 @@ Compiler metadata reuse, visible-row history drawing and paginated result constr
 
 ## Compatibility and validation
 
-The declared minimum remains **Unity 2021.3.18f1**. All 77 editor sources included in the minimum-version API compiler check pass. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
+The declared minimum remains **Unity 2021.3.18f1**. All 78 editor sources included in the minimum-version API compiler check pass. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
 
 The companion server has **263 passing tests on eight CI configurations** (Node 18/20/22/24, Windows/Linux); this plugin passes its **338-route registry check**. Native tests and live workflows provide separate Unity evidence. The [delivery summary](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization-audit.md) records the source checkpoints and limits; the broad compatibility matrix and later focused checks were not all run at one final commit.
 

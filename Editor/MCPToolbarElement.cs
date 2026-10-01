@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
 #if UNITY_6000_3_OR_NEWER
 using UnityEditor.Toolbars;
 #else
-using System.Reflection;
 using UnityEngine.UIElements;
 #endif
 
@@ -142,15 +142,84 @@ namespace UnityMCP.Editor
         // ─── Periodic refresh ────────────────────────────────────────────
 
         private const string kElementPath = "MCP/Status";
+        private static bool _refreshPending = true;
+        private static int _lastPort;
+        private static bool _lastManualPort;
+#if UNITY_6000_3_OR_NEWER
+        private static bool _visibilityPending;
+        private static int _visibilityAttempts;
+        private static string VisibilityKey => "UnityMCP.Toolbar.Visible.v1." + Hash128.Compute(Application.dataPath);
+        private static readonly MethodInfo FindOverlay = typeof(MainToolbar).GetMethod("TryGetOverlay", BindingFlags.Static | BindingFlags.NonPublic);
+#endif
 
         [InitializeOnLoadMethod]
         private static void Initialize()
         {
+            EditorApplication.update -= PeriodicRefresh;
             EditorApplication.update += PeriodicRefresh;
             // The cached dot textures are HideAndDontSave native objects; free them before a
             // domain reload nulls the statics, otherwise each recompile leaks 4 small textures.
-            AssemblyReloadEvents.beforeAssemblyReload += DisposeDotTextures;
+            AssemblyReloadEvents.beforeAssemblyReload -= Shutdown;
+            AssemblyReloadEvents.beforeAssemblyReload += Shutdown;
+            EditorApplication.quitting -= Shutdown;
+            EditorApplication.quitting += Shutdown;
+#if UNITY_6000_3_OR_NEWER
+            _visibilityPending = !Application.isBatchMode && !EditorPrefs.GetBool(VisibilityKey, false);
+#endif
         }
+
+        private static void Shutdown()
+        {
+            EditorApplication.update -= PeriodicRefresh;
+            AssemblyReloadEvents.beforeAssemblyReload -= Shutdown;
+            EditorApplication.quitting -= Shutdown;
+            DisposeDotTextures();
+        }
+
+        internal static void ShowToolbar()
+        {
+#if UNITY_6000_3_OR_NEWER
+            _visibilityPending = !Application.isBatchMode;
+            _visibilityAttempts = 0;
+#else
+            MCPToolbarFallback.EnsureAttached();
+#endif
+            _nextRefreshTime = 0;
+            _refreshPending = true;
+            PeriodicRefresh();
+        }
+
+#if UNITY_6000_3_OR_NEWER
+        private static void EnsureVisibleOnInstall()
+        {
+            if (!_visibilityPending) return;
+            _visibilityAttempts++;
+            try
+            {
+                // Unity exposes registration/refresh publicly, but visibility belongs to its internal overlay.
+                object[] arguments = { kElementPath, null };
+                if (FindOverlay != null && (bool)FindOverlay.Invoke(null, arguments)
+                    && arguments[1] is UnityEditor.Overlays.Overlay overlay)
+                {
+                    overlay.displayed = true;
+                    if (overlay.displayed)
+                    {
+                        // Only the initial install opts in; later reloads respect a user's Hide choice.
+                        EditorPrefs.SetBool(VisibilityKey, true);
+                        _visibilityPending = false;
+                        return;
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            if (_visibilityAttempts >= 120)
+            {
+                _visibilityPending = false;
+                Debug.LogWarning("[AB-UMCP] Toolbar status could not be shown. Use Window > AB Unity MCP > Show Toolbar Status after the editor finishes loading.");
+            }
+        }
+#endif
 
         private static void DisposeDotTextures()
         {
@@ -168,10 +237,22 @@ namespace UnityMCP.Editor
             if (EditorApplication.timeSinceStartup < _nextRefreshTime) return;
             _nextRefreshTime = EditorApplication.timeSinceStartup + 1.0;
 
-            bool changed = false;
+            bool changed = _refreshPending;
+#if UNITY_6000_3_OR_NEWER
+            EnsureVisibleOnInstall();
+#endif
 
             bool running = MCPBridgeServer.IsRunning;
             if (running != ServerRunning) { ServerRunning = running; changed = true; }
+
+            int port = MCPBridgeServer.ActivePort;
+            bool manualPort = MCPSettingsManager.UseManualPort;
+            if (port != _lastPort || manualPort != _lastManualPort)
+            {
+                _lastPort = port;
+                _lastManualPort = manualPort;
+                changed = true;
+            }
 
             int agents = MCPRequestQueue.ActiveSessionCount;
             if (agents != ActiveAgents) { ActiveAgents = agents; changed = true; }
@@ -187,9 +268,10 @@ namespace UnityMCP.Editor
 
             if (changed)
             {
+                _refreshPending = false;
 #if UNITY_6000_3_OR_NEWER
                 try { MainToolbar.Refresh(kElementPath); }
-                catch { /* MainToolbar may not be ready yet */ }
+                catch { _refreshPending = true; }
 #else
                 MCPToolbarFallback.RefreshMainToolbar();
 #endif
@@ -199,6 +281,11 @@ namespace UnityMCP.Editor
         // ─── Dropdown menu builder ───────────────────────────────────────
 
         internal static void ShowMenu(Rect buttonRect)
+        {
+            BuildMenu().DropDown(buttonRect);
+        }
+
+        internal static GenericMenu BuildMenu()
         {
             var menu = new GenericMenu();
             bool running = MCPBridgeServer.IsRunning;
@@ -218,6 +305,18 @@ namespace UnityMCP.Editor
                 menu.AddDisabledItem(new GUIContent("\u25CB  Stopped"));
             }
 
+            menu.AddSeparator("");
+
+            menu.AddItem(new GUIContent("Open Dashboard..."), false, MCPMenuCommands.OpenDashboard);
+            menu.AddItem(new GUIContent("Action History..."), false, MCPMenuCommands.OpenHistory);
+            menu.AddItem(new GUIContent("Welcome..."), false, MCPMenuCommands.OpenWelcome);
+            menu.AddItem(new GUIContent("Documentation..."), false, MCPMenuCommands.OpenDocumentation);
+            foreach (string section in new[] { "Request Queue", "Active Agent Sessions", "HTTP Activity", "Recent Actions", "Project Context", "Feature Categories", "Settings" })
+            {
+                string target = section;
+                menu.AddItem(new GUIContent("Dashboard/" + target), false, () => MCPDashboardWindow.ShowSection(target));
+            }
+            menu.AddItem(new GUIContent("Show Toolbar Status"), false, MCPMenuCommands.ShowToolbar);
             menu.AddSeparator("");
 
             // Server controls
@@ -243,12 +342,15 @@ namespace UnityMCP.Editor
             {
                 menu.AddDisabledItem(new GUIContent($"Agents ({agents} active)"));
                 var sessions = MCPRequestQueue.GetActiveSessions();
+                int shownAgents = 0;
                 foreach (var session in sessions)
                 {
+                    if (shownAgents++ >= 8) break;
                     string agentId = session.ContainsKey("agentId") ? session["agentId"].ToString() : "?";
                     string action = session.ContainsKey("currentAction") ? session["currentAction"].ToString() : "idle";
                     menu.AddDisabledItem(new GUIContent($"   {agentId}: {action}"));
                 }
+                menu.AddItem(new GUIContent("View All Agents..."), false, () => MCPDashboardWindow.ShowSection("Active Agent Sessions"));
             }
             else
             {
@@ -302,6 +404,7 @@ namespace UnityMCP.Editor
             menu.AddSeparator("");
 
             // Settings
+            menu.AddItem(new GUIContent("Settings/Open Settings..."), false, MCPMenuCommands.OpenSettings);
             menu.AddItem(
                 new GUIContent("Settings/Auto-Start on Load"),
                 MCPSettingsManager.AutoStart,
@@ -347,7 +450,6 @@ namespace UnityMCP.Editor
             }
 
             // Dashboard & Updates
-            menu.AddItem(new GUIContent("Open Dashboard..."), false, () => MCPDashboardWindow.ShowWindow());
             menu.AddItem(new GUIContent("Check for Updates..."), false, () =>
             {
                 MCPUpdateChecker.CheckForUpdates((hasUpdate, latestVersion) =>
@@ -361,7 +463,7 @@ namespace UnityMCP.Editor
                 });
             });
 
-            menu.DropDown(buttonRect);
+            return menu;
         }
 
 #if UNITY_6000_3_OR_NEWER
@@ -399,14 +501,13 @@ namespace UnityMCP.Editor
     [InitializeOnLoad]
     internal static class MCPToolbarFallback
     {
-        private static bool _injected;
         private static VisualElement _mcpRoot;
         private static VisualElement _statusDot;
         private static Label _statusLabel;
         private static Label _agentBadge;
         private static Label _newsBadge;
         private static int _retryCount;
-        private const int MaxRetries = 50;
+        private static double _nextAttempt;
 
         private static readonly Color kRunning = new Color(0.30f, 0.85f, 0.40f);
         private static readonly Color kStopped = new Color(0.90f, 0.25f, 0.25f);
@@ -417,19 +518,38 @@ namespace UnityMCP.Editor
 
         static MCPToolbarFallback()
         {
+            if (Application.isBatchMode) return;
             EditorApplication.update += TryInject;
+            AssemblyReloadEvents.beforeAssemblyReload += Cleanup;
+            EditorApplication.quitting += Cleanup;
+        }
+
+        internal static void EnsureAttached()
+        {
+            _nextAttempt = 0;
+            TryInject();
+        }
+
+        private static void Cleanup()
+        {
+            EditorApplication.update -= TryInject;
+            AssemblyReloadEvents.beforeAssemblyReload -= Cleanup;
+            EditorApplication.quitting -= Cleanup;
+            if (_mcpRoot != null) _mcpRoot.RemoveFromHierarchy();
+            _mcpRoot = null;
+            _statusDot = null;
+            _statusLabel = _agentBadge = _newsBadge = null;
         }
 
         private static void TryInject()
         {
-            if (_injected || _retryCount >= MaxRetries)
-            {
-                EditorApplication.update -= TryInject;
-                if (!_injected && _retryCount >= MaxRetries)
-                    Debug.Log("[AB-UMCP] Main toolbar injection not available on this Unity version. Use Unity 6000.3+ for native toolbar support.");
-                return;
-            }
+            if (Application.isBatchMode || (_mcpRoot != null && _mcpRoot.panel != null)) return;
+            if (EditorApplication.timeSinceStartup < _nextAttempt) return;
+            // Layout changes can replace the toolbar long after the initial editor load.
+            _nextAttempt = EditorApplication.timeSinceStartup + 2;
             _retryCount++;
+            if (_retryCount == 60)
+                Debug.LogWarning("[AB-UMCP] Waiting for the main toolbar. MCP remains available under Window > AB Unity MCP.");
 
             try
             {
@@ -484,17 +604,16 @@ namespace UnityMCP.Editor
 
                 if (target == null) return;
 
+                var previous = target.Q("mcp-toolbar-element");
+                if (previous != null) previous.RemoveFromHierarchy();
                 _mcpRoot = BuildElement();
                 target.Insert(0, _mcpRoot);
-                _injected = true;
-                EditorApplication.update -= TryInject;
-
-                _mcpRoot.schedule.Execute(() => RefreshMainToolbar()).Every(1000);
-                Debug.Log("[AB-UMCP] Injected into main toolbar (legacy mode).");
+                _retryCount = 0;
+                RefreshMainToolbar();
             }
             catch (Exception ex)
             {
-                if (_retryCount >= MaxRetries)
+                if (_retryCount == 60)
                     Debug.LogWarning($"[AB-UMCP] Legacy injection failed: {ex.Message}");
             }
         }
@@ -513,6 +632,8 @@ namespace UnityMCP.Editor
             container.style.borderLeftWidth = 1;
             container.style.borderLeftColor = new Color(0.15f, 0.15f, 0.15f, 0.4f);
             container.tooltip = MCPToolbarElement.StatusTooltip;
+            container.focusable = true;
+            container.tabIndex = 0;
 
             // Click opens the dropdown menu at the element's position
             container.RegisterCallback<ClickEvent>(evt =>
@@ -520,6 +641,12 @@ namespace UnityMCP.Editor
                 var worldBound = container.worldBound;
                 var menuRect = new Rect(worldBound.x, worldBound.yMax, worldBound.width, 0);
                 MCPToolbarElement.ShowMenu(menuRect);
+            });
+            container.RegisterCallback<KeyDownEvent>(evt =>
+            {
+                if (evt.keyCode != KeyCode.Return && evt.keyCode != KeyCode.KeypadEnter && evt.keyCode != KeyCode.Space) return;
+                MCPToolbarElement.ShowMenu(container.worldBound);
+                evt.StopPropagation();
             });
             container.RegisterCallback<MouseEnterEvent>(evt =>
                 container.style.backgroundColor = new Color(1f, 1f, 1f, 0.06f));
@@ -595,7 +722,7 @@ namespace UnityMCP.Editor
 
         internal static void RefreshMainToolbar()
         {
-            if (_mcpRoot == null || !_injected) return;
+            if (_mcpRoot == null || _mcpRoot.panel == null) return;
 
             bool running = MCPToolbarElement.ServerRunning;
             Color c = !running ? kStopped

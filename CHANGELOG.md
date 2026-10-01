@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Toolbar and menu access
+- Show the native MCP status element on first use even when the saved Unity toolbar layout hides it. Preserve a subsequent Hide choice and offer Show Toolbar Status in both menu roots.
+- Share the complete MCP dropdown between the main toolbar, Dashboard navigation, Action History navigation and the Window/Tools menus. Add direct Welcome, history, settings, documentation and Dashboard-section links.
+- Keep the canonical Welcome from main, restore the old Window entry as an alias, and resolve the Asset Store CLICKME Dashboard path without adding a second Welcome implementation.
+- Recover legacy toolbar injection after delayed startup or layout replacement; add keyboard activation, avoid duplicate controls and refresh native tooltips after port-mode changes.
+
 ### Test result pagination
 - Add optional `resultOffset`/`resultLimit` detail pages while preserving unpaged responses, filtered result ordering and native completeness semantics.
 - Expose page counts, continuation and stability; construct only requested result dictionaries and use direct indexing for unfiltered pages.
@@ -203,6 +209,7 @@ All notable changes to this package will be documented in this file.
 - Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
 - Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.
 - Add 40-way concurrent submission retries, cache-capacity checks and a real HTTP dispatcher test that creates one GameObject for repeated protected submissions and verifies existing queue/synchronous calls.
+
 ## [2.40.1] - 2026-10-01
 
 ### Added

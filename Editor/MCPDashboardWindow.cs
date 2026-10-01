@@ -31,6 +31,27 @@ namespace UnityMCP.Editor
             window.minSize = new Vector2(360, 500);
         }
 
+        internal static void ShowSection(string title)
+        {
+            ShowWindow();
+            var window = GetWindow<MCPDashboardWindow>();
+            EditorApplication.delayCall += () =>
+            {
+                if (window == null) return;
+                window.rootVisualElement.Query<Foldout>().ForEach(foldout =>
+                {
+                    if (foldout.text != title) return;
+                    foldout.value = true;
+                    // Expanding a section changes its geometry before scrolling can locate it.
+                    foldout.schedule.Execute(() =>
+                    {
+                        if (window != null && foldout.panel != null)
+                            window.rootVisualElement.Q<ScrollView>().ScrollTo(foldout);
+                    });
+                });
+            };
+        }
+
         // Cached roots for dynamic sections (rebuilt when their signature changes).
         private VisualElement _statusRows;
         private Button _startBtn;
@@ -199,6 +220,17 @@ namespace UnityMCP.Editor
 
         private void BuildHeader(VisualElement parent)
         {
+            Button navigation = null;
+            navigation = new Button(() => MCPToolbarElement.ShowMenu(navigation.worldBound))
+            {
+                name = "mcp-navigation-menu",
+                text = "MCP Menu \u25BE",
+                tooltip = "Dashboard, history, Welcome, settings, server controls and documentation"
+            };
+            navigation.style.alignSelf = Align.FlexStart;
+            navigation.style.marginBottom = 6;
+            parent.Add(navigation);
+
             var title = new Label("AnkleBreaker Unity MCP");
             title.AddToClassList("ab-title");
             parent.Add(title);

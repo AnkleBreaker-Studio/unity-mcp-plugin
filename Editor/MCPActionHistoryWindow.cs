@@ -63,7 +63,7 @@ namespace UnityMCP.Editor
         //  Menu & Show
         // ═══════════════════════════════════════════════════════════
 
-        [MenuItem("Window/AB Unity MCP/Action History")]
+        [MenuItem("Window/AB Unity MCP/Action History", false, 10)]
         public static void ShowWindow()
         {
             var window = GetWindow<MCPActionHistoryWindow>("MCP Action History");
@@ -222,6 +222,9 @@ namespace UnityMCP.Editor
         private void DrawToolbar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+            if (GUILayout.Button(new GUIContent("MCP \u25BE", "Open the complete MCP menu"), EditorStyles.toolbarDropDown, GUILayout.Width(58)))
+                MCPToolbarElement.ShowMenu(GUILayoutUtility.GetLastRect());
 
             // Agent filter
             EditorGUI.BeginChangeCheck();

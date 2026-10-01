@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Recent agent-session retention
+- Bound recently completed identities to 1,024 sessions without outstanding work, with oldest-completion eviction and constant-time list updates. Keep queued/executing agents protected and preserve the existing 256-inactive-session policy.
+- Isolate pending history by session generation without retaining evicted session objects. Returning identities start fresh counters and logs while global history, terminal results and protected retries remain intact.
+- Expose idle capacity/count and pressure evictions in queue diagnostics. Add nine native checks, existing queue/health/monitoring/Dashboard regressions and four current/released-server Node 18/22 runs with real script reloads.
+
 ### Action History drawing and resource cleanup
 - Draw only the visible fixed-height rows while preserving full scroll range, row identity, target links and details. Clamp scrolling after filters shrink.
 - Replace the generated selection texture with direct rectangle drawing; release cached records/styles on disable. Sixteen baseline textures survived window destruction; the corrected window creates none.

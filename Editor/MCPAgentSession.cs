@@ -24,6 +24,8 @@ namespace UnityMCP.Editor
         private double _totalQueueWaitMs;
         private double _totalProcessingTimeMs;
         internal long LastActivityTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        internal long Generation;
+        internal LinkedListNode<MCPAgentSession> IdleRetentionNode;
 
         private readonly List<string> _actionLog = new List<string>();
         private readonly List<MCPActionRecord> _structuredLog = new List<MCPActionRecord>();

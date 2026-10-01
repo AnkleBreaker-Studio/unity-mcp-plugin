@@ -141,6 +141,9 @@ namespace UnityMCP.Editor
         private static int _sessionHighWater;
         private const int SessionRetentionSeconds = 1800;
         private const int MaxInactiveSessions = 256;
+        private const int MaxIdleSessions = 1024;
+        private static readonly LinkedList<MCPAgentSession> _idleSessions = new LinkedList<MCPAgentSession>();
+        private static long _nextAgentSessionGeneration, _pressureEvictedSessions;
         private static long _evictedSessions;
         private static readonly List<MCPAgentSession> _inactiveSessions = new List<MCPAgentSession>();
         private static readonly Comparison<MCPAgentSession> _oldestSessionFirst =
@@ -159,6 +162,7 @@ namespace UnityMCP.Editor
         private class PendingHistory
         {
             public MCPActionRecord Record;
+            public long SessionGeneration;
         }
 
         private const int MaxPendingHistoryRecords = 10_000;
@@ -548,6 +552,9 @@ namespace UnityMCP.Editor
                     { "evictedSessions", _evictedSessions },
                     { "sessionRetentionSeconds", SessionRetentionSeconds },
                     { "maxInactiveSessions", MaxInactiveSessions },
+                    { "maxIdleSessions", MaxIdleSessions },
+                    { "idleSessionsTracked", _idleSessions.Count },
+                    { "pressureEvictedSessions", _pressureEvictedSessions },
                     { "pendingHistoryRecords", _pendingHistory.Count },
                     { "droppedHistoryRecords", _droppedHistoryRecords },
                     { "maxPendingHistoryRecords", MaxPendingHistoryRecords },
@@ -753,10 +760,33 @@ namespace UnityMCP.Editor
                 {
                     AgentId     = agentId,
                     ConnectedAt = DateTime.UtcNow,
+                    Generation = ++_nextAgentSessionGeneration,
                 };
                 _sessions[agentId] = session;
+                _sessionHighWater = Math.Max(_sessionHighWater, _sessions.Count);
             }
+            // This session is about to own outstanding work and must leave the idle eviction order.
+            if (session.IdleRetentionNode?.List != null) _idleSessions.Remove(session.IdleRetentionNode);
             return session;
+        }
+
+        private static void RetainIdleSession(MCPAgentSession session)
+        {
+            if (session.QueuedRequests != 0) return;
+            if (session.IdleRetentionNode == null) session.IdleRetentionNode = new LinkedListNode<MCPAgentSession>(session);
+            _idleSessions.AddLast(session.IdleRetentionNode);
+            while (_idleSessions.Count > MaxIdleSessions)
+            {
+                RemoveSession(_idleSessions.First.Value);
+                _pressureEvictedSessions++;
+            }
+        }
+
+        private static void RemoveSession(MCPAgentSession session)
+        {
+            if (session.IdleRetentionNode?.List != null) _idleSessions.Remove(session.IdleRetentionNode);
+            _sessions.Remove(session.AgentId);
+            _evictedSessions++;
         }
 
         private static bool TryCompleteTicket(RequestTicket ticket, RequestStatus status, object result, string error, int undoGroup = -1, string undoSignature = null)
@@ -803,7 +833,10 @@ namespace UnityMCP.Editor
                 _executingTickets.Remove(ticket.TicketId);
                 CacheCompletedTicket(ticket, resultCost);
                 if (_sessions.TryGetValue(ticket.AgentId, out var session))
+                {
                     session.RecordCompletion(ticket);
+                    RetainIdleSession(session);
+                }
 
                 var record = new MCPActionRecord
                 {
@@ -825,7 +858,8 @@ namespace UnityMCP.Editor
                     _pendingHistory.Dequeue();
                     _droppedHistoryRecords++;
                 }
-                _pendingHistory.Enqueue(new PendingHistory { Record = record });
+                // Keep only the generation, so pending history cannot retain evicted sessions or attach to a returning identity.
+                _pendingHistory.Enqueue(new PendingHistory { Record = record, SessionGeneration = session?.Generation ?? 0 });
                 if (_waiters.TryGetValue(ticket.TicketId, out var waiter))
                     waiter.Set();
                 return true;
@@ -848,7 +882,8 @@ namespace UnityMCP.Editor
                     MCPActionHistory.RecordAction(pending.Record);
                     lock (_queueLock)
                     {
-                        if (_sessions.TryGetValue(pending.Record.AgentId, out var session))
+                        if (_sessions.TryGetValue(pending.Record.AgentId, out var session)
+                            && session.Generation == pending.SessionGeneration)
                             session.LogStructuredAction(pending.Record);
                     }
                 }
@@ -951,8 +986,7 @@ namespace UnityMCP.Editor
                 var session = _inactiveSessions[i];
                 if (i < excess || now - session.LastActivityTimestamp >= SessionRetentionSeconds * (long)System.Diagnostics.Stopwatch.Frequency)
                 {
-                    _sessions.Remove(session.AgentId);
-                    _evictedSessions++;
+                    RemoveSession(session);
                 }
             }
             // Scratch storage must not keep evicted sessions and their logs alive.

@@ -53,6 +53,10 @@ namespace UnityMCP.Editor
             { "packages/remove", MCPPackageManagerCommands.RemovePackage },
             { "packages/search", MCPPackageManagerCommands.SearchPackage },
             { "packages/info", MCPPackageManagerCommands.GetPackageInfo },
+            { "graphics/asset-preview", MCPGraphicsCommands.CaptureAssetPreview },
+            { "graphics/prefab-render", MCPGraphicsCommands.CaptureAssetPreview },
+            { "graphics/material-info", MCPGraphicsCommands.GetMaterialInfo },
+            { "graphics/texture-info", MCPGraphicsCommands.GetTextureInfo },
         };
 
         // ─── Capability handshake (unity-mcp-server PRs #32/#20) ───

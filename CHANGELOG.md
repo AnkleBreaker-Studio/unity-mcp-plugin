@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Responsive asset previews
+- Replace main-thread sleeps on all four preview routes with deferred polling: 50 ms per preview, four polls per update, a soft 5 ms allowance and at most 64 pending operations. Drop expired work and detach callbacks on reload/quit.
+- Honor asset/prefab sizes, material `includePreview` and texture `previewSize`; retain native dimensions when omitted. Support documented material `objectPath` alongside legacy `gameObjectPath`, and refuse invalid indices.
+- Share preview encoding with render-target restoration, texture cleanup and no redundant GPU upload. Preserve metadata when optional previews fail.
+- Retain synchronous C# signatures as immediate cached-preview/thumbnail lookups; MCP callback overloads preserve the bounded wait for full previews.
+- Add 26 functional/scheduler checks and live current/released-server fixtures. Keep all 17 capture regressions and minimum-version API compilation passing.
+
 ### Inline graphics captures
 - Explicit missing cameras previously fell back to `Camera.main`; return a camera error while retaining the default when no name is supplied.
 - Refuse invalid dimensions before rendering: whole pixels, 1-8192 per side within the device limit, at most 33,554,432 pixels. Preserve 512-square defaults and successful result fields.

@@ -467,7 +467,8 @@ namespace UnityMCP.Editor.Welcome
         }
 
         /// <summary>AssetPreview renders asynchronously and returns null until it has: poll only
-        /// the tiles on screen, and stop once each has its picture or Unity gave up on it.</summary>
+        /// the tiles on screen, and stop once each has its picture or Unity has no preview left
+        /// to render. The per-asset IsLoadingAssetPreview(int) is a compile error from 6000.5.</summary>
         private void RequestPreviews(List<BoardTile> pending)
         {
             if (pending.Count == 0) return;
@@ -480,7 +481,7 @@ namespace UnityMCP.Editor.Welcome
                     if (t.Prefab == null || t.Image.panel == null) return true;
                     Texture2D preview = AssetPreview.GetAssetPreview(t.Prefab);
                     if (preview != null) { t.Image.image = preview; t.NeedsPreview = false; return true; }
-                    return !AssetPreview.IsLoadingAssetPreview(t.Prefab.GetInstanceID());
+                    return !AssetPreview.IsLoadingAssetPreviews();
                 });
                 if (pending.Count == 0) poll.Pause();
             }).Every(PREVIEW_POLL_MS);

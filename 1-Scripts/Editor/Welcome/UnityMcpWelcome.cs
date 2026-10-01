@@ -51,6 +51,13 @@ namespace UnityMCP.Editor.Welcome
         /// <summary>The discovery prompt's "Show me": the catalogue, already filtered.</summary>
         public static void OpenAssets(string contextGuid, string filter) => OpenAt(contextGuid, "assets", filter);
 
+        /// <summary>After an automatic opening: the package's CLICKME hub, when one is stamped,
+        /// is selected so the Inspector shows it beside the window.</summary>
+        internal static void OnAutoOpened(UnityMcpWelcomeContext context) => SelectClickMe(context);
+
+        /// <summary>Implemented by the CLICKME partial (_ClickMe template); a no-op without it.</summary>
+        static partial void SelectClickMe(UnityMcpWelcomeContext context);
+
         private static void OpenAt(string contextGuid, string tab, string filter)
         {
             UnityMcpWelcomeFirstOpen.OpenedThisSession = true;

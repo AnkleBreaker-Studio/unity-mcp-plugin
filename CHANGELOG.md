@@ -158,7 +158,7 @@ All notable changes to this package will be documented in this file.
 ### Improved
 - Add explicit `{enumValue:int}` writes and enum metadata while retaining existing numeric-index writes and named-value reads. Combined flags and unknown stored values remain inspectable.
 - Expose MPPM parent-project/virtual-player identity in ping and registry records, player IDs in player listings, and installed package/workflow/role diagnostics. Preserve ParrelSync metadata meanings.
-- Bound inactive agent sessions to 256, expire them after 30 idle minutes, release excess dictionary storage, and expose policy/eviction counters. Preserve active sessions and outstanding work; use monotonic activity deadlines.
+- Bound inactive agent sessions to 256, expire them after 30 idle minutes, release excess dictionary storage, and expose policy/eviction counters. Preserve outstanding work and use monotonic activity deadlines; the recent-session limit above additionally covers completed identities.
 - Reuse cleanup scratch lists. The isolated empty queue loop records zero allocation events after warmup, down from 3,000 per 100,000 updates.
 - Advertise protocol 3, retaining protocol-2 protected submission and scoped polling while adding managed build variants. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
 - Index pending tickets by ID so status polling does not scan every agent queue as queue depth grows.

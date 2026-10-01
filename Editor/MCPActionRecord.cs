@@ -20,11 +20,10 @@ namespace UnityMCP.Editor
         public string   Status          { get; set; } // Completed, Failed, TimedOut
         public long     ExecutionTimeMs { get; set; }
         public string   ErrorMessage    { get; set; }
+        public bool     CommandFailed   { get; set; }
+        public string DisplayStatus => CommandFailed ? "Command error" : Status;
 
-        // Target object tracking. String because Unity 6.5 EntityIds are 64-bit
-        // values carried as opaque decimal strings on the wire (see MCPObjectId) —
-        // an int here silently truncated them. null/empty = no target. Old int-typed
-        // persisted entries: JsonUtility parses the scalar-type mismatch to "".
+        // Opaque decimal strings preserve Unity 6.5+ 64-bit identities and legacy numeric history IDs.
         public string TargetInstanceId { get; set; }
         public string TargetPath       { get; set; }
         public string TargetType       { get; set; } // GameObject, Component, Asset, Script, Scene, etc.
@@ -34,6 +33,8 @@ namespace UnityMCP.Editor
 
         // Undo support
         public int UndoGroup { get; set; } = -1; // -1 = no undo available
+        public string UndoSessionId { get; set; }
+        public string UndoSignature { get; set; }
 
         /// <summary>
         /// Extract the category from an action name path (e.g. "gameobject/create" → "gameobject").
@@ -90,6 +91,29 @@ namespace UnityMCP.Editor
                 TargetType = InferTargetType(Category);
         }
 
+        // Queue callbacks may run off the editor thread. Copy small scalar metadata without retaining the result graph.
+        internal void CaptureTargetFromResult(object result)
+        {
+            if (!(result is Dictionary<string, object> values)) return;
+            var comparer = values.Comparer;
+            if (!ReferenceEquals(comparer, EqualityComparer<string>.Default)
+                && !ReferenceEquals(comparer, StringComparer.Ordinal)
+                && !ReferenceEquals(comparer, StringComparer.OrdinalIgnoreCase)) return;
+            TargetInstanceId = TargetValue(values, "instanceId");
+            TargetPath = TargetValue(values, "path") ?? TargetValue(values, "gameObjectPath") ?? TargetValue(values, "hierarchyPath");
+            if (string.IsNullOrEmpty(TargetPath)) TargetPath = TargetValue(values, "name");
+            TargetType = InferTargetType(Category);
+        }
+
+        private static string TargetValue(Dictionary<string, object> values, string key)
+        {
+            if (!values.TryGetValue(key, out var value) || value == null) return null;
+            string text = value as string;
+            if (text == null && (value.GetType().IsPrimitive || value is decimal))
+                text = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+            return text == null || text.Length <= 4096 ? text : text.Substring(0, 4096);
+        }
+
         private static string InferTargetType(string category)
         {
             switch (category)
@@ -119,7 +143,7 @@ namespace UnityMCP.Editor
             sb.AppendLine($"Action: {ActionName}");
             sb.AppendLine($"Agent: {AgentId}");
             sb.AppendLine($"Time: {Timestamp:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine($"Status: {Status}");
+            sb.AppendLine($"Status: {DisplayStatus}");
             sb.AppendLine($"Duration: {ExecutionTimeMs}ms");
 
             if (!string.IsNullOrEmpty(TargetPath))
@@ -152,6 +176,7 @@ namespace UnityMCP.Editor
                 { "actionName",       ActionName ?? "" },
                 { "category",         Category ?? "" },
                 { "status",           Status ?? "" },
+                { "commandFailed",    CommandFailed },
                 { "executionTimeMs",  ExecutionTimeMs },
                 { "errorMessage",     ErrorMessage ?? "" },
                 { "targetInstanceId", TargetInstanceId ?? "" },

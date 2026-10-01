@@ -13,21 +13,14 @@ namespace UnityMCP.Editor
     /// </summary>
     public static class MCPScenarioCommands
     {
-        // MPPM scenario types — historically lived in package assembly
-        // `Unity.Multiplayer.PlayMode.Scenarios.Editor` under namespace
-        // `Unity.Multiplayer.PlayMode.Scenarios.Editor.*` (Unity 2022/2023 + older).
-        // In Unity 6 MPPM was absorbed into the built-in editor module
-        // `UnityEditor.MultiplayerModule` under namespace
-        // `Unity.Multiplayer.PlayMode.Editor.*`. Properties and method names are
-        // mostly preserved across the rename, so the reflection helpers below work
-        // for both once the types are resolved here.
+        // Resolve package and native-module layouts because MPPM moved into Unity and changed its scenario model.
         private static Type _scenarioConfigType;   // .ScenarioConfig (internal)
         private static Type _scenarioRunnerType;    // .ScenarioRunner (internal, static helpers)
         private static Type _scenarioStatusType;    // .ScenarioStatus (internal struct)
         private static Type _scenarioType;          // .Scenario / .GraphsFoundation.Scenario (internal)
         private static Type _instanceDescriptionType; // .InstanceDescription (internal)
 
-        // Assembly: Unity.Multiplayer.Playmode (current-player tagging API, still a package)
+        // CurrentPlayer also moved from the package into the native multiplayer module.
         private static Type _currentPlayerType;     // Unity.Multiplayer.Playmode.CurrentPlayer (public)
 
         private static bool _initialized = false;
@@ -80,10 +73,8 @@ namespace UnityMCP.Editor
                         "Unity.Multiplayer.PlayMode.Editor.InstanceDescription");
                 }
 
-                if (mppmAssembly != null)
-                {
-                    _currentPlayerType = mppmAssembly.GetType("Unity.Multiplayer.Playmode.CurrentPlayer");
-                }
+                _currentPlayerType = ResolveCurrentPlayerType()
+                    ?? mppmAssembly?.GetType("Unity.Multiplayer.Playmode.CurrentPlayer");
 
                 _mppmAvailable = _scenarioConfigType != null && _scenarioRunnerType != null;
             }
@@ -150,6 +141,8 @@ namespace UnityMCP.Editor
             string State = pt.GetProperty("PlayerState")?.GetValue(player)?.ToString() ?? "";
             string Type = pt.GetProperty("Type")?.GetValue(player)?.ToString() ?? "";
             string Role = pt.GetProperty("Role")?.GetValue(player)?.ToString() ?? "";
+            var playerInfo = pt.GetProperty("TypeDependentPlayerInfo")?.GetValue(player);
+            string virtualPlayerId = playerInfo?.GetType().GetProperty("VirtualProjectIdentifier")?.GetValue(playerInfo)?.ToString();
             return new Dictionary<string, object>
             {
                 { "index", index },
@@ -157,7 +150,8 @@ namespace UnityMCP.Editor
                 { "name", Name },
                 { "state", State },     // NotLaunched, Launching, Launched, Communicative, etc.
                 { "type", Type },        // Main, Virtual, Local, Remote
-                { "role", Role }
+                { "role", Role },
+                { "virtualPlayerId", virtualPlayerId ?? "" }
             };
         }
 
@@ -274,12 +268,7 @@ namespace UnityMCP.Editor
         /// </summary>
         public static bool IsVirtualPlayer()
         {
-            // MPPM's CurrentPlayer type moved between Unity versions:
-            //   Unity 6+    : Unity.Multiplayer.PlayMode.CurrentPlayer in UnityEngine.MultiplayerModule
-            //   pre-Unity 6 : Unity.Multiplayer.Playmode.CurrentPlayer in Unity.Multiplayer.Playmode
-            var currentPlayerType =
-                Type.GetType("Unity.Multiplayer.PlayMode.CurrentPlayer, UnityEngine.MultiplayerModule")
-                ?? Type.GetType("Unity.Multiplayer.Playmode.CurrentPlayer, Unity.Multiplayer.Playmode");
+            var currentPlayerType = ResolveCurrentPlayerType();
             if (currentPlayerType == null) return false;
             try
             {
@@ -293,6 +282,10 @@ namespace UnityMCP.Editor
                 return false;
             }
         }
+
+        private static Type ResolveCurrentPlayerType() =>
+            Type.GetType("Unity.Multiplayer.PlayMode.CurrentPlayer, UnityEngine.MultiplayerModule")
+            ?? Type.GetType("Unity.Multiplayer.Playmode.CurrentPlayer, Unity.Multiplayer.Playmode");
 
         /// <summary>
         /// List all ScenarioConfig assets in the project.
@@ -334,6 +327,20 @@ namespace UnityMCP.Editor
 
                     try
                     {
+                        var modernInstances = ReadModernInstances(asset);
+                        if (modernInstances != null)
+                        {
+                            scenarioList.Add(new Dictionary<string, object>
+                            {
+                                { "name", asset.name }, { "path", path },
+                                { "description", descriptionProperty?.GetValue(asset) as string ?? "" },
+                                { "hasEditorInstance", modernInstances.Any(value => (string)value["type"] == "Editor") },
+                                { "virtualInstanceCount", modernInstances.Count(value => ((string)value["type"]).StartsWith("VirtualEditor", StringComparison.Ordinal)) },
+                                { "localInstanceCount", modernInstances.Count(value => ((string)value["type"]).StartsWith("Local", StringComparison.Ordinal)) },
+                                { "instances", modernInstances },
+                            });
+                            continue;
+                        }
                         var scenarioObj = scenarioProperty?.GetValue(asset);
                         var scenarioName = (scenarioObj as UnityEngine.Object)?.name ?? asset.name;
                         var description = descriptionProperty?.GetValue(asset) as string ?? "";
@@ -420,6 +427,9 @@ namespace UnityMCP.Editor
 
                 if (runModeStateProperty != null)
                     info["runModeState"] = runModeStateProperty.GetValue(instance)?.ToString() ?? "Unknown";
+                info["name"] = ReadMember(instance, "Name")?.ToString() ?? "";
+                info["role"] = ReadMember(instance, "RoleMask")?.ToString() ?? ReadMember(instance, "m_Role")?.ToString() ?? "";
+                info["playerInstanceIndex"] = ReadMember(instance, "PlayerInstanceIndex");
             }
             catch (Exception ex)
             {
@@ -448,10 +458,7 @@ namespace UnityMCP.Editor
 
                 var getStatusMethod = _scenarioRunnerType.GetMethod("GetScenarioStatus", staticFlags);
 
-                // On Unity 6, ScenarioRunner derives from ScriptableSingleton<ScenarioRunner>,
-                // so IsRunning/ActiveScenario are INSTANCE properties accessed via the static
-                // `instance` getter on the base class. The older package-based layout exposed
-                // them statically — try that path first and fall back to the singleton.
+                // Native Unity stores runner state on its singleton; older packages exposed static properties.
                 object isRunningValue = null;
                 object activeScenarioValue = null;
 
@@ -506,6 +513,12 @@ namespace UnityMCP.Editor
                                 else if (progress != null)
                                     result["progress"] = progress.ToString();
                             }
+                            var overall = ReadMember(scenarioStatus, "OverallStatus");
+                            if (overall != null)
+                            {
+                                result["state"] = ReadMember(overall, "State")?.ToString() ?? "Unknown";
+                                result["progress"] = ReadMember(overall, "Progress") ?? 0f;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -546,10 +559,7 @@ namespace UnityMCP.Editor
 
                 var instFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
 
-                // Prefer the instance method `CreateScenario()` on ScenarioConfig: it converts
-                // the instance descriptions (Main + Virtual editors) into the runtime Scenario
-                // graph. The `Scenario` property alone only surfaces a persisted sub-asset
-                // which is HideFlags.DontSave and gets wiped on every domain reload.
+                // Rebuild the graph because a persisted DontSave sub-asset can disappear across domain reloads.
                 var createScenarioMethod = _scenarioConfigType.GetMethod("CreateScenario",
                     instFlags, null, Type.EmptyTypes, null);
 
@@ -577,6 +587,10 @@ namespace UnityMCP.Editor
                     return WrapError("Could not find ScenarioRunner.LoadScenario() method");
 
                 loadMethod.Invoke(null, new[] { scenarioObj });
+                var manager = ResolvePlayModeScenarioManager();
+                var activeProperty = manager?.GetProperty("ActiveScenario", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (activeProperty?.PropertyType.IsInstanceOfType(configAsset) == true)
+                    activeProperty.SetValue(null, configAsset);
 
                 return new Dictionary<string, object>
                 {
@@ -592,10 +606,7 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Start the active scenario. Also flips the main editor into Play mode so MPPM's
-        /// Play-mode hooks (OnPlayFromScenario + virtual-player launch) actually fire —
-        /// calling only <c>ScenarioRunner.StartScenario()</c> leaves the runner marked
-        /// IsRunning but the scene never enters Play on its own.
+        /// Native scenario selection must own Play Mode entry so its instance graph survives reloads.
         /// </summary>
         public static object StartScenario(Dictionary<string, object> args)
         {
@@ -618,14 +629,24 @@ namespace UnityMCP.Editor
                 if (startMethod == null)
                     return WrapError("Could not find ScenarioRunner.StartScenario() method");
 
-                startMethod.Invoke(null, null);
-
                 bool playModeAlready = EditorApplication.isPlayingOrWillChangePlaymode;
                 bool enteredPlayMode = false;
-                if (enterPlayMode && !playModeAlready)
+                var manager = ResolvePlayModeScenarioManager();
+                var active = manager?.GetProperty("ActiveScenario", bindFlags)?.GetValue(null);
+                if (enterPlayMode && active != null && _scenarioConfigType.IsInstanceOfType(active))
                 {
-                    EditorApplication.isPlaying = true;
-                    enteredPlayMode = true;
+                    // Unity 6.6's manager owns the selected scenario and its launch graph across Play Mode reloads.
+                    manager.GetMethod("Start", bindFlags, null, Type.EmptyTypes, null).Invoke(null, null);
+                    enteredPlayMode = !playModeAlready;
+                }
+                else
+                {
+                    startMethod.Invoke(null, null);
+                    if (enterPlayMode && !playModeAlready)
+                    {
+                        EditorApplication.isPlaying = true;
+                        enteredPlayMode = true;
+                    }
                 }
 
                 return new Dictionary<string, object>
@@ -646,8 +667,7 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Stop the running scenario. Exits Play mode on the main editor as well so
-        /// virtual-player processes shut down cleanly (they follow the main's Play state).
+        /// Use native scenario shutdown when available; Unity may retain players configured to stay active.
         /// </summary>
         public static object StopScenario(Dictionary<string, object> args)
         {
@@ -670,9 +690,15 @@ namespace UnityMCP.Editor
                 if (stopMethod == null)
                     return WrapError("Could not find ScenarioRunner.StopScenario() method");
 
-                stopMethod.Invoke(null, null);
+                var manager = ResolvePlayModeScenarioManager();
+                var active = manager?.GetProperty("ActiveScenario", bindFlags)?.GetValue(null);
+                bool wasPlaying = EditorApplication.isPlayingOrWillChangePlaymode;
+                if (exitPlayMode && active != null && _scenarioConfigType.IsInstanceOfType(active))
+                    manager.GetMethod("Stop", bindFlags, null, Type.EmptyTypes, null).Invoke(null, null);
+                else
+                    stopMethod.Invoke(null, null);
 
-                bool exitedPlayMode = false;
+                bool exitedPlayMode = exitPlayMode && wasPlaying;
                 if (exitPlayMode && EditorApplication.isPlaying)
                 {
                     EditorApplication.isPlaying = false;
@@ -695,20 +721,8 @@ namespace UnityMCP.Editor
         }
 
         /// <summary>
-        /// Create a new MPPM ScenarioConfig asset programmatically. Supports the common
-        /// host+clients layout: one MainEditor (defaults to ClientAndServer role) plus
-        /// N VirtualEditor instances with configurable role. Only available on Unity 6
-        /// where MPPM lives in <c>UnityEditor.MultiplayerModule</c>.
+        /// Native and legacy settings differ even where Unity retains both sets of serialized fields.
         /// </summary>
-        /// <remarks>
-        /// Accepted args:
-        ///   name (string, required)
-        ///   path (string, optional, default "Assets/MPPM/{name}.asset")
-        ///   mainRole (string, optional: "Host" | "Client" | "Server", default "Host")
-        ///   virtualEditors (int, optional, default 1) — number of virtual clones to add
-        ///   virtualRole (string, optional: "Client" | "Server" | "Host", default "Client")
-        ///   description (string, optional)
-        /// </remarks>
         public static object CreateScenario(Dictionary<string, object> args)
         {
             InitializeReflection();
@@ -716,103 +730,125 @@ namespace UnityMCP.Editor
             if (!_mppmAvailable)
                 return WrapError("MPPM is not installed");
 
-            string name = args != null && args.ContainsKey("name") ? args["name"].ToString() : "";
-            if (string.IsNullOrEmpty(name))
-                return WrapError("name parameter is required");
+            string name = args != null && args.ContainsKey("name") ? args["name"]?.ToString() : "";
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 64)
+                return WrapError("name must contain between 1 and 64 characters");
 
-            string path = args != null && args.ContainsKey("path") ? args["path"].ToString() : $"Assets/MPPM/{name}.asset";
-            string mainRoleStr = args != null && args.ContainsKey("mainRole") ? args["mainRole"].ToString() : "Host";
-            string virtualRoleStr = args != null && args.ContainsKey("virtualRole") ? args["virtualRole"].ToString() : "Client";
+            string path = args.ContainsKey("path") ? args["path"]?.ToString() : $"Assets/MPPM/{name}.asset";
+            string mainRoleStr = args.ContainsKey("mainRole") ? args["mainRole"]?.ToString() : "Host";
+            string virtualRoleStr = args.ContainsKey("virtualRole") ? args["virtualRole"]?.ToString() : "Client";
             int virtualEditors = 1;
-            if (args != null && args.ContainsKey("virtualEditors"))
-                int.TryParse(args["virtualEditors"].ToString(), out virtualEditors);
+            if (args.TryGetValue("virtualEditors", out var count)
+                && (count == null || !int.TryParse(count.ToString(), out virtualEditors)))
+                return WrapError("virtualEditors must be an integer from 0 to 3");
+            if (virtualEditors < 0 || virtualEditors > 3)
+                return WrapError("virtualEditors must be an integer from 0 to 3");
+            int mainRole = ParseRoleFlag(mainRoleStr);
+            int virtualRole = ParseRoleFlag(virtualRoleStr);
+            if (mainRole < 0 || virtualRole < 0)
+                return WrapError("mainRole and virtualRole must be Host, Client or Server");
+            if (!IsScenarioAssetPath(path))
+                return WrapError("path must be an .asset file inside Assets, without relative traversal");
+            path = path.Replace('\\', '/');
+            if (System.IO.File.Exists(path) || AssetDatabase.LoadMainAssetAtPath(path) != null)
+                return WrapError($"An asset already exists at '{path}'; choose a new scenario path");
 
+            ScriptableObject config = null;
+            ScriptableObject scenarioInstance = null;
             try
             {
-                // Resolve the types needed for this build of MPPM.
-                Assembly scenariosAssembly = _scenarioConfigType.Assembly;
-                Type mainEditorInstType = FirstType(scenariosAssembly,
-                    "Unity.Multiplayer.PlayMode.Scenarios.Editor.MainEditorInstanceDescription",
-                    "Unity.Multiplayer.PlayMode.Editor.MainEditorInstanceDescription");
-                Type virtualEditorInstType = FirstType(scenariosAssembly,
-                    "Unity.Multiplayer.PlayMode.Scenarios.Editor.VirtualEditorInstanceDescription",
-                    "Unity.Multiplayer.PlayMode.Editor.VirtualEditorInstanceDescription");
-                Type localInstType = FirstType(scenariosAssembly,
-                    "Unity.Multiplayer.PlayMode.Scenarios.Editor.LocalInstanceDescription",
-                    "Unity.Multiplayer.PlayMode.Editor.LocalInstanceDescription");
-                // Remote instances were removed in MPPM 2.0 (Unity 6) — this type is optional.
-                Type remoteInstType = FirstType(scenariosAssembly,
-                    "Unity.Multiplayer.PlayMode.Scenarios.Editor.RemoteInstanceDescription",
-                    "Unity.Multiplayer.PlayMode.Editor.RemoteInstanceDescription");
-
-                // Role flags live in UnityEngine.MultiplayerModule (Client=1, Server=2, ClientAndServer=3).
-                Type roleFlagsType = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                    if ((roleFlagsType = asm.GetType("UnityEngine.Multiplayer.Internal.MultiplayerRoleFlags")) != null) break;
-
-                if (mainEditorInstType == null || virtualEditorInstType == null || localInstType == null
-                    || roleFlagsType == null)
-                    return WrapError("Required MPPM types not found; incompatible Unity version?");
-
-                // ScenarioRunner.LoadScenario expects an actual Scenario object, so we create
-                // one (a ScriptableObject) and nest it inside the config asset.
-                var scenarioCreate = _scenarioType.GetMethod("Create",
-                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                if (scenarioCreate == null)
-                    return WrapError("Could not find Scenario.Create(string) factory");
-                var scenarioInstance = scenarioCreate.Invoke(null, new object[] { name }) as UnityEngine.ScriptableObject;
-                if (scenarioInstance == null)
-                    return WrapError("Scenario.Create returned null");
-                // Scenario.Create sets the internal m_Name but leaves UnityEngine.Object.name
-                // empty; ListScenarios surfaces that .name in its output, and the MPPM UI
-                // uses it for the scenario label.
-                scenarioInstance.name = name;
-
-                // Build the config ScriptableObject and wire up its fields.
-                var config = UnityEngine.ScriptableObject.CreateInstance(_scenarioConfigType);
-                config.name = name;
-
                 var instFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-                _scenarioConfigType.GetField("m_Scenario", instFlags)?.SetValue(config, scenarioInstance);
+                config = ScriptableObject.CreateInstance(_scenarioConfigType);
+                config.name = name;
                 _scenarioConfigType.GetField("m_EnableEditors", instFlags)?.SetValue(config, true);
-
-                int mainRole = ParseRoleFlag(mainRoleStr);
-                int virtualRole = ParseRoleFlag(virtualRoleStr);
-
-                // Main editor instance (runs inside this Unity).
-                var main = Activator.CreateInstance(mainEditorInstType);
-                mainEditorInstType.GetField("m_Role", instFlags)?.SetValue(main, Enum.ToObject(roleFlagsType, mainRole));
-                mainEditorInstType.GetField("Name", instFlags)?.SetValue(main, "Main Editor");
-                mainEditorInstType.GetField("PlayerInstanceIndex", instFlags)?.SetValue(main, 0);
-                _scenarioConfigType.GetField("m_MainEditorInstance", instFlags)?.SetValue(config, main);
-
-                // N virtual editor instances (cloned from the project, usually client roles).
-                var listType = typeof(List<>).MakeGenericType(virtualEditorInstType);
-                var editorList = Activator.CreateInstance(listType);
-                var addMethod = listType.GetMethod("Add");
-                for (int i = 0; i < virtualEditors; i++)
+                if (args.TryGetValue("description", out var description))
                 {
-                    var virt = Activator.CreateInstance(virtualEditorInstType);
-                    virtualEditorInstType.GetField("m_Role", instFlags)?.SetValue(virt, Enum.ToObject(roleFlagsType, virtualRole));
-                    virtualEditorInstType.GetField("Name", instFlags)?.SetValue(virt, $"Virtual Editor {i + 1}");
-                    virtualEditorInstType.GetField("PlayerInstanceIndex", instFlags)?.SetValue(virt, i + 1);
-                    addMethod.Invoke(editorList, new[] { virt });
+                    var descriptionProperty = _scenarioConfigType.GetProperty("Description", instFlags);
+                    if (descriptionProperty?.CanWrite == true) descriptionProperty.SetValue(config, description?.ToString() ?? "");
                 }
-                _scenarioConfigType.GetField("m_EditorInstances", instFlags)?.SetValue(config, editorList);
 
-                // Empty lists for local/remote so the MPPM UI doesn't NRE on null.
-                _scenarioConfigType.GetField("m_LocalInstances", instFlags)
-                    ?.SetValue(config, Activator.CreateInstance(typeof(List<>).MakeGenericType(localInstType)));
-                if (remoteInstType != null)
-                    _scenarioConfigType.GetField("m_RemoteInstances", instFlags)
-                        ?.SetValue(config, Activator.CreateInstance(typeof(List<>).MakeGenericType(remoteInstType)));
+                if (!TryConfigureModernInstances(config, mainRole, virtualRole, virtualEditors))
+                {
+                    // Resolve the types needed for this build of MPPM.
+                    Assembly scenariosAssembly = _scenarioConfigType.Assembly;
+                    Type mainEditorInstType = FirstType(scenariosAssembly,
+                        "Unity.Multiplayer.PlayMode.Scenarios.Editor.MainEditorInstanceDescription",
+                        "Unity.Multiplayer.PlayMode.Editor.MainEditorInstanceDescription");
+                    Type virtualEditorInstType = FirstType(scenariosAssembly,
+                        "Unity.Multiplayer.PlayMode.Scenarios.Editor.VirtualEditorInstanceDescription",
+                        "Unity.Multiplayer.PlayMode.Editor.VirtualEditorInstanceDescription");
+                    Type localInstType = FirstType(scenariosAssembly,
+                        "Unity.Multiplayer.PlayMode.Scenarios.Editor.LocalInstanceDescription",
+                        "Unity.Multiplayer.PlayMode.Editor.LocalInstanceDescription");
+                    // Remote instances were removed in MPPM 2.0 (Unity 6) — this type is optional.
+                    Type remoteInstType = FirstType(scenariosAssembly,
+                        "Unity.Multiplayer.PlayMode.Scenarios.Editor.RemoteInstanceDescription",
+                        "Unity.Multiplayer.PlayMode.Editor.RemoteInstanceDescription");
 
-                // Make sure the folder exists, then persist the config and the nested scenario.
-                var folder = System.IO.Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(folder) && !System.IO.Directory.Exists(folder))
-                    System.IO.Directory.CreateDirectory(folder);
+                    // Resolve the stored field type because Unity 6.6 moved the role enum to a different namespace.
+                    var mainRoleField = mainEditorInstType?.GetField("m_Role", instFlags);
+                    var virtualRoleField = virtualEditorInstType?.GetField("m_Role", instFlags);
+
+                    if (mainEditorInstType == null || virtualEditorInstType == null || localInstType == null
+                        || mainRoleField == null || !mainRoleField.FieldType.IsEnum
+                        || virtualRoleField == null || !virtualRoleField.FieldType.IsEnum)
+                        return WrapError("Required MPPM types not found; incompatible Unity version?");
+
+                    // ScenarioRunner.LoadScenario expects an actual Scenario object, so we create
+                    // one (a ScriptableObject) and nest it inside the config asset.
+                    var scenarioCreate = _scenarioType.GetMethod("Create",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (scenarioCreate == null)
+                        return WrapError("Could not find Scenario.Create(string) factory");
+                    scenarioInstance = scenarioCreate.Invoke(null, new object[] { name }) as ScriptableObject;
+                    if (scenarioInstance == null)
+                        return WrapError("Scenario.Create returned null");
+                    // The factory leaves Object.name empty, which would hide the label in MPPM listings.
+                    scenarioInstance.name = name;
+
+                    _scenarioConfigType.GetField("m_Scenario", instFlags)?.SetValue(config, scenarioInstance);
+
+                    // Main editor instance (runs inside this Unity).
+                    var main = Activator.CreateInstance(mainEditorInstType);
+                    mainRoleField.SetValue(main, Enum.ToObject(mainRoleField.FieldType, mainRole));
+                    mainEditorInstType.GetField("Name", instFlags)?.SetValue(main, "Main Editor");
+                    mainEditorInstType.GetField("PlayerInstanceIndex", instFlags)?.SetValue(main, 0);
+                    _scenarioConfigType.GetField("m_MainEditorInstance", instFlags)?.SetValue(config, main);
+
+                    // N virtual editor instances (cloned from the project, usually client roles).
+                    var listType = typeof(List<>).MakeGenericType(virtualEditorInstType);
+                    var editorList = Activator.CreateInstance(listType);
+                    var addMethod = listType.GetMethod("Add");
+                    for (int i = 0; i < virtualEditors; i++)
+                    {
+                        var virt = Activator.CreateInstance(virtualEditorInstType);
+                        virtualRoleField.SetValue(virt, Enum.ToObject(virtualRoleField.FieldType, virtualRole));
+                        virtualEditorInstType.GetField("Name", instFlags)?.SetValue(virt, $"Virtual Editor {i + 1}");
+                        virtualEditorInstType.GetField("PlayerInstanceIndex", instFlags)?.SetValue(virt, i + 1);
+                        addMethod.Invoke(editorList, new[] { virt });
+                    }
+                    _scenarioConfigType.GetField("m_EditorInstances", instFlags)?.SetValue(config, editorList);
+
+                    // Empty lists for local/remote so the MPPM UI doesn't NRE on null.
+                    _scenarioConfigType.GetField("m_LocalInstances", instFlags)
+                        ?.SetValue(config, Activator.CreateInstance(typeof(List<>).MakeGenericType(localInstType)));
+                    if (remoteInstType != null)
+                        _scenarioConfigType.GetField("m_RemoteInstances", instFlags)
+                            ?.SetValue(config, Activator.CreateInstance(typeof(List<>).MakeGenericType(remoteInstType)));
+                }
+
+                // AssetDatabase folder creation keeps native asset identifiers consistent before the scenario is saved.
+                var parts = path.Split('/');
+                string folder = "Assets";
+                for (int i = 1; i < parts.Length - 1; i++)
+                {
+                    string child = folder + "/" + parts[i];
+                    if (!AssetDatabase.IsValidFolder(child) && string.IsNullOrEmpty(AssetDatabase.CreateFolder(folder, parts[i])))
+                        return WrapError($"Could not create scenario folder '{child}'");
+                    folder = child;
+                }
                 AssetDatabase.CreateAsset(config, path);
-                AssetDatabase.AddObjectToAsset(scenarioInstance, config);
+                if (scenarioInstance != null) AssetDatabase.AddObjectToAsset(scenarioInstance, config);
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
 
@@ -828,13 +864,109 @@ namespace UnityMCP.Editor
             }
             catch (Exception ex)
             {
-                return WrapError($"Failed to create scenario: {ex.Message}");
+                return WrapError($"Failed to create scenario: {ex.GetBaseException().Message}");
             }
+            finally
+            {
+                if (config != null && !EditorUtility.IsPersistent(config)) UnityEngine.Object.DestroyImmediate(config);
+                if (scenarioInstance != null && !EditorUtility.IsPersistent(scenarioInstance)) UnityEngine.Object.DestroyImmediate(scenarioInstance);
+            }
+        }
+
+        private static Type ResolvePlayModeScenarioManager() =>
+            Type.GetType("Unity.PlayMode.Editor.PlayModeScenarioManager, UnityEditor.PlayModeModule");
+
+        private static object ReadMember(object value, string name)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            return value?.GetType().GetField(name, flags)?.GetValue(value)
+                ?? value?.GetType().GetProperty(name, flags)?.GetValue(value);
+        }
+
+        private static bool TryConfigureModernInstances(ScriptableObject config, int mainRole, int virtualRole, int virtualEditors)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var field = config.GetType().GetField("m_Settings", flags);
+            if (field == null) return false;
+            var settings = field.GetValue(config);
+            var type = field.FieldType;
+            var count = type.GetProperty("InstanceCount", flags);
+            var remove = type.GetMethod("RemoveInstanceAt", flags);
+            var add = type.GetMethods(flags).FirstOrDefault(method => method.Name == "AddInstance"
+                && method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 2 && method.GetParameters().Length == 2);
+            if (count == null || remove == null || add == null)
+                throw new MissingMemberException("The MPPM scenario settings API is not supported by this plugin");
+
+            // Unity 6.6 executes settings items, while the retained legacy fields no longer configure its graph.
+            while ((int)count.GetValue(settings) > 0) remove.Invoke(settings, new object[] { 0 });
+            var assembly = config.GetType().Assembly;
+            AddModernInstance(settings, add, assembly.GetType("Unity.Multiplayer.PlayMode.Editor.MainEditorController"), "Main Editor", mainRole, 0);
+            for (int i = 0; i < virtualEditors; i++)
+                AddModernInstance(settings, add, assembly.GetType("Unity.Multiplayer.PlayMode.Editor.CloneEditorController"), $"Virtual Editor {i + 1}", virtualRole, i + 1);
+            field.SetValue(config, settings);
+            return true;
+        }
+
+        private static void AddModernInstance(object settings, MethodInfo add, Type controller, string name, int role, int index)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic;
+            var type = controller?.GetNestedType("InstanceSettings", flags);
+            var roleField = type?.GetField("RoleMask", flags | BindingFlags.Instance);
+            if (type == null || roleField == null || !roleField.FieldType.IsEnum)
+                throw new MissingMemberException("The MPPM editor instance settings are not supported by this plugin");
+            var instanceSettings = Activator.CreateInstance(type);
+            roleField.SetValue(instanceSettings, Enum.ToObject(roleField.FieldType, role));
+            if (index > 0)
+            {
+                var indexField = type.GetField("PlayerInstanceIndex", flags | BindingFlags.Instance);
+                if (indexField == null) throw new MissingFieldException("MPPM clone player index is unavailable");
+                indexField.SetValue(instanceSettings, index);
+            }
+            add.MakeGenericMethod(controller, type).Invoke(settings, new[] { (object)name, instanceSettings });
+        }
+
+        private static List<Dictionary<string, object>> ReadModernInstances(object config)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var settings = ReadMember(config, "m_Settings");
+            if (settings == null) return null;
+            var getItems = settings.GetType().GetMethod("GetAllInstanceItems", flags);
+            if (getItems == null) return null;
+            var result = new List<Dictionary<string, object>>();
+            int virtualIndex = 0, localIndex = 0;
+            foreach (var item in (System.Collections.IEnumerable)getItems.Invoke(settings, null))
+            {
+                var type = item.GetType();
+                var controller = (Type)type.GetMethod("GetInstanceType", flags).Invoke(item, null);
+                string kind = controller.Name == "MainEditorController" ? "Editor"
+                    : controller.Name == "CloneEditorController" ? "VirtualEditor" + virtualIndex++ : "Local" + localIndex++;
+                var instanceSettings = ReadMember(item, "m_Settings");
+                result.Add(new Dictionary<string, object>
+                {
+                    { "type", kind }, { "instanceTypeName", controller.Name },
+                    { "name", type.GetMethod("GetName", flags).Invoke(item, null) },
+                    { "runModeState", type.GetMethod("GetRunMode", flags).Invoke(item, null)?.ToString() ?? "Unknown" },
+                    { "role", ReadMember(instanceSettings, "RoleMask")?.ToString() ?? "" },
+                    { "playerInstanceIndex", ReadMember(instanceSettings, "PlayerInstanceIndex") ?? 0 },
+                });
+            }
+            return result;
+        }
+
+        private static bool IsScenarioAssetPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            path = path.Replace('\\', '/');
+            if (!path.StartsWith("Assets/", StringComparison.Ordinal) || !path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase)) return false;
+            foreach (string part in path.Split('/'))
+                if (string.IsNullOrWhiteSpace(part) || part == "." || part == ".."
+                    || part.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0) return false;
+            return true;
         }
 
         private static int ParseRoleFlag(string role)
         {
-            if (string.IsNullOrEmpty(role)) return 3;
+            if (string.IsNullOrEmpty(role)) return -1;
             switch (role.Trim().ToLowerInvariant())
             {
                 case "client": return 1;
@@ -843,7 +975,7 @@ namespace UnityMCP.Editor
                 case "clientandserver":
                 case "clientserver":
                     return 3;
-                default: return 3;
+                default: return -1;
             }
         }
 
@@ -857,17 +989,17 @@ namespace UnityMCP.Editor
             var result = new Dictionary<string, object>();
             result["mppmAvailable"] = _mppmAvailable;
 
-            // Get MPPM package version from package.json
             string mppmVersion = "unknown";
+            bool packageInstalled = false;
             try
             {
-                var packageJsonPath = "Packages/com.unity.multiplayer.playmode/package.json";
-                if (System.IO.File.Exists(packageJsonPath))
+                // Registered package metadata covers registry, embedded and Unity 6.6 core-package locations.
+                var package = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
+                    .FirstOrDefault(value => value.name == "com.unity.multiplayer.playmode");
+                if (package != null)
                 {
-                    var json = System.IO.File.ReadAllText(packageJsonPath);
-                    var match = System.Text.RegularExpressions.Regex.Match(json, @"""version""\s*:\s*""([^""]+)""");
-                    if (match.Success)
-                        mppmVersion = match.Groups[1].Value;
+                    packageInstalled = true;
+                    mppmVersion = package.version;
                 }
                 else
                 {
@@ -880,6 +1012,15 @@ namespace UnityMCP.Editor
             }
 
             result["mppmVersion"] = mppmVersion;
+            result["packageInstalled"] = packageInstalled;
+            result["playerWorkflowInitialized"] = ResolveMppmPlaymodeType()
+                ?.GetProperty("IsVirtualProjectWorkflowInitialized", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+            var rolesType = Type.GetType("Unity.Multiplayer.Editor.EditorMultiplayerRolesManager, UnityEditor.MultiplayerModule");
+            if (rolesType != null)
+            {
+                result["multiplayerRolesEnabled"] = rolesType.GetProperty("EnableMultiplayerRoles", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                result["activeMultiplayerRole"] = rolesType.GetProperty("ActiveMultiplayerRoleMask", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)?.ToString();
+            }
 
             // Get CurrentPlayer info (this type is public, so Public binding flag works)
             if (_currentPlayerType != null)
@@ -895,7 +1036,9 @@ namespace UnityMCP.Editor
                     if (isMainEditorProperty != null)
                         result["isMainEditor"] = isMainEditorProperty.GetValue(null) ?? false;
 
-                    if (readOnlyTagsMethod != null)
+                    if (Equals(result["playerWorkflowInitialized"], false))
+                        result["tags"] = new List<string>();
+                    else if (readOnlyTagsMethod != null)
                     {
                         var tags = readOnlyTagsMethod.Invoke(null, null);
                         if (tags is System.Collections.IEnumerable enumerable)

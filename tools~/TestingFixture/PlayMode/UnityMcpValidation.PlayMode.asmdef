@@ -1,0 +1,4 @@
+{
+  "name": "UnityMcpValidation.PlayMode",
+  "optionalUnityReferences": ["TestAssemblies"]
+}

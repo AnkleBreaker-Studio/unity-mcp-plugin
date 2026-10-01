@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -21,27 +22,120 @@ namespace UnityMCP.Editor
             return System.Convert.ToBase64String(bytes);
         }
 
-        /// <summary>
-        /// AssetPreview.GetAssetPreview may return null on first call (async loading).
-        /// Retry with short sleeps, then fall back to mini thumbnail.
-        /// </summary>
-        private static Texture2D GetPreviewWithRetry(UnityEngine.Object asset, int maxAttempts = 30)
+        private static bool TryCaptureDimensions(Dictionary<string, object> args, out int width, out int height)
         {
-            AssetPreview.SetPreviewTextureCacheSize(256);
+            width = height = 512;
+            int deviceLimit = SystemInfo.maxTextureSize;
+            int maxSide = deviceLimit > 0 ? Math.Min(8192, deviceLimit) : 8192;
+            return TryDimension(args, "width", maxSide, out width) && TryDimension(args, "height", maxSide, out height)
+                && (long)width * height <= 33554432;
+        }
 
-            for (int i = 0; i < maxAttempts; i++)
+        private static bool TryDimension(Dictionary<string, object> args, string key, int maxSide, out int result)
+        {
+            result = 512;
+            if (!args.TryGetValue(key, out var value)) return result <= maxSide;
+            return TryWholeNumber(value, 1, maxSide, out result);
+        }
+
+        private static object InvalidCaptureDimensions() => new {
+            error = "Capture dimensions must be integers from 1 to 8192 within the graphics-device limit, with at most 33554432 pixels in total.",
+            code = "invalid_capture_dimensions"
+        };
+
+        private static Texture2D ReadyPreview(UnityEngine.Object asset)
+        {
+            if (asset == null) return null;
+            var preview = AssetPreview.GetAssetPreview(asset);
+            return preview != null ? preview : AssetPreview.GetMiniThumbnail(asset);
+        }
+
+        private static void AwaitPreview(UnityEngine.Object asset, double seconds, Action<Texture2D> resolve,
+            Action<Exception> fail, Func<bool> isActive)
+        {
+            MCPAssetPreviewScheduler.Schedule(() => asset == null ? null : AssetPreview.GetAssetPreview(asset),
+                () => asset != null && MCPObjectId.IsLoadingPreview(asset),
+                () => asset == null ? null : AssetPreview.GetMiniThumbnail(asset), resolve, fail, isActive, seconds);
+        }
+
+        private static bool TryWholeNumber(object value, int minimum, int maximum, out int result)
+        {
+            result = 0;
+            if (value == null || value is bool) return false;
+            try
             {
-                var preview = AssetPreview.GetAssetPreview(asset);
-                if (preview != null) return preview;
-
-                if (!MCPObjectId.IsLoadingPreview(asset))
-                    break;
-
-                System.Threading.Thread.Sleep(100);
+                double number = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                if (double.IsNaN(number) || double.IsInfinity(number) || number < minimum || number > maximum || number != Math.Floor(number)) return false;
+                result = (int)number; return true;
             }
+            catch (Exception error) when (error is FormatException || error is InvalidCastException || error is OverflowException) { return false; }
+        }
 
-            // Fallback to mini thumbnail (always available, smaller)
-            return AssetPreview.GetMiniThumbnail(asset);
+        private static bool PreviewDimensions(Dictionary<string, object> args, out int width, out int height)
+        {
+            width = height = 0;
+            int maxSide = SystemInfo.maxTextureSize > 0 ? Math.Min(8192, SystemInfo.maxTextureSize) : 8192;
+            return (!args.TryGetValue("width", out var w) || TryWholeNumber(w, 1, maxSide, out width))
+                && (!args.TryGetValue("height", out var h) || TryWholeNumber(h, 1, maxSide, out height))
+                && (long)width * height <= 33554432;
+        }
+
+        private sealed class PreviewImage
+        {
+            public string Base64;
+            public int Width, Height;
+        }
+
+        private static PreviewImage EncodePreview(Texture2D preview, int width = 0, int height = 0, int maxEdge = 0)
+        {
+            if (preview == null) return null;
+            width = width > 0 ? width : preview.width;
+            height = height > 0 ? height : preview.height;
+            if (maxEdge > 0 && Math.Max(width, height) > maxEdge)
+            {
+                double scale = (double)maxEdge / Math.Max(width, height);
+                width = Math.Max(1, (int)Math.Round(width * scale)); height = Math.Max(1, (int)Math.Round(height * scale));
+            }
+            int deviceLimit = SystemInfo.maxTextureSize;
+            if (width < 1 || height < 1 || width > 8192 || height > 8192 || (long)width * height > 33554432
+                || (deviceLimit > 0 && (width > deviceLimit || height > deviceLimit)))
+                throw new ArgumentException("Preview dimensions exceed the graphics-device or 33554432-pixel limit. Request a smaller preview.");
+            var previousActive = RenderTexture.active;
+            RenderTexture target = null; Texture2D readable = null;
+            try
+            {
+                target = RenderTexture.GetTemporary(width, height, 0);
+                Graphics.Blit(preview, target); RenderTexture.active = target;
+                readable = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                readable.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
+                return new PreviewImage { Base64 = TextureToBase64(readable), Width = width, Height = height };
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+                if (target != null) RenderTexture.ReleaseTemporary(target);
+                if (readable != null) UnityEngine.Object.DestroyImmediate(readable);
+            }
+        }
+
+        private static object AssetPreviewResult(UnityEngine.Object asset, string path, Texture2D preview, int width, int height)
+        {
+            if (asset == null || preview == null) return new { error = "Could not generate preview for '" + path + "'. Asset may be unavailable or unsupported." };
+            var image = EncodePreview(preview, width, height);
+            return new Dictionary<string, object> { { "success", true }, { "base64", image.Base64 },
+                { "width", image.Width }, { "height", image.Height }, { "assetPath", path }, { "assetType", asset.GetType().Name } };
+        }
+
+        private static object WithOptionalPreview(object result, Texture2D preview, int maxEdge = 0)
+        {
+            if (!(result is Dictionary<string, object> metadata)) return result;
+            try
+            {
+                var image = EncodePreview(preview, maxEdge: maxEdge);
+                if (image != null) metadata["base64"] = image.Base64;
+            }
+            catch { /* Optional thumbnails must not discard valid metadata. */ }
+            return result;
         }
 
         private static Dictionary<string, object> Vec3ToDict(Vector3 v)
@@ -81,70 +175,44 @@ namespace UnityMCP.Editor
 
         public static object CaptureAssetPreview(Dictionary<string, object> args)
         {
-            string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
-            if (string.IsNullOrEmpty(assetPath))
-                return new { error = "assetPath is required" };
-
-            var asset = AssetDatabase.LoadMainAssetAtPath(assetPath);
-            if (asset == null)
-                return new { error = $"Asset not found at '{assetPath}'" };
-
-            var preview = GetPreviewWithRetry(asset);
-            if (preview == null)
-                return new { error = $"Could not generate preview for '{assetPath}'. Asset type may not support previews." };
-
-            // AssetPreview textures are not always readable, so copy to a readable texture
-            RenderTexture rt = null;
-            Texture2D readable = null;
-            try
-            {
-                rt = RenderTexture.GetTemporary(preview.width, preview.height, 0);
-                Graphics.Blit(preview, rt);
-                RenderTexture.active = rt;
-                readable = new Texture2D(preview.width, preview.height, TextureFormat.RGBA32, false);
-                readable.ReadPixels(new Rect(0, 0, preview.width, preview.height), 0, 0);
-                readable.Apply();
-                RenderTexture.active = null;
-
-                string base64 = TextureToBase64(readable);
-
-                return new Dictionary<string, object>
-                {
-                    { "success", true },
-                    { "base64", base64 },
-                    { "width", readable.width },
-                    { "height", readable.height },
-                    { "assetPath", assetPath },
-                    { "assetType", asset.GetType().Name },
-                };
-            }
-            finally
-            {
-                RenderTexture.active = null;
-                if (rt != null) RenderTexture.ReleaseTemporary(rt);
-                if (readable != null) UnityEngine.Object.DestroyImmediate(readable);
-            }
+            if (!PreviewDimensions(args, out int width, out int height)) return InvalidCaptureDimensions();
+            string path = args.TryGetValue("assetPath", out var value) ? value?.ToString() : "";
+            if (string.IsNullOrEmpty(path)) return new { error = "assetPath is required" };
+            var asset = AssetDatabase.LoadMainAssetAtPath(path);
+            if (asset == null) return new { error = "Asset not found at '" + path + "'" };
+            try { return AssetPreviewResult(asset, path, ReadyPreview(asset), width, height); }
+            catch (Exception error) { return new { error = error.Message }; }
         }
 
-        // ─── 2. Scene View Capture (Base64 PNG) ───
+        public static void CaptureAssetPreview(Dictionary<string, object> args, Action<object> resolve, Func<bool> isActive)
+        {
+            if (!PreviewDimensions(args, out int width, out int height)) { resolve(InvalidCaptureDimensions()); return; }
+            string path = args.TryGetValue("assetPath", out var value) ? value?.ToString() : "";
+            if (string.IsNullOrEmpty(path)) { resolve(new { error = "assetPath is required" }); return; }
+            var asset = AssetDatabase.LoadMainAssetAtPath(path);
+            if (asset == null) { resolve(new { error = "Asset not found at '" + path + "'" }); return; }
+            AwaitPreview(asset, 3, preview => resolve(AssetPreviewResult(asset, path, preview, width, height)),
+                error => resolve(new { error = error.Message }), isActive);
+        }
 
         public static object CaptureSceneView(Dictionary<string, object> args)
         {
-            int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 512;
-            int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 512;
+            if (!TryCaptureDimensions(args, out int width, out int height)) return InvalidCaptureDimensions();
 
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
                 return new { error = "No active Scene View found" };
 
+            var camera = sceneView.camera;
+            if (camera == null) return new { error = "The active Scene View has no render camera" };
+            var previousTarget = camera.targetTexture;
+            var previousActive = RenderTexture.active;
             RenderTexture rt = null;
             Texture2D tex = null;
             try
             {
-                var camera = sceneView.camera;
-                // A backgrounded editor doesn't repaint the SceneView, so its camera can lag
-                // behind pivot/rotation/size changes made through code (LookAt, focus). Sync
-                // the render camera to the view state so captures reflect the requested view.
+                // Background SceneView cameras can lag behind scripted view changes.
+                // Sync the render camera so the captured frame uses the requested view.
                 camera.transform.rotation = sceneView.rotation;
                 camera.transform.position = sceneView.pivot - sceneView.rotation * Vector3.forward * sceneView.cameraDistance;
                 rt = new RenderTexture(width, height, 24);
@@ -153,8 +221,7 @@ namespace UnityMCP.Editor
 
                 RenderTexture.active = rt;
                 tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                tex.Apply();
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
 
                 string base64 = TextureToBase64(tex);
 
@@ -168,9 +235,8 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                if (sceneView != null && sceneView.camera != null)
-                    sceneView.camera.targetTexture = null;
-                RenderTexture.active = null;
+                if (camera != null) camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
                 if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
                 if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
             }
@@ -180,8 +246,7 @@ namespace UnityMCP.Editor
 
         public static object CaptureGameView(Dictionary<string, object> args)
         {
-            int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 512;
-            int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 512;
+            if (!TryCaptureDimensions(args, out int width, out int height)) return InvalidCaptureDimensions();
             string cameraName = args.ContainsKey("cameraName") ? args["cameraName"].ToString() : "";
 
             Camera camera = null;
@@ -189,14 +254,16 @@ namespace UnityMCP.Editor
             {
                 var go = GameObject.Find(cameraName);
                 if (go != null) camera = go.GetComponent<Camera>();
+                if (camera == null) return new { error = "No Camera found at '" + cameraName + "'. Check the active object's name or hierarchy path.", code = "camera_not_found" };
             }
-            if (camera == null) camera = Camera.main;
+            else camera = Camera.main;
             if (camera == null)
                 return new { error = "No camera found. Ensure a Camera exists with tag 'MainCamera' or specify cameraName." };
 
             RenderTexture rt = null;
             Texture2D tex = null;
             RenderTexture prevTarget = camera.targetTexture;
+            RenderTexture previousActive = RenderTexture.active;
             try
             {
                 rt = new RenderTexture(width, height, 24);
@@ -205,8 +272,7 @@ namespace UnityMCP.Editor
 
                 RenderTexture.active = rt;
                 tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                tex.Apply();
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
 
                 string base64 = TextureToBase64(tex);
 
@@ -221,8 +287,8 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                camera.targetTexture = prevTarget;
-                RenderTexture.active = null;
+                if (camera != null) camera.targetTexture = prevTarget;
+                RenderTexture.active = previousActive;
                 if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
                 if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
             }
@@ -243,8 +309,9 @@ namespace UnityMCP.Editor
 
         public static object GetMeshInfo(Dictionary<string, object> args)
         {
-            string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
-            string gameObjectPath = args.ContainsKey("gameObjectPath") ? args["gameObjectPath"].ToString() : "";
+            string assetPath = args.TryGetValue("assetPath", out var path) ? path?.ToString() : "";
+            string gameObjectPath = args.TryGetValue("gameObjectPath", out var legacyPath) ? legacyPath?.ToString() : "";
+            if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = args.TryGetValue("objectPath", out var objectPath) ? objectPath?.ToString() : "";
 
             Mesh mesh = null;
             string source = "";
@@ -273,7 +340,8 @@ namespace UnityMCP.Editor
                             mesh = smr.sharedMesh;
                             source = assetPath + " (SkinnedMeshRenderer)";
                             isSkinned = true;
-                            boneCount = smr.bones != null ? smr.bones.Length : 0;
+                            var bones = smr.bones;
+                            boneCount = bones != null ? bones.Length : 0;
                         }
                         else
                         {
@@ -300,7 +368,8 @@ namespace UnityMCP.Editor
                         mesh = smr.sharedMesh;
                         source = gameObjectPath + " (SkinnedMeshRenderer)";
                         isSkinned = true;
-                        boneCount = smr.bones != null ? smr.bones.Length : 0;
+                        var bones = smr.bones;
+                        boneCount = bones != null ? bones.Length : 0;
                     }
                     else
                     {
@@ -315,27 +384,26 @@ namespace UnityMCP.Editor
             }
 
             if (mesh == null)
-                return new { error = "No mesh found. Provide assetPath to a mesh/model asset or gameObjectPath to a scene object with MeshFilter/SkinnedMeshRenderer." };
+                return new { error = "No mesh found. Provide assetPath to a mesh/model asset or objectPath (legacy: gameObjectPath) to a scene object with MeshFilter/SkinnedMeshRenderer." };
 
-            // Count UV channels
+            int vertexCount = mesh.vertexCount;
             int uvChannels = 0;
-            if (mesh.uv != null && mesh.uv.Length > 0) uvChannels++;
-            if (mesh.uv2 != null && mesh.uv2.Length > 0) uvChannels++;
-            if (mesh.uv3 != null && mesh.uv3.Length > 0) uvChannels++;
-            if (mesh.uv4 != null && mesh.uv4.Length > 0) uvChannels++;
+            if (vertexCount > 0)
+                for (int channel = 0; channel < 8; channel++)
+                    if (mesh.HasVertexAttribute((VertexAttribute)((int)VertexAttribute.TexCoord0 + channel))) uvChannels++;
 
             return new Dictionary<string, object>
             {
                 { "name", mesh.name },
                 { "source", source },
-                { "vertexCount", mesh.vertexCount },
-                { "triangleCount", mesh.triangles.Length / 3 },
+                { "vertexCount", vertexCount },
+                { "triangleCount", CountMeshTriangles(mesh) },
                 { "subMeshCount", mesh.subMeshCount },
                 { "bounds", BoundsToDict(mesh.bounds) },
                 { "uvChannelCount", uvChannels },
-                { "hasNormals", mesh.normals != null && mesh.normals.Length > 0 },
-                { "hasTangents", mesh.tangents != null && mesh.tangents.Length > 0 },
-                { "hasColors", mesh.colors != null && mesh.colors.Length > 0 },
+                { "hasNormals", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Normal) },
+                { "hasTangents", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Tangent) },
+                { "hasColors", vertexCount > 0 && mesh.HasVertexAttribute(VertexAttribute.Color) },
                 { "blendShapeCount", mesh.blendShapeCount },
                 { "isSkinned", isSkinned },
                 { "boneCount", boneCount },
@@ -344,15 +412,49 @@ namespace UnityMCP.Editor
             };
         }
 
+        private static object CountMeshTriangles(Mesh mesh)
+        {
+            long count = 0;
+            for (int subMesh = 0; subMesh < mesh.subMeshCount; subMesh++)
+            {
+                // Match Unity's triangulated result without copying CPU index buffers.
+                var topology = mesh.GetTopology(subMesh);
+                if (topology == MeshTopology.Triangles) count += mesh.GetIndexCount(subMesh) / 3;
+                else if (topology == MeshTopology.Quads) count += (long)mesh.GetIndexCount(subMesh) / 4 * 2;
+            }
+            return count <= int.MaxValue ? (object)(int)count : count;
+        }
+
         // ─── 6. Material Info (with preview) ───
 
         public static object GetMaterialInfo(Dictionary<string, object> args)
         {
-            string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
-            string gameObjectPath = args.ContainsKey("gameObjectPath") ? args["gameObjectPath"].ToString() : "";
-            int materialIndex = args.ContainsKey("materialIndex") ? Convert.ToInt32(args["materialIndex"]) : 0;
+            var result = MaterialData(args, out var material, out bool includePreview);
+            try { return includePreview && material != null ? WithOptionalPreview(result, ReadyPreview(material)) : result; }
+            catch { return result; }
+        }
 
-            Material mat = null;
+        public static void GetMaterialInfo(Dictionary<string, object> args, Action<object> resolve, Func<bool> isActive)
+        {
+            var result = MaterialData(args, out var material, out bool includePreview);
+            if (!includePreview || material == null) { resolve(result); return; }
+            AwaitPreview(material, 2, preview => resolve(WithOptionalPreview(result, preview)), error => resolve(result), isActive);
+        }
+
+        private static object MaterialData(Dictionary<string, object> args, out Material mat, out bool includePreview)
+        {
+            mat = null; includePreview = true;
+            if (args.TryGetValue("includePreview", out var include))
+            {
+                if (!(include is bool flag)) return new { error = "includePreview must be a boolean" };
+                includePreview = flag;
+            }
+            string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
+            string gameObjectPath = args.TryGetValue("gameObjectPath", out var legacyPath) ? legacyPath?.ToString() : "";
+            if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = args.TryGetValue("objectPath", out var objectPath) ? objectPath?.ToString() : "";
+            int materialIndex = 0;
+            if (args.TryGetValue("materialIndex", out var index) && !TryWholeNumber(index, 0, int.MaxValue, out materialIndex))
+                return new { error = "materialIndex must be a nonnegative integer" };
 
             if (!string.IsNullOrEmpty(assetPath))
             {
@@ -453,48 +555,33 @@ namespace UnityMCP.Editor
             }
             result["properties"] = properties;
 
-            // Material preview thumbnail
-            string base64 = null;
-            try
-            {
-                var preview = GetPreviewWithRetry(mat, 20);
-                if (preview != null)
-                {
-                    RenderTexture rt = RenderTexture.GetTemporary(preview.width, preview.height, 0);
-                    try
-                    {
-                        Graphics.Blit(preview, rt);
-                        RenderTexture.active = rt;
-                        var readable = new Texture2D(preview.width, preview.height, TextureFormat.RGBA32, false);
-                        readable.ReadPixels(new Rect(0, 0, preview.width, preview.height), 0, 0);
-                        readable.Apply();
-                        RenderTexture.active = null;
-                        base64 = TextureToBase64(readable);
-                        UnityEngine.Object.DestroyImmediate(readable);
-                    }
-                    finally
-                    {
-                        RenderTexture.active = null;
-                        RenderTexture.ReleaseTemporary(rt);
-                    }
-                }
-            }
-            catch { /* preview optional, don't fail */ }
-
-            if (base64 != null) result["base64"] = base64;
-
             return result;
         }
 
-        // ─── 7. Texture Info (with preview) ───
-
         public static object GetTextureInfo(Dictionary<string, object> args)
         {
+            var result = TextureData(args, out var texture, out int previewSize);
+            try { return previewSize != 0 && texture != null ? WithOptionalPreview(result, ReadyPreview(texture), Math.Max(0, previewSize)) : result; }
+            catch { return result; }
+        }
+
+        public static void GetTextureInfo(Dictionary<string, object> args, Action<object> resolve, Func<bool> isActive)
+        {
+            var result = TextureData(args, out var texture, out int previewSize);
+            if (previewSize == 0 || texture == null) { resolve(result); return; }
+            AwaitPreview(texture, 2, preview => resolve(WithOptionalPreview(result, preview, Math.Max(0, previewSize))), error => resolve(result), isActive);
+        }
+
+        private static object TextureData(Dictionary<string, object> args, out Texture texture, out int previewSize)
+        {
+            texture = null; previewSize = -1;
+            if (args.TryGetValue("previewSize", out var size) && !TryWholeNumber(size, 0, 8192, out previewSize))
+                return new { error = "previewSize must be a whole number from 0 to 8192; 0 omits the preview" };
             string assetPath = args.ContainsKey("assetPath") ? args["assetPath"].ToString() : "";
             if (string.IsNullOrEmpty(assetPath))
                 return new { error = "assetPath is required" };
 
-            var texture = AssetDatabase.LoadAssetAtPath<Texture>(assetPath);
+            texture = AssetDatabase.LoadAssetAtPath<Texture>(assetPath);
             if (texture == null)
                 return new { error = $"Texture not found at '{assetPath}'" };
 
@@ -546,46 +633,15 @@ namespace UnityMCP.Editor
             long memBytes = UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(texture);
             result["memoryEstimateKB"] = Math.Round(memBytes / 1024.0, 1);
 
-            // Preview thumbnail
-            string base64 = null;
-            try
-            {
-                var preview = GetPreviewWithRetry(texture, 20);
-                if (preview != null)
-                {
-                    RenderTexture rt = RenderTexture.GetTemporary(preview.width, preview.height, 0);
-                    try
-                    {
-                        Graphics.Blit(preview, rt);
-                        RenderTexture.active = rt;
-                        var readable = new Texture2D(preview.width, preview.height, TextureFormat.RGBA32, false);
-                        readable.ReadPixels(new Rect(0, 0, preview.width, preview.height), 0, 0);
-                        readable.Apply();
-                        RenderTexture.active = null;
-                        base64 = TextureToBase64(readable);
-                        UnityEngine.Object.DestroyImmediate(readable);
-                    }
-                    finally
-                    {
-                        RenderTexture.active = null;
-                        RenderTexture.ReleaseTemporary(rt);
-                    }
-                }
-            }
-            catch { /* preview optional */ }
-
-            if (base64 != null) result["base64"] = base64;
-
             return result;
         }
 
-        // ─── 8. Renderer Info ───
-
         public static object GetRendererInfo(Dictionary<string, object> args)
         {
-            string gameObjectPath = args.ContainsKey("gameObjectPath") ? args["gameObjectPath"].ToString() : "";
+            string gameObjectPath = args.TryGetValue("gameObjectPath", out var legacyPath) ? legacyPath?.ToString() : "";
+            if (string.IsNullOrEmpty(gameObjectPath)) gameObjectPath = args.TryGetValue("objectPath", out var objectPath) ? objectPath?.ToString() : "";
             if (string.IsNullOrEmpty(gameObjectPath))
-                return new { error = "gameObjectPath is required" };
+                return new { error = "objectPath (legacy: gameObjectPath) is required" };
 
             var go = GameObject.Find(gameObjectPath);
             if (go == null)
@@ -639,7 +695,8 @@ namespace UnityMCP.Editor
             {
                 mesh = smr.sharedMesh;
                 result["isSkinned"] = true;
-                result["boneCount"] = smr.bones != null ? smr.bones.Length : 0;
+                var bones = smr.bones;
+                result["boneCount"] = bones != null ? bones.Length : 0;
             }
             else
             {
@@ -655,7 +712,7 @@ namespace UnityMCP.Editor
                 {
                     { "name", mesh.name },
                     { "vertexCount", mesh.vertexCount },
-                    { "triangleCount", mesh.triangles.Length / 3 },
+                    { "triangleCount", CountMeshTriangles(mesh) },
                     { "assetPath", AssetDatabase.GetAssetPath(mesh) },
                 };
             }

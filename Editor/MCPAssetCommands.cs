@@ -14,6 +14,12 @@ namespace UnityMCP.Editor
             string typeFilter = args.ContainsKey("type") ? args["type"].ToString() : null;
             string search = args.ContainsKey("search") ? args["search"].ToString() : null;
             bool recursive = !args.ContainsKey("recursive") || Convert.ToBoolean(args["recursive"]);
+            int maxResults = 500;
+            if (args.TryGetValue("maxResults", out var limit)
+                && (limit == null || !int.TryParse(limit.ToString(), out maxResults)))
+                return new { error = "maxResults must be an integer from 1 to 10000" };
+            if (maxResults < 1 || maxResults > 10000)
+                return new { error = "maxResults must be an integer from 1 to 10000" };
 
             string searchQuery = "";
             if (!string.IsNullOrEmpty(search))
@@ -33,6 +39,7 @@ namespace UnityMCP.Editor
             }
 
             var assets = new List<Dictionary<string, object>>();
+            int totalCount = 0;
             foreach (var guid in guids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
@@ -44,6 +51,9 @@ namespace UnityMCP.Editor
                     if (parentDir != folder) continue;
                 }
 
+                totalCount++;
+                // Count matches without querying types for assets that will not be returned.
+                if (assets.Count >= maxResults) continue;
                 var assetType = AssetDatabase.GetMainAssetTypeAtPath(path);
                 assets.Add(new Dictionary<string, object>
                 {
@@ -59,6 +69,9 @@ namespace UnityMCP.Editor
             {
                 { "folder", folder },
                 { "count", assets.Count },
+                { "totalCount", totalCount },
+                { "maxResults", maxResults },
+                { "truncated", totalCount > assets.Count },
                 { "assets", assets },
             };
         }

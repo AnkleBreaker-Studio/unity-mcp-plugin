@@ -1011,12 +1011,13 @@ namespace UnityMCP.Editor
         {
             try
             {
-                var result = MCPPackageManagerCommands.ListPackages(EmptyArgs());
-                return AssertNotNull(result, "PackageManager.ListPackages");
+                // Self-tests run synchronously; inspect registered packages without starting an asynchronous Client request.
+                var result = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages();
+                return AssertNotNull(result, "PackageManager.GetAllRegisteredPackages");
             }
             catch (Exception ex)
             {
-                return $"PackageManager.ListPackages threw: {ex.Message}";
+                return $"PackageManager.GetAllRegisteredPackages threw: {ex.Message}";
             }
         }
 

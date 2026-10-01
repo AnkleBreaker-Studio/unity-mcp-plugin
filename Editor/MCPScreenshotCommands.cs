@@ -52,6 +52,8 @@ namespace UnityMCP.Editor
 
             int width = args.ContainsKey("width") ? Convert.ToInt32(args["width"]) : 1920;
             int height = args.ContainsKey("height") ? Convert.ToInt32(args["height"]) : 1080;
+            if (width < 1 || height < 1 || width > 8192 || height > 8192 || (long)width * height > 33554432)
+                return new { error = "Scene screenshot dimensions must be 1-8192 pixels, with at most 33554432 pixels in total" };
 
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
@@ -63,23 +65,31 @@ namespace UnityMCP.Editor
                 Directory.CreateDirectory(dir);
 
             var camera = sceneView.camera;
-            var rt = new RenderTexture(width, height, 24);
-            camera.targetTexture = rt;
-            camera.Render();
-
-            RenderTexture.active = rt;
-            var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
-            tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-            tex.Apply();
-
-            camera.targetTexture = null;
-            RenderTexture.active = null;
-
-            byte[] bytes = tex.EncodeToPNG();
-            File.WriteAllBytes(path, bytes);
-
-            UnityEngine.Object.DestroyImmediate(tex);
-            UnityEngine.Object.DestroyImmediate(rt);
+            var previousTarget = camera.targetTexture;
+            var previousActive = RenderTexture.active;
+            RenderTexture rt = null;
+            Texture2D tex = null;
+            byte[] bytes;
+            try
+            {
+                rt = new RenderTexture(width, height, 24);
+                camera.targetTexture = rt;
+                camera.Render();
+                RenderTexture.active = rt;
+                tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                tex.Apply();
+                bytes = tex.EncodeToPNG();
+                File.WriteAllBytes(path, bytes);
+            }
+            finally
+            {
+                // A render or filesystem failure must not retain GPU resources or replace the editor's render targets.
+                camera.targetTexture = previousTarget;
+                RenderTexture.active = previousActive;
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
+                if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
+            }
 
             AssetDatabase.Refresh();
 
@@ -194,17 +204,8 @@ namespace UnityMCP.Editor
             };
         }
 
-        // ─── Capture an arbitrary EditorWindow (Inspector, Project, custom windows…) ───
-        // Unlike Game/Scene view (which ARE cameras and are captured by rendering the camera
-        // into a RenderTexture), an EditorWindow is an IMGUI/UI-Toolkit window with no camera.
-        // The only way to get its pixels is to capture the OS window, via the Win32 PrintWindow
-        // API (occlusion-proof: the window renders itself into an offscreen DC, so no raise/focus
-        // is needed). PLATFORM: Windows editor only — PrintWindow is a Win32 API with no macOS/
-        // Linux equivalent, so this command is unsupported there (returns a clear error).
-        //
-        // args: window (required — EditorWindow type FullName e.g. "UnityEditor.InspectorWindow",
-        //       simple type name, or tab title); path (optional — default Assets/Screenshots/…,
-        //       any user-chosen .png path is honoured); maxDimension (optional, default 8192).
+        // Editor windows have no camera, so their existing native window supplies the pixels.
+        // Tab activation is opt-in because background captures must preserve the user's active view.
         public static object CaptureEditorWindow(Dictionary<string, object> args)
         {
 #if UNITY_EDITOR_WIN
@@ -220,22 +221,44 @@ namespace UnityMCP.Editor
                 return Err("path must end in .png");
             int maxDimension = args != null && args.ContainsKey("maxDimension") ? Convert.ToInt32(args["maxDimension"]) : 8192;
 
-            var win = FindWindow(window, out int matchCount);
+            var win = FindWindow(window, out int matchCount, out var matches);
             if (win == null)
-                return Err(matchCount > 1
-                    ? "Ambiguous: " + matchCount + " windows match '" + window + "'. Pass the exact type FullName."
+            {
+                var error = Err(matchCount > 1
+                    ? "Ambiguous: " + matchCount + " windows match '" + window + "'. Use a unique title or an id: selector from candidates."
                     : "No EditorWindow matches '" + window + "'.");
+                error["code"] = matchCount > 1 ? "ambiguous_window" : "window_not_found";
+                if (matchCount > 1)
+                {
+                    var candidates = new List<object>();
+                    foreach (var match in matches)
+                        candidates.Add(new { window = "id:" + MCPObjectId.Get(match), type = match.GetType().FullName, title = match.titleContent?.text });
+                    error["candidates"] = candidates;
+                }
+                return error;
+            }
 
-            var (pid, main) = ProcInfo();
-            if (main == IntPtr.Zero) return Err("Could not resolve the main editor window handle.");
-
-            bool floating = IsFloating(win);
-            EditorWindow prevFocus = EditorWindow.focusedWindow;
+            EditorWindow previousTab = null;
             try
             {
-                // Only the docked path needs the tab activated; a floating window is captured by
-                // its own HWND, so it is never raised/focused (keeps the occlusion-proof promise).
-                if (!floating) win.Focus();
+                // hasFocus identifies the selected view in its host, independently of OS keyboard focus.
+                if (!win.hasFocus)
+                {
+                    if (args.TryGetValue("activateTab", out var activate) && Convert.ToBoolean(activate))
+                    {
+                        previousTab = GetSelectedTab(win);
+                        if (previousTab != null) win.ShowTab();
+                    }
+                    if (!win.hasFocus)
+                    {
+                        var error = Err("The window is not a visible tab. Select it first, or explicitly pass activateTab:true to temporarily switch an existing tab.");
+                        error["code"] = "window_not_visible";
+                        return error;
+                    }
+                }
+                var (pid, main) = ProcInfo();
+                if (main == IntPtr.Zero) return Err("Could not resolve the main editor window handle.");
+                bool floating = IsFloating(win);
                 win.Repaint();
                 RepaintImmediately(win);
 
@@ -252,7 +275,8 @@ namespace UnityMCP.Editor
                 {
                     hwnd = main; whole = false;
                     float ppp = EditorGUIUtility.pixelsPerPoint;
-                    var rp = win.position;
+                    if (!TryGetDockedContentRect(win, out var rp))
+                        return Err("Could not resolve the docked window's content bounds.");
                     px = (int)Math.Round(rp.x * ppp); py = (int)Math.Round(rp.y * ppp);
                     pw = (int)Math.Round(rp.width * ppp); ph = (int)Math.Round(rp.height * ppp);
                     if (pw <= 0 || ph <= 0) return Err("Bad panel rect " + pw + "x" + ph);
@@ -262,9 +286,8 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                // Restore the user's previously-focused tab (only the docked path changed it).
-                if (!floating && prevFocus != null && prevFocus != win)
-                    try { prevFocus.Focus(); } catch { }
+                if (previousTab != null && win != null && win.hasFocus)
+                    try { previousTab.ShowTab(); } catch { }
             }
 #else
             return new Dictionary<string, object>
@@ -277,6 +300,50 @@ namespace UnityMCP.Editor
         }
 
 #if UNITY_EDITOR_WIN
+        private const long MaxCapturePixels = 33554432;
+
+        static EditorWindow GetSelectedTab(EditorWindow win)
+        {
+            try
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var parent = typeof(EditorWindow).GetField("m_Parent", flags)?.GetValue(win);
+                return parent?.GetType().GetProperty("actualView", flags)?.GetValue(parent, null) as EditorWindow;
+            }
+            catch { return null; }
+        }
+
+        static bool TryGetDockedContentRect(EditorWindow win, out Rect rect)
+        {
+            rect = default;
+            try
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var parent = typeof(EditorWindow).GetField("m_Parent", flags)?.GetValue(win);
+                if (parent == null) return false;
+                var type = parent.GetType();
+                if (!(type.GetProperty("screenPosition", flags)?.GetValue(parent, null) is Rect hostRect)
+                    || !(type.GetProperty("borderSize", flags)?.GetValue(parent, null) is RectOffset border))
+                    return false;
+                // EditorWindow.position starts at the dock's tab strip, while its size already excludes it.
+                // The host's content rectangle works for both IMGUI and UI Toolkit without a fixed tab height.
+                rect = border.Remove(hostRect);
+                return rect.width > 0 && rect.height > 0;
+            }
+            catch { return false; }
+        }
+
+        static string ValidateCaptureSize(int windowWidth, int windowHeight, int cropWidth, int cropHeight, int cap)
+        {
+            if (windowWidth <= 0 || windowHeight <= 0 || cropWidth <= 0 || cropHeight <= 0)
+                return "Capture dimensions must be positive.";
+            if ((long)windowWidth * windowHeight > MaxCapturePixels)
+                return "Full window exceeds the " + MaxCapturePixels + "-pixel capture limit, including when cropped.";
+            if (cropWidth > cap || cropHeight > cap || (long)cropWidth * cropHeight > MaxCapturePixels)
+                return "Capture exceeds the " + cap + "-pixel side limit or " + MaxCapturePixels + "-pixel total limit.";
+            return null;
+        }
+
         static Dictionary<string, object> Err(string msg, int win32 = 0)
         {
             var d = new Dictionary<string, object> { { "success", false }, { "error", msg } };
@@ -309,9 +376,8 @@ namespace UnityMCP.Editor
             // Bound dimensions before allocating: int-overflow guard (long math) + GPU limit.
             int maxTex = SystemInfo.maxTextureSize; if (maxTex <= 0) maxTex = 8192;
             int cap = Math.Min(maxDimension > 0 ? maxDimension : int.MaxValue, maxTex);
-            if (cropW > cap || cropH > cap) return Err("Too large " + cropW + "x" + cropH + " (cap " + cap + ")");
-            long need = (long)cropW * cropH * 4L;
-            if (need > int.MaxValue) return Err("Capture buffer too large (" + need + " B)");
+            string sizeError = ValidateCaptureSize(winW, winH, cropW, cropH, cap);
+            if (sizeError != null) return Err(sizeError);
 
             IntPtr hScreen = IntPtr.Zero, hMemFull = IntPtr.Zero, hBmpFull = IntPtr.Zero, oldFull = IntPtr.Zero;
             IntPtr hMemCrop = IntPtr.Zero, hBmpCrop = IntPtr.Zero, oldCrop = IntPtr.Zero;
@@ -403,24 +469,35 @@ namespace UnityMCP.Editor
         }
 
         // Exact FullName → exact simple type name → exact title → unambiguous substring.
-        static EditorWindow FindWindow(string typeOrTitle, out int matchCount)
+        static EditorWindow FindWindow(string typeOrTitle, out int matchCount, out List<EditorWindow> matches)
         {
             matchCount = 0;
+            matches = new List<EditorWindow>();
             if (string.IsNullOrEmpty(typeOrTitle)) return null;
+            if (typeOrTitle.StartsWith("id:", StringComparison.Ordinal))
+            {
+                var identified = MCPObjectId.ToObject(typeOrTitle.Substring(3)) as EditorWindow;
+                if (identified != null) { matchCount = 1; matches.Add(identified); }
+                return identified;
+            }
             var wins = Resources.FindObjectsOfTypeAll<EditorWindow>();
-            foreach (var w in wins) if (w != null && w.GetType().FullName == typeOrTitle) { matchCount = 1; return w; }
-
-            EditorWindow nameHit = null; int nameN = 0;
-            foreach (var w in wins) if (w != null && string.Equals(w.GetType().Name, typeOrTitle, StringComparison.Ordinal)) { nameN++; if (nameHit == null) nameHit = w; }
-            if (nameN >= 1) { matchCount = nameN; return nameN == 1 ? nameHit : null; }
-
-            EditorWindow exact = null; int exactN = 0;
-            foreach (var w in wins) { if (w == null) continue; var t = w.titleContent != null ? w.titleContent.text : w.name; if (!string.IsNullOrEmpty(t) && string.Equals(t, typeOrTitle, StringComparison.OrdinalIgnoreCase)) { exactN++; if (exact == null) exact = w; } }
-            if (exactN >= 1) { matchCount = exactN; return exactN == 1 ? exact : null; }
-
-            EditorWindow sub = null; int subN = 0;
-            foreach (var w in wins) { if (w == null) continue; var t = w.titleContent != null ? w.titleContent.text : w.name; if (!string.IsNullOrEmpty(t) && t.IndexOf(typeOrTitle, StringComparison.OrdinalIgnoreCase) >= 0) { subN++; if (sub == null) sub = w; } }
-            matchCount = subN; return subN == 1 ? sub : null;
+            for (int priority = 0; priority < 4; priority++)
+            {
+                foreach (var candidate in wins)
+                {
+                    if (candidate == null) continue;
+                    string title = candidate.titleContent != null ? candidate.titleContent.text : candidate.name;
+                    bool match = priority == 0 ? candidate.GetType().FullName == typeOrTitle
+                        : priority == 1 ? candidate.GetType().Name == typeOrTitle
+                        : priority == 2 ? string.Equals(title, typeOrTitle, StringComparison.OrdinalIgnoreCase)
+                        : !string.IsNullOrEmpty(title) && title.IndexOf(typeOrTitle, StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (match) matches.Add(candidate);
+                }
+                if (matches.Count == 0) continue;
+                matchCount = matches.Count;
+                return matchCount == 1 ? matches[0] : null;
+            }
+            return null;
         }
 
         // EditorWindow.docked is internal → reflected, guarded. Unknown ⇒ docked (main + crop).

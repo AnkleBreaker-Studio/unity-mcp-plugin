@@ -18,14 +18,31 @@ namespace UnityMCP.Editor
         private int _queuedRequests = 0;
         private int _completedRequests = 0;
         private long _totalResponseTimeMs = 0;
+        private int _failedRequests;
+        private int _commandErrors;
+        private int _timedOutRequests;
+        private double _totalQueueWaitMs;
+        private double _totalProcessingTimeMs;
+        internal long LastActivityTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        internal long Generation;
+        internal LinkedListNode<MCPAgentSession> IdleRetentionNode;
 
         private readonly List<string> _actionLog = new List<string>();
         private readonly List<MCPActionRecord> _structuredLog = new List<MCPActionRecord>();
 
         private const int MaxLogEntries = 100;
 
-        /// <summary>Session is considered active if last activity was within 5 minutes.</summary>
-        public bool IsActive => (DateTime.UtcNow - LastActivityAt).TotalSeconds < 300;
+        /// <summary>Queued work remains visible even when its wait exceeds the recent-activity window.</summary>
+        public bool IsActive => !IsInactiveAt(System.Diagnostics.Stopwatch.GetTimestamp());
+
+        internal bool IsInactiveAt(long timestamp) => _queuedRequests == 0
+            && timestamp - LastActivityTimestamp >= 300L * System.Diagnostics.Stopwatch.Frequency;
+
+        private void Touch()
+        {
+            LastActivityAt = DateTime.UtcNow;
+            LastActivityTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
 
         /// <summary>Number of requests currently queued for this agent.</summary>
         public int QueuedRequests
@@ -53,7 +70,7 @@ namespace UnityMCP.Editor
         public void LogAction(string action)
         {
             CurrentAction = action;
-            LastActivityAt = DateTime.UtcNow;
+            Touch();
             TotalActions++;
 
             _actionLog.Add($"[{DateTime.UtcNow:HH:mm:ss}] {action}");
@@ -97,6 +114,17 @@ namespace UnityMCP.Editor
 
         public List<string> GetLog() => new List<string>(_actionLog);
 
+        internal void RecordCompletion(MCPRequestQueue.RequestTicket ticket)
+        {
+            IncrementCompletedRequest(ticket.ExecutionTimeMs);
+            Touch();
+            if (ticket.Status == MCPRequestQueue.RequestStatus.Failed) _failedRequests++;
+            if (ticket.CommandFailed) _commandErrors++;
+            if (ticket.Status == MCPRequestQueue.RequestStatus.TimedOut) _timedOutRequests++;
+            _totalQueueWaitMs += ticket.QueueWaitMs;
+            _totalProcessingTimeMs += ticket.ProcessingTimeMs;
+        }
+
         public Dictionary<string, object> ToDict()
         {
             return new Dictionary<string, object>
@@ -110,7 +138,36 @@ namespace UnityMCP.Editor
                 { "queuedRequests", QueuedRequests },
                 { "completedRequests", CompletedRequests },
                 { "averageResponseTimeMs", Math.Round(AverageResponseTimeMs, 2) },
+                { "failedRequests", _failedRequests },
+                { "commandErrors", _commandErrors },
+                { "timedOutRequests", _timedOutRequests },
+                { "averageQueueWaitMs", _completedRequests == 0 ? 0 : Math.Round(_totalQueueWaitMs / _completedRequests, 2) },
+                { "averageProcessingTimeMs", _completedRequests == 0 ? 0 : Math.Round(_totalProcessingTimeMs / _completedRequests, 2) },
                 { "structuredActionCount", _structuredLog.Count },
+            };
+        }
+
+        internal struct DashboardSnapshot
+        {
+            internal string AgentId, LatestAction;
+            internal int Outstanding, Completed, CommandErrors, Exceptions, Timeouts;
+            internal double AverageWaitMs, AverageProcessingMs;
+
+            internal bool Matches(DashboardSnapshot other) => AgentId == other.AgentId && LatestAction == other.LatestAction
+                && Outstanding == other.Outstanding && Completed == other.Completed && CommandErrors == other.CommandErrors
+                && Exceptions == other.Exceptions && Timeouts == other.Timeouts
+                && AverageWaitMs == other.AverageWaitMs && AverageProcessingMs == other.AverageProcessingMs;
+        }
+
+        internal DashboardSnapshot GetDashboardSnapshot()
+        {
+            // The dashboard needs displayed values, not the transport dictionaries and timestamp strings.
+            return new DashboardSnapshot {
+                AgentId = AgentId, LatestAction = CurrentAction ?? "idle", Outstanding = _queuedRequests,
+                Completed = _completedRequests, CommandErrors = _commandErrors, Exceptions = _failedRequests,
+                Timeouts = _timedOutRequests,
+                AverageWaitMs = _completedRequests == 0 ? 0 : Math.Round(_totalQueueWaitMs / _completedRequests, 2),
+                AverageProcessingMs = _completedRequests == 0 ? 0 : Math.Round(_totalProcessingTimeMs / _completedRequests, 2)
             };
         }
     }

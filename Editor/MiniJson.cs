@@ -20,7 +20,18 @@ namespace UnityMCP.Editor
 
         public static string Serialize(object obj)
         {
-            return Serializer.Serialize(obj);
+            return Serializer.Serialize(obj, int.MaxValue);
+        }
+
+        public static string Serialize(object obj, int maxUtf8Bytes) => Serializer.Serialize(obj, maxUtf8Bytes);
+
+        public sealed class SerializationException : InvalidOperationException
+        {
+            public string Reason { get; }
+            public long BytesRequired { get; }
+            public int LimitBytes { get; }
+            internal SerializationException(string reason, string message, long bytesRequired = 0, int limitBytes = 0, Exception inner = null)
+                : base(message, inner) { Reason = reason; BytesRequired = bytesRequired; LimitBytes = limitBytes; }
         }
 
         sealed class Parser : IDisposable
@@ -160,7 +171,7 @@ namespace UnityMCP.Editor
 
             void EatWhitespace()
             {
-                while (Char.IsWhiteSpace(PeekChar)) { json.Read(); if (json.Peek() == -1) break; }
+                while (json.Peek() != -1 && Char.IsWhiteSpace(PeekChar)) json.Read();
             }
 
             char PeekChar => Convert.ToChar(json.Peek());
@@ -217,135 +228,165 @@ namespace UnityMCP.Editor
 
         sealed class Serializer
         {
-            StringBuilder builder;
-            Serializer() { builder = new StringBuilder(); }
+            private const int MaxDepth = 64;
+            private const int MaxValues = 1000000;
+            private readonly StringBuilder builder = new StringBuilder();
+            private readonly List<object> active = new List<object>();
+            private readonly int maxUtf8Bytes;
+            private int valueCount;
+            private long bytes;
 
-            public static string Serialize(object obj)
+            private Serializer(int limit)
             {
-                var instance = new Serializer();
-                instance.SerializeValue(obj);
+                if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+                maxUtf8Bytes = limit;
+            }
+
+            public static string Serialize(object obj, int limit)
+            {
+                var instance = new Serializer(limit);
+                instance.SerializeValue(obj, 0);
                 return instance.builder.ToString();
             }
 
-            void SerializeValue(object value)
+            private void Reserve(int count)
             {
-                if (value == null) { builder.Append("null"); return; }
-
-                if (value is string s) { SerializeString(s); return; }
-                if (value is bool b) { builder.Append(b ? "true" : "false"); return; }
-
-                if (value is IDictionary dict) { SerializeDictionary(dict); return; }
-                if (value is IList list) { SerializeArray(list); return; }
-
-                if (value is char c) { SerializeString(c.ToString()); return; }
-
-                // Numbers
-                if (value is int || value is long || value is short || value is byte
-                    || value is uint || value is ulong || value is ushort || value is sbyte)
-                {
-                    builder.Append(value);
-                    return;
-                }
-
-                if (value is float f)
-                {
-                    builder.Append(f.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
-                    return;
-                }
-
-                if (value is double d)
-                {
-                    builder.Append(d.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
-                    return;
-                }
-
-                if (value is decimal m)
-                {
-                    builder.Append(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    return;
-                }
-
-                // Anonymous types and other objects — serialize public properties
-                SerializeObject(value);
+                long required = bytes + count;
+                if (required > maxUtf8Bytes)
+                    throw new SerializationException("byte_limit", "Serialized response exceeded its UTF-8 byte limit", required, maxUtf8Bytes);
+                bytes = required;
             }
 
-            void SerializeObject(object obj)
+            private void Append(char value, int utf8Bytes = 1) { Reserve(utf8Bytes); builder.Append(value); }
+            private void Append(string value) { Reserve(Encoding.UTF8.GetByteCount(value)); builder.Append(value); }
+
+            private void SerializeValue(object value, int depth)
             {
-                builder.Append('{');
+                if (++valueCount > MaxValues)
+                    throw new SerializationException("value_limit", "Serialization exceeded " + MaxValues + " values");
+                if (value == null) { Append("null"); return; }
+                if (value is string text) { SerializeString(text); return; }
+                if (value is bool boolean) { Append(boolean ? "true" : "false"); return; }
+                if (value is char character) { SerializeString(character.ToString()); return; }
+                if (value is int || value is long || value is short || value is byte
+                    || value is uint || value is ulong || value is ushort || value is sbyte || value is decimal)
+                {
+                    Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
+                    return;
+                }
+                if (value is float single)
+                {
+                    string number = single.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                    if (float.IsNaN(single) || float.IsInfinity(single)) SerializeString(number); else Append(number);
+                    return;
+                }
+                if (value is double real)
+                {
+                    string number = real.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                    if (double.IsNaN(real) || double.IsInfinity(real)) SerializeString(number); else Append(number);
+                    return;
+                }
+                if (depth >= MaxDepth)
+                    throw new SerializationException("depth_limit", "Serialization exceeded " + MaxDepth + " container levels");
+                foreach (var ancestor in active)
+                    if (ReferenceEquals(ancestor, value))
+                        throw new SerializationException("reference_cycle", "Serialization encountered a reference cycle");
+                active.Add(value);
+                try
+                {
+                    if (value is IDictionary dictionary) SerializeDictionary(dictionary, depth);
+                    else if (value is IList list) SerializeArray(list, depth);
+                    else SerializeObject(value, depth);
+                }
+                catch (SerializationException) { throw; }
+                catch (System.Threading.ThreadAbortException) { throw; }
+                catch (Exception error)
+                {
+                    throw new SerializationException("object_serialization_failed", error.GetBaseException().Message, inner: error);
+                }
+                finally { active.RemoveAt(active.Count - 1); }
+            }
+
+            private void SerializeObject(object obj, int depth)
+            {
+                Append('{');
                 bool first = true;
-                var type = obj.GetType();
-                foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+                foreach (var prop in obj.GetType().GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
                 {
                     if (!prop.CanRead) continue;
-                    if (!first) builder.Append(',');
+                    if (!first) Append(',');
                     SerializeString(prop.Name);
-                    builder.Append(':');
-                    try
-                    {
-                        SerializeValue(prop.GetValue(obj, null));
-                    }
-                    catch
-                    {
-                        builder.Append("null");
-                    }
+                    Append(':');
+                    object member;
+                    try { member = prop.GetValue(obj, null); }
+                    catch (System.Threading.ThreadAbortException) { throw; }
+                    catch { member = null; }
+                    // Only failed getters become null; nested serialization failures must discard the response.
+                    SerializeValue(member, depth + 1);
                     first = false;
                 }
-                builder.Append('}');
+                Append('}');
             }
 
-            void SerializeDictionary(IDictionary obj)
+            private void SerializeDictionary(IDictionary obj, int depth)
             {
-                builder.Append('{');
+                Append('{');
                 bool first = true;
                 foreach (DictionaryEntry entry in obj)
                 {
-                    if (!first) builder.Append(',');
+                    if (!first) Append(',');
                     SerializeString(entry.Key.ToString());
-                    builder.Append(':');
-                    SerializeValue(entry.Value);
+                    Append(':');
+                    SerializeValue(entry.Value, depth + 1);
                     first = false;
                 }
-                builder.Append('}');
+                Append('}');
             }
 
-            void SerializeArray(IList array)
+            private void SerializeArray(IList array, int depth)
             {
-                builder.Append('[');
+                Append('[');
                 bool first = true;
                 foreach (var item in array)
                 {
-                    if (!first) builder.Append(',');
-                    SerializeValue(item);
+                    if (!first) Append(',');
+                    SerializeValue(item, depth + 1);
                     first = false;
                 }
-                builder.Append(']');
+                Append(']');
             }
 
-            void SerializeString(string str)
+            private void SerializeString(string str)
             {
-                builder.Append('\"');
-                foreach (var c in str)
+                Append('"');
+                for (int i = 0; i < str.Length; i++)
                 {
+                    char c = str[i];
                     switch (c)
                     {
-                        case '"': builder.Append("\\\""); break;
-                        case '\\': builder.Append("\\\\"); break;
-                        case '\b': builder.Append("\\b"); break;
-                        case '\f': builder.Append("\\f"); break;
-                        case '\n': builder.Append("\\n"); break;
-                        case '\r': builder.Append("\\r"); break;
-                        case '\t': builder.Append("\\t"); break;
+                        case '"': Append("\\\""); break;
+                        case '\\': Append("\\\\"); break;
+                        case '\b': Append("\\b"); break;
+                        case '\f': Append("\\f"); break;
+                        case '\n': Append("\\n"); break;
+                        case '\r': Append("\\r"); break;
+                        case '\t': Append("\\t"); break;
                         default:
-                            if (c < ' ')
+                            if (char.IsHighSurrogate(c) && i + 1 < str.Length && char.IsLowSurrogate(str[i + 1]))
                             {
-                                builder.Append("\\u");
-                                builder.Append(((int)c).ToString("x4"));
+                                Reserve(4);
+                                builder.Append(c).Append(str[++i]);
                             }
-                            else builder.Append(c);
+                            else if (c < ' ' || char.IsSurrogate(c))
+                            {
+                                Append("\\u");
+                                Append(((int)c).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                            }
+                            else Append(c, c < 0x80 ? 1 : c < 0x800 ? 2 : 3);
                             break;
                     }
                 }
-                builder.Append('\"');
+                Append('"');
             }
         }
     }

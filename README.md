@@ -1,332 +1,259 @@
 <p align="center">
-  <img src="icon.png" alt="AnkleBreaker MCP" width="180" />
+  <img src="Documentation~/hero.svg" alt="AnkleBreaker Unity MCP: one workflow, many Unity worlds. Multiple agents, independent editors and multiplayer tools." width="960" />
 </p>
 
-# Unity MCP Plugin — AI-Powered Unity Editor Bridge (UPM Package)
+# AnkleBreaker Unity MCP Plugin
 
-> **The Unity Editor side of the most comprehensive [MCP (Model Context Protocol)](https://modelcontextprotocol.io) integration for Unity game development.** Install via Unity Package Manager to let Claude, Cursor, Windsurf, or any MCP-compatible AI assistant control your Unity Editor with **288 tools** across **30+ categories**. Built and maintained by [AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio).
+[![Plugin route checks](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/actions/workflows/checks.yml?query=branch%3Amain)
+[![Server regression tests](https://github.com/AnkleBreaker-Studio/unity-mcp-server/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/AnkleBreaker-Studio/unity-mcp-server/actions/workflows/test.yml?query=branch%3Amain)
 
-## What It Does
+**The Unity side of a workflow built for multiple projects, multiple agents and multiplayer iteration.** This UPM package runs the editor bridge used by the companion [AnkleBreaker MCP server](https://github.com/AnkleBreaker-Studio/unity-mcp-server).
 
-This package runs a lightweight HTTP bridge inside the Unity Editor on `localhost:7890`. The companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server) connects to it, exposing **288 tools** to AI assistants across **30+ feature categories** — scenes, GameObjects, components, builds, profiling, Shader Graph, Amplify Shader Editor, terrain, physics, NavMesh, animation, multiplayer, and much more.
+[Install](#installation) · [Watch demos](#see-the-workflow) · [Dashboard](#dashboard-and-monitoring) · [Performance](#measured-improvements) · [Architecture](#how-it-works) · [Validation](#compatibility-and-validation)
 
-### Neon Brick Breaker — Built from scratch by AI in under 5 minutes
-> Claude creates the entire game: scene setup, neon materials with bloom post-processing, brick grid layout, game scripts, VFX, and UI — all through Unity MCP commands.
+| 338 registered editor routes | Fair scheduling between agents | Multiplayer scenario tools |
+|:---:|:---:|:---:|
+| Scenes through optional integrations | FIFO per agent, grouped reads | MPPM controls and clone discovery |
+
+The server also provides Hub and connection tools. Route counts describe the checked-in dispatcher; optional integrations require their own packages.
+
+## See the workflow
+
+**From a prompt to a playable prototype.** The recorded neon brick-breaker workflow combines scene authoring, materials, C# gameplay scripts and visual iteration through Unity MCP.
+
+[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](docs/unity-mcp-showcase-brickbreaker.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)
+
+**[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-brickbreaker.mp4) · [Village and castle demos](#build-environments-and-playable-levels)
+
+Accelerated excerpts from existing recordings. The silent MP4s contain the same frames as the GIFs; their duration is not a development-time benchmark. [Prompts and media details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/demos.md).
+
+### Why this bridge is built for a team of agents
+
+| Need | Plugin behavior | Evidence |
+|---|---|---|
+| **Share an editor fairly** | A FIFO queue per agent, round-robin scheduling and grouped reads. | [Queue checks](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-monitoring.md) |
+| **Keep projects independent** | A listener, queue and identity for each editor; the server pins each request to its target. | [Architecture](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/architecture.md) |
+| **Iterate on multiplayer** | Native MPPM scenario/player controls and ParrelSync clone identity. | [Host/Client](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/multiplayer.md) · [Clones](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/parrelsync.md) |
+| **Inspect and recover** | Attributed history, timings, supported Undo and protected ticket retries with an updated server. | [Undo](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/undo.md) · [Retry contract](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-protocol.md) |
+
+## Installation
+
+**Install from source:** the commands below install `main` in both repositories, including the improvements documented here. Published npm packages and version tags may lag behind `main`.
+
+1. In Unity, open **Window → Package Manager → Add package from git URL**.
+2. Add `https://github.com/AnkleBreaker-Studio/unity-mcp-plugin.git#main`.
+3. Open **Window → AB Unity MCP → Dashboard** and check the bridge status.
+4. Install and configure the [Node MCP server](https://github.com/AnkleBreaker-Studio/unity-mcp-server/tree/main#get-started).
+5. From your MCP client, call `unity_list_instances`, select your project, then call `unity_editor_state`.
+
+The default port is 7890; multiple editors can claim different ports. Discover the current project and port instead of assuming it remains the same after a restart. Browser navigation to the internal HTTP bridge is not the supported verification flow.
+
+### Requirements
+
+- Unity **2021.3.18f1 or newer** is the declared compatibility floor.
+- uGUI and Unity Test Framework are declared UPM dependencies because editor command classes compile against their APIs. The manifest uses minimum versions compatible with older supported editors; Unity 6.6 resolves its built-in versions.
+- The companion Node server and an MCP client are needed for AI-driven operations.
+
+Server and plugin versions advance independently. Queue and legacy synchronous paths remain available; version numbers do not need to match.
+
+### Toolbar and navigation
+
+The **MCP** status dropdown appears automatically in Unity's main toolbar after import. It shows the bridge state and active-agent count; hover for port and diagnostic details. A later manual Hide choice is respected. **Show Toolbar Status** restores it without resetting the rest of your layout.
+
+The same primary destinations are available under **Window → AB Unity MCP** and **Tools → AnkleBreaker → Unity MCP**: Dashboard, Welcome, Action History, settings, self-tests and documentation. The Dashboard's **MCP Menu ▼** and the history window's **MCP ▼** open the complete shared dropdown, including server controls and category switches. The canonical Welcome remains the one supplied by the upstream package.
+
+[Automatic visibility, menu map and validation →](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/toolbar.md)
+
+The current companion server verifies the resolved identity when selecting by name and prevents stale discovery from replacing a newer project choice. Per-agent selections stay independent; include the discovered `port` on concurrent editor calls. [Selection behavior and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/discovery.md).
+
+Protocol 2 adds protected submission retries and session-scoped polling. An updated server can recover the original ticket when its acknowledgement is lost. Older clients keep using their existing endpoints; their retry behavior does not change. [Protocol and compatibility details](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-protocol.md).
+
+## What you can do
+
+| Author | Inspect and verify | Coordinate |
+|---|---|---|
+| Scenes, objects, components and references | Scene hierarchy and search | Multiple editor projects |
+| Prefabs, materials and ScriptableObjects | Console and compilation diagnostics | Per-agent queues and history |
+| Animation, terrain, particles and audio | EditMode / PlayMode test jobs | MPPM scenarios and players |
+| UI, lighting, navigation and builds | Screenshots, profiling and memory | ParrelSync clone discovery |
+| Scripts and editor code | Named undo for supported writes | Project-specific context files |
+
+Optional integrations include ProBuilder, UMA, Amplify Shader Editor, Shader Graph, VFX Graph, Input System, Memory Profiler and Multiplayer Play Mode. Discover their tools through `unity_list_advanced_tools`; the plugin reports unavailable packages or disabled categories instead of requiring every integration in every project.
+
+UMA uses a separate assembly enabled by `UMA_INSTALLED`, keeping its references out of the core bridge. UMA V3.1f1 creation and rename workflows now pass on Unity 6.6, including legacy recipe references and preservation after file collisions. Actual UMA 2 execution and runtime avatar rendering remain unverified. [UMA setup, evidence and reproduction](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/uma.md).
+
+## Build environments and playable levels
+
+### Medieval village
+
+Terrain, reusable houses, materials, trees, fences and paths, created and refined in the Unity Editor.
+
+[![Unity MCP recording showing a medieval village being built with terrain and houses](docs/unity-mcp-showcase-village.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)
+
+**[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-village.mp4)
+
+### Castle and walkthrough
+
+Multi-room construction, lighting adjustments and a first-person walkthrough in the recorded project.
+
+[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](docs/unity-mcp-showcase-castle.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)
+
+**[▶ Open video · 18 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-castle.mp4)
+
+### Prompts for your own project
+
+> List my running editors, select my prototype and inspect its scene and compilation errors before making changes.
+
+> Discover the multiplayer tools, inspect the configured MPPM scenario and start its Host and Client players.
+
+> Run the selected EditMode tests, keep the job ID and retrieve its results in pages. Then show me the recent actions and which supported changes can be undone.
+
+Results depend on your model, project and installed packages. [More prompts and the full tool catalog](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/features.md).
+
+## Dashboard and monitoring
 
 <p align="center">
-  <img src="docs/unity-mcp-showcase-brickbreaker.gif" alt="Unity MCP — AI building a neon brick breaker game in Unity Editor" width="800" />
+  <img src="Documentation~/media/dashboard-validation.png" alt="Actual Unity 6.6 Dashboard showing project bridge status, three agent sessions, request queue and HTTP activity" width="640" />
 </p>
 
-### 3D Medieval Village — AI-generated terrain, houses, and environment
-> From an empty scene to a fully decorated village: terrain sculpting, material creation, procedural house building via C# editor scripts, trees, fences, and pathways.
+*Captured in a validation project. Long agent/request names deliberately exercise layout; the counters show that test session.*
+
+Open **Window → AB Unity MCP → Dashboard** in the project you want to inspect. Bridge controls, queue activity, agent cards and recent actions come first. Sections remember their state per project; long names and requests remain available in tooltips.
+
+**HTTP Activity** adds response codes, active/peak requests, body traffic, rejected input, serialization failures and handler timings. Reload counts persist for the editor session; HTTP counters reset on domain reload. These transport counters stay separate from command outcomes. [Fields, limits and validation](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/http-monitoring.md).
+
+| Inspect | What you can see |
+|---|---|
+| **Queue** | Pending/running counts, per-agent backlog and retention counters through `unity_queue_info`. |
+| **Agents** | Attribution, outcomes and average queue-wait/processing times through `unity_agents_list`. |
+| **History** | Request logs through `unity_agent_log`; action records and supported undo groups through `unity_undo_history`. |
+| **Code execution** | Compiler-reference cache sizes, hits/misses and loaded snippet assemblies through `unity_editor_state.codeExecution`. |
+
+Cards update in place. A measured changing-agent workload records **83% fewer allocation events** than the baseline; layout and rendering are excluded. Twenty small code-execution calls fell from **15.85 s to 1.01 s** in a separate Unity 6.6 fixture. These are workload-specific measurements. [Dashboard evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/dashboard.md) / [Execution evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/code-execution.md).
+
+Outstanding work keeps a session visible. At most 1,024 sessions without outstanding work are retained, including recently completed identities; inactive sessions also expire after 30 minutes, with at most 256 retained after periodic cleanup. A returning evicted identity starts fresh counters and logs. Ticket completion is atomic, and late callbacks cannot replace a terminal result or count it twice. A timeout does not cancel work that already started or prove that no changes occurred.
+
+[Monitoring fields, errors, history and retention](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-monitoring.md) / [Ticket deadlines and retry behavior](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-protocol.md).
+
+## How it works
 
 <p align="center">
-  <img src="docs/unity-mcp-showcase-village.gif" alt="Unity MCP — AI building a 3D medieval village with houses, trees, and terrain" width="800" />
+  <img src="Documentation~/workflow.svg" alt="AI assistants route requests to independent Unity project queues, with per-agent scheduling and multiplayer scenario tools" width="960" />
 </p>
 
-### 3D Castle — Complete level with FPS walkthrough
-> AI builds a multi-room castle with courtyard, throne room, armory, and guard room. Adjusts lighting, spawns the player, and runs an FPS walkthrough to verify the result.
+[Full architecture guide](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/architecture.md).
+
+1. The MCP server sends a command with agent identity to the local bridge.
+2. The bridge returns a queue ticket. Legacy calls wait on a ticket internally.
+3. `EditorApplication.update` processes one write or up to five explicitly classified reads, visiting agent queues fairly. Unknown routes use the write path.
+4. Commands execute on Unity's main thread; deferred Unity APIs complete through callbacks.
+5. The MCP server polls the original ticket and returns text or images to the client.
+
+Pending tickets are indexed by ID, avoiding a scan across every agent queue on each status request. Supported synchronous writes get individual named undo groups. Deferred commands do not collapse undo groups across intervening work from other agents.
+
+Each editor has its own listener, queue and project identity. The server handles request isolation and per-call routing. The plugin handles editor scheduling, history, optional integrations and reload lifecycle. Heavy Unity operations still occupy the main thread; queueing does not make arbitrary editor work non-blocking.
+
+### Local access and undo
+
+The bridge binds to loopback and checks incoming browser/host metadata. It is intended for the companion server on the same machine. Local code-execution tools have the authority of the editor process, so use trusted MCP clients. Queueing orders requests; it does not resolve conflicting edits by different agents. Undo applies to commands that register supported Unity undo operations, not every possible command or filesystem change.
+
+## Measured improvements
 
 <p align="center">
-  <img src="docs/unity-mcp-showcase-castle.gif" alt="Unity MCP — AI building a 3D castle with FPS walkthrough in Unity Editor" width="800" />
+  <img src="Documentation~/performance.svg" alt="Local before and after measurements: code calls 15.85 to 1.01 seconds, history repaint 72.45 to 1.80 milliseconds, paged test result construction 14.21 to 0.036 milliseconds" width="800" />
 </p>
 
-### How It Works — AI → MCP Server → Unity Plugin → Unity Editor
-> The Model Context Protocol connects your AI assistant to Unity through a lightweight bridge. Commands flow from your AI chat directly into the editor in real-time.
+Compiler metadata reuse, visible-row history drawing and paginated result construction remove repeated work from three different editor workflows. These are separate Unity 6000.6.2f1 / Windows fixtures with historical baselines, not whole-editor or competing-product benchmarks.
 
-<p align="center">
-  <img src="docs/unity-mcp-architecture.gif" alt="Unity MCP Architecture — AI Assistant → MCP Server → Unity Plugin → Unity Editor" width="800" />
-</p>
+| Workload | Before → after | Reproduce and inspect |
+|---|---|---|
+| 20 small code calls | **15.85 s → 1.01 s** | [Execution report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/code-execution.md) |
+| History repaint, 5,000 retained actions | **72.45 ms → 1.80 ms** | [Window report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/history-window.md) |
+| Construct 20 results from 10,000 stored tests | **14.21 ms → 0.036 ms** | [Pagination report](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/test-pagination.md) |
 
-**Core Capabilities:**
+## Compatibility and validation
 
-- **Scene Management** — Open, save, create scenes; browse full hierarchy tree
-- **GameObjects** — Create (primitives or empty), delete, inspect, set transforms (world/local)
-- **Components** — Add/remove components, get/set any serialized property
-- **Assets** — List, import, delete assets; create prefabs and materials; assign materials
-- **Scripts** — Create, read, update C# scripts
-- **Builds** — Trigger multi-platform builds (Windows, macOS, Linux, Android, iOS, WebGL)
-- **Console & Compilation** — Read errors/warnings/logs, clear console; get C# compilation errors via CompilationPipeline (independent of console buffer)
-- **Testing** — Run EditMode/PlayMode tests, poll results, list available tests via Unity Test Runner API
-- **Play Mode** — Play, pause, stop
-- **Editor** — Execute menu items, run arbitrary C# code, check editor state, get project info
+The declared minimum remains **Unity 2021.3.18f1**. All 78 editor sources included in the minimum-version API compiler check pass. Actual older-editor execution is deferred; current live validation uses **Unity 6000.6.2f1 on Windows**.
 
-**Extended Capabilities:**
-
-- **Animation** — List clips, get clip info, list Animator controllers and parameters, set Animator properties, play animations
-- **Prefab (Advanced)** — Open/close prefab editing mode, check prefab status, get overrides, apply/revert changes
-- **Physics** — Raycasts, sphere/box casts, overlap tests, get/set physics settings (gravity, layers, collision matrix)
-- **Lighting** — Manage lights, configure environment lighting/skybox, bake lightmaps, list/manage reflection probes
-- **Audio** — Manage AudioSources, AudioListeners, AudioMixers, play/stop clips, adjust mixer parameters
-- **Terrain** — Create/modify terrains, paint heightmaps/textures, manage terrain layers, trees, and detail objects
-- **Navigation** — NavMesh baking, agents, obstacles, off-mesh links
-- **Particles** — Particle system creation, inspection, module editing
-- **UI** — Canvas, UI elements, layout groups, event system
-- **Tags & Layers** — List tags and layers, add/remove tags, assign tags/layers to GameObjects
-- **Selection** — Get/set editor selection, find objects by name/tag/component/layer
-- **Graphics** — Scene and game view capture as inline images for visual inspection
-- **Input Actions** — List action maps and actions, inspect bindings (Input System package)
-- **Assembly Definitions** — List, inspect, create, update .asmdef files
-- **ScriptableObjects** — Create, inspect, modify ScriptableObject assets
-- **Constraints** — Position, rotation, scale, aim, parent constraints
-- **LOD** — LOD group management and configuration
-
-**Profiling & Debugging:**
-
-- **Profiler** — Start/stop profiler, get stats, take deep profiles, save profiler data
-- **Frame Debugger** — Enable/disable frame debugger, get draw call list and details, get render target info
-- **Memory Profiler** — Memory breakdown by asset type, top memory consumers, take memory snapshots (with `com.unity.memoryprofiler` package)
-
-**Shader & Visual Tools (conditional on packages):**
-
-- **Shader Graph** — List, inspect, create, open Shader Graphs; inspect shader properties; list Sub Graphs and VFX Graphs (requires `com.unity.shadergraph` / `com.unity.visualeffectgraph`)
-- **Amplify Shader Editor** — Full graph manipulation: list, inspect, create, add/remove/connect/disconnect/duplicate nodes, set properties, templates, save/close (requires Amplify Shader Editor asset)
-
-**Multiplayer (conditional on MPPM package):**
-
-- **MPPM Scenarios** — List, activate, start, stop multiplayer playmode scenarios; get status and player info (requires `com.unity.multiplayer.playmode`)
-
-**Infrastructure:**
-
-- **Multi-Instance Support** — Multiple Unity Editor instances discovered automatically (including ParrelSync clones)
-- **Port Affinity** — Each editor remembers its last-used port via EditorPrefs and reclaims it on restart, minimizing port swaps across sessions
-- **Registry Heartbeat** — The plugin sends a heartbeat every 30 seconds to the shared instance registry (`lastSeen` timestamp), enabling the MCP server to distinguish between compiling editors (fresh entry) and crashed editors (stale entry >5 minutes)
-- **Multi-Agent Support** — Multiple AI agents can connect simultaneously with session tracking, action logging, and queued execution
-- **Play Mode Resilience** — MCP bridge survives domain reloads during Play Mode via SessionState persistence
-- **Dashboard** — Built-in Editor window (`Window > AB Unity MCP > Dashboard`) showing server status, category toggles, agent sessions, and update checker
-- **Project Context** — Auto-inject project-specific documentation and guidelines for AI agents (via `Assets/MCP/Context/`)
-- **Settings** — Configurable port, auto-start, and per-category enable/disable via EditorPrefs
-- **Update Checker** — Automatic GitHub release checking with in-dashboard notification
-
-## Installation via Unity Package Manager
-
-1. Open Unity > **Window** > **Package Manager**
-2. Click the **+** button > **Add package from git URL...**
-3. Enter:
-   ```
-   https://github.com/AnkleBreaker-Studio/unity-mcp-plugin.git
-   ```
-4. Click **Add**
-
-Unity will download and install the package. You should see in the Console:
-```
-[MCP Bridge] Server started on port 7890
-```
-
-### Verify
-
-Open a browser and visit: `http://127.0.0.1:7890/api/ping`
-
-You should see JSON with your Unity version and project name.
-
-## Companion: MCP Server
-
-This plugin is one half of the system. You also need the **Node.js MCP Server** that connects Claude to this bridge:
-
-👉 [unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)
-
-## Dashboard
-
-Open **Window > AB Unity MCP > Dashboard** to access:
-
-- Server status with live indicator (green = running, red = stopped)
-- Start / Stop / Restart controls
-- Per-category feature toggles (enable/disable any of the 30+ categories)
-- Port and auto-start settings
-- Active agent session monitoring
-- Version display with update checker
-
-## Requirements
-
-- Unity 2021.3 LTS or newer (tested on 2022.3 LTS and Unity 6)
-- .NET Standard 2.1 or .NET Framework
-
-### Optional Packages
-
-Some features activate automatically when their corresponding packages are detected:
-
-| Package / Asset | Features Unlocked |
-|----------------|-------------------|
-| `com.unity.memoryprofiler` | Memory snapshots via MemoryProfiler API |
-| `com.unity.shadergraph` | Shader Graph create, inspect, open |
-| `com.unity.visualeffectgraph` | VFX Graph listing and opening |
-| `com.unity.inputsystem` | Input Action maps and bindings inspection |
-| `com.unity.multiplayer.playmode` | MPPM scenario management (list, activate, start/stop, status) |
-| Amplify Shader Editor (Asset Store) | Amplify shader listing, inspection, opening |
-
-## Configuration
-
-Configuration is managed through the MCP Dashboard (`Window > AB Unity MCP > Dashboard`, Settings section):
-
-- **Port** — HTTP server port (default: `7890`)
-- **Auto-Start** — Automatically start the bridge when Unity opens (default: `true`)
-- **Category Toggles** — Enable/disable any of the 30+ feature categories
-
-Settings are stored in `EditorPrefs` and persist across sessions.
-
-## Security
-
-- The server **only** binds to `127.0.0.1` (localhost) — it is not accessible from the network
-- No authentication is required since it's local-only
-- All operations support Unity's Undo system
-- Multi-agent requests are queued to prevent conflicts
-
-### 288 Tools Across 30+ Categories
-> Scene management, GameObjects, components, physics, terrain, Shader Graph, Amplify Shader Editor, profiling, animation, NavMesh, builds, multiplayer, and more.
-
-<p align="center">
-  <img src="docs/unity-mcp-features.gif" alt="Unity MCP Features — 268 tools across 30+ categories for AI-powered game development" width="800" />
-</p>
-
-## Why AnkleBreaker Unity MCP?
-
-AnkleBreaker Unity MCP is the most comprehensive MCP integration for Unity, purpose-built to leverage the full power of **Claude Cowork** and other AI assistants. Here's how it compares to alternatives:
-
-### Feature Comparison
-
-| Feature | **AnkleBreaker MCP** | **Bezi** | **Coplay MCP** | **Unity AI** |
-|---------|:-------------------:|:--------:|:--------------:|:------------:|
-| **Total Tools** | **288** | ~30 | 34 | Limited (built-in) |
-| **Feature Categories** | **30+** | ~5 | ~5 | N/A |
-| **Non-Blocking Editor** | ✅ Full background operation | ❌ Freezes Unity during tasks | ✅ | ✅ |
-| **Open Source** | ✅ AnkleBreaker Open License | ❌ Proprietary | ✅ MIT License | ❌ Proprietary |
-| **Claude Cowork Optimized** | ✅ Two-tier lazy loading | ❌ Not MCP-based | ⚠️ Basic | ❌ Not MCP-based |
-| **Multi-Instance Support** | ✅ Auto-discovery | ❌ | ❌ | ❌ |
-| **Multi-Agent Support** | ✅ Session tracking + queuing | ❌ | ❌ | ❌ |
-| **Unity Hub Control** | ✅ Install editors & modules | ❌ | ❌ | ❌ |
-| **Scene Hierarchy** | ✅ Full tree + pagination | ⚠️ Limited | ⚠️ Basic | ⚠️ Limited |
-| **Physics Tools** | ✅ Raycasts, overlap, settings | ❌ | ❌ | ❌ |
-| **Terrain Tools** | ✅ Full terrain pipeline | ❌ | ❌ | ❌ |
-| **Shader Graph** | ✅ Create, inspect, open | ❌ | ❌ | ❌ |
-| **Profiling & Debugging** | ✅ Profiler + Frame Debugger + Memory | ❌ | ❌ | ⚠️ Basic |
-| **Animation System** | ✅ Controllers, clips, parameters | ⚠️ Basic | ⚠️ Basic | ⚠️ Basic |
-| **NavMesh / Navigation** | ✅ Bake, agents, obstacles | ❌ | ❌ | ❌ |
-| **Particle Systems** | ✅ Full module editing | ❌ | ❌ | ❌ |
-| **MPPM Multiplayer** | ✅ Scenarios, start/stop | ❌ | ❌ | ❌ |
-| **Visual Inspection** | ✅ Scene + Game view capture | ❌ | ⚠️ Limited | ❌ |
-| **Play Mode Resilient** | ✅ Survives domain reload | ❌ | ❌ | N/A |
-| **Port Resilience** | ✅ Identity validation + crash detection | ❌ | ❌ | N/A |
-| **Project Context** | ✅ Custom docs for AI agents | ❌ | ❌ | ⚠️ Built-in only |
-
-### Cost Comparison
-
-> **AnkleBreaker Unity MCP is completely free and open source.** The prices below reflect only the cost of the AI assistant (Claude) itself — the MCP plugin and server are $0.
-
-| Solution | Monthly Cost | What You Get |
-|----------|:----------:|--------------| 
-| **AnkleBreaker MCP (free) + Claude Pro** | **$20/mo** | 288 tools, full Unity control, open source — MCP is free, price is Claude only |
-| **AnkleBreaker MCP (free) + Claude Max 5x** | **$100/mo** | Same + 5x usage for heavy workflows — MCP is free, price is Claude only |
-| **AnkleBreaker MCP (free) + Claude Max 20x** | **$200/mo** | Same + 20x usage for teams/studios — MCP is free, price is Claude only |
-| **Bezi Pro** | $20/mo | ~30 tools, 800 credits/mo, freezes Unity |
-| **Bezi Advanced** | $60/mo | ~30 tools, 2400 credits/mo, freezes Unity |
-| **Bezi Team** | $200/mo | 3 seats, 8000 credits, still freezes Unity |
-| **Unity AI** | Included with Unity Pro/Enterprise | Limited AI tools, Unity Points system, no MCP |
-| **Coplay MCP** | Free (beta) | 34 tools, basic categories |
-
-### Key Advantages
-
-**vs. Bezi:**
-Bezi runs as a proprietary Unity plugin with its own credit-based billing — $20–$200/mo on top of your AI subscription. It has historically suffered from freezing the Unity Editor during AI tasks, blocking your workflow. AnkleBreaker MCP is completely free and open source, runs entirely in the background with zero editor impact, and offers 8x more tools — the only cost is your existing Claude subscription.
-
-**vs. Coplay MCP:**
-Coplay MCP provides 34 tools across ~5 categories. AnkleBreaker MCP delivers 288 tools across 30+ categories including advanced features like physics raycasts, terrain editing, shader graph management, profiling, NavMesh, particle systems, and MPPM multiplayer — none of which exist in Coplay. Our two-tier lazy loading system is specifically optimized for Claude Cowork's tool limits.
-
-**vs. Unity AI:**
-Unity AI (successor to Muse) is built into Unity 6.2+ but limited to Unity's own AI models and a credit-based "Unity Points" system. It cannot be used with Claude or any external AI assistant, has no MCP support, and offers a fraction of the automation capabilities. AnkleBreaker MCP works with any MCP-compatible AI while giving you full control over which AI models you use.
-
-## Support the Project
-
-If Unity MCP helps your workflow, consider supporting its development! Your support helps fund new features, bug fixes, documentation, and more open-source game dev tools.
-
-<a href="https://github.com/sponsors/AnkleBreaker-Studio">
-  <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?logo=github&style=for-the-badge" alt="GitHub Sponsors" />
-</a>
-<a href="https://www.patreon.com/AnkleBreakerStudio">
-  <img src="https://img.shields.io/badge/Support-Patreon-f96854?logo=patreon&style=for-the-badge" alt="Patreon" />
-</a>
-
-**Sponsor tiers include priority feature requests** — your ideas get bumped up the roadmap! Check out the tiers on [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
-
-## What's New in v2.33.0 → v2.39.1
-
-- **ProBuilder integration** — 14 `probuilder/*` commands over ProBuilder's real API (parametric shapes, face edits, boolean CSG with source cleanup + naming, combine, probuilderize, mesh export), gated on `PROBUILDER_INSTALLED` so projects without ProBuilder get a clear message instead of a compile error. Every mutation is Undo-tracked.
-- **Per-action / per-agent undo** — the queue wraps every write in its own named Undo group; `undo/last` reverts a whole action (per-agent aware, linear-undo honest), `undo/history` is a per-agent action log.
-- **Studio news notifications** — a mobile-style unseen badge on the MCP toolbar element for new AnkleBreaker devlog posts (6h RSS poll, per-user read state, opt-out in Settings), news in the toolbar dropdown and the dashboard.
-- **Dashboard reworked in UI Toolkit** — Window → AB Unity MCP rebuilt on the studio theme (shared brand stylesheet), preserving every feature and adding the news panel; sections self-heal and refresh on content change only.
-- **Correctness** — locale-proof numeric args (non-integer params were silently dropped on decimal-comma locales; present-but-invalid now errors loudly, `create-shape` echoes applied size/position), `probuilder/info` world bounds, dense `scene/hierarchy` (absent field = default; `verbose:true` restores), scene-capture camera sync for backgrounded editors.
-- **Data safety** — shared path confinement (`Assets/`/`Packages/` only), overwrite guards on every asset creator (`overwrite:true` to replace), script create/update source-loss vectors closed, queue drops timed-out tickets before execution (no double-runs), ShaderGraph create/edit through the real `GraphData` model (all four corruption bugs from #18 fixed).
-- **Generated route registry** — `MCPBridgeServer.Routes.g.cs` generated from the dispatch switch with a CI drift check (337 routes).
-
-## What's New in v2.32.0
-
-- **Editor-window screenshots (`screenshot/editor-window`)** — capture any EditorWindow (Inspector, Project, Console, custom windows) to a PNG via the Win32 `PrintWindow` API. Occlusion-proof (the window renders itself offscreen — no raising or focus-stealing), with automatic docked-vs-floating handling. Defaults to `Assets/Screenshots/`, accepts any `.png` path. **Windows editor only** (`#if UNITY_EDITOR_WIN`) — on macOS/Linux it returns a clear "unsupported platform" error (PrintWindow has no equivalent there); use scene/game capture, which are camera-based and cross-platform. Companion to `unity-mcp-server` v2.30.0.
-- **Welcome window reworked** — the single-file welcome window is replaced by a modular, themed system (`UnityMCP.Editor.Welcome` assembly): USS theme, Welcome + Studio tabs, auto-open on first load with per-project detection, a config-driven content seam, and a devlog feed.
-
-## What's New in v2.27.0
-
-- **Path-based lookup works on inactive GameObjects** — Every tool that accepts a `path` (`prefab_info`, `set_active`, `info`, `delete`, `set_transform`, `reparent`, etc.) now correctly finds and operates on inactive targets, where previously it silently failed with "GameObject not found". Fix contributed by [@BadranRaza](https://github.com/BadranRaza).
-- **Prefab-instance detection fixed on scene instances** — `prefab_info` no longer falsely reports valid scene prefab instances as "not a prefab instance". Switched to `PrefabUtility.IsPartOfPrefabInstance`, the authoritative API. Fix contributed by [@BadranRaza](https://github.com/BadranRaza).
-- **Bridge no longer runs in batch-mode subprocesses** — The plugin previously started its HTTP bridge inside every `AssetImportWorker` Unity spawned for parallel asset import, claiming ports on top of the main Editor and exhausting the 7890-7899 range. It now detects batch mode and stays out of the way.
-- **Port-discovery infinite loop fixed** — When no port was available, the plugin would spam `Failed to start on port 7890` forever. It now gives up cleanly and logs a single actionable error.
-
-## What's New in v2.26.0
-
-- **SpriteAtlas management** — 7 new HTTP endpoints for creating, inspecting, adding/removing sprites, configuring settings, deleting, and listing SpriteAtlases. Contributed by [@zaferdace](https://github.com/zaferdace).
-- **Self-test system overhaul** — Probes for all 43 command modules, robust test runner with domain reload resume and timeout handling.
-- **Unity 2023+ / Unity 6 compatibility** — Resolved 43 `CS0618` deprecation warnings across the codebase.
-
-## What's New in v2.24.0
-
-- **Compilation error tracking** — New dedicated compilation error buffer powered by `CompilationPipeline.assemblyCompilationFinished`. Captures errors and warnings per assembly with file, line, column, message, and severity. Independent of the console log buffer — not affected by `Clear()` or Play Mode log flooding. Auto-clears on each new compilation cycle via `compilationStarted`. Exposed via the `compilation/errors` HTTP route for the MCP server's `unity_get_compilation_errors` tool.
-
-## What's New in v2.21.1
-
-- **Port affinity** — The plugin now remembers its last-used port via EditorPrefs and attempts to reclaim it on restart. This prevents port swaps when multiple Unity projects are open — each editor consistently uses the same port across restarts.
-- **Enriched ping response** — The `/api/ping` endpoint now returns `projectPath` alongside the existing `projectName`, enabling the MCP server to validate instance identity by both name and path.
-- **Registry heartbeat** — A new heartbeat mechanism updates the `lastSeen` timestamp in the shared instance registry every 30 seconds. This lets the MCP server distinguish between a compiling editor (fresh entry, temporarily unresponsive) and a crashed editor (stale entry, no heartbeat for >5 minutes).
-- **Crash resilience** — Combined with the server-side staleness check, the heartbeat ensures that if Unity crashes mid-compile and `OnDisable` never fires, the stale registry entry is detected and cleared within 5 minutes, allowing proper re-discovery.
-
-## Frequently Asked Questions
-
-**What is Unity MCP Plugin?**
-The Unity MCP Plugin is a Unity Package Manager (UPM) package that runs an HTTP bridge inside the Unity Editor, enabling AI assistants like Claude, Cursor, and Windsurf to control Unity through the Model Context Protocol (MCP). It's the editor-side component of the AnkleBreaker Unity MCP system.
-
-**How do I install the Unity MCP Plugin?**
-Open Unity > Window > Package Manager > click + > Add package from git URL > paste `https://github.com/AnkleBreaker-Studio/unity-mcp-plugin.git` > click Add. The bridge starts automatically.
-
-**Does it work with Claude Desktop and Claude Cowork?**
-Yes. AnkleBreaker Unity MCP is purpose-built for Claude Desktop and Claude Cowork, with a two-tier lazy loading architecture optimized for MCP client tool limits.
-
-**Does it work with Cursor or Windsurf?**
-Yes. Any MCP-compatible AI client can use this plugin through the companion [Unity MCP Server](https://github.com/AnkleBreaker-Studio/unity-mcp-server).
-
-**What Unity versions are supported?**
-Unity 2021.3 LTS and newer, including Unity 2022.3 LTS and Unity 6.
-
-**Is the Amplify Shader Editor required?**
-No. Amplify Shader Editor support is fully optional — 23 extra tools activate automatically when ASE is detected. Projects without Amplify work perfectly; the tools gracefully indicate that ASE is not installed.
-
-**Is it free?**
-Yes. The plugin and server are completely free and open source. The only cost is your AI assistant subscription.
-
-## Related Projects
-
-- **[unity-mcp-server](https://github.com/AnkleBreaker-Studio/unity-mcp-server)** — The Node.js MCP server that connects AI assistants to this plugin
-- **[Model Context Protocol](https://modelcontextprotocol.io)** — The open standard powering this integration
-- **[Claude Desktop](https://claude.ai/download)** — Anthropic's AI assistant with built-in MCP support
-- **[AnkleBreaker Studio](https://github.com/AnkleBreaker-Studio)** — The game studio behind this project
-
----
+The companion server has **263 passing tests on eight CI configurations** (Node 18/20/22/24, Windows/Linux); this plugin passes its **338-route registry check**. Native tests and live workflows provide separate Unity evidence. The [delivery summary](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/modernization-audit.md) records the source checkpoints and limits; the broad compatibility matrix and later focused checks were not all run at one final commit.
 
 <details>
-<summary><strong>Keywords</strong> (for search engines)</summary>
+<summary><strong>Explore the tested workflows and their evidence</strong></summary>
 
-Unity MCP, Unity MCP Plugin, Unity MCP Server, Unity AI, AI game development, AI Unity Editor, Claude Unity, Cursor Unity, Windsurf Unity, Model Context Protocol Unity, MCP Unity plugin, Unity automation, AI-assisted game development, Unity Editor AI control, Unity Package Manager MCP, UPM MCP package, Unity build automation, Unity scene management AI, Unity GameObject AI, Unity component automation, Shader Graph AI, Amplify Shader Editor AI, Unity terrain AI, Unity NavMesh AI, Unity physics AI, Unity profiler AI, Unity animation AI, MPPM multiplayer AI, Unity MCP integration, free Unity AI tools, open source Unity AI, AnkleBreaker Studio, AnkleBreaker MCP, Unity MCP bridge, AI co-pilot Unity, Unity game dev AI assistant
+| Coverage | Verified behavior |
+|---|---|
+| [Server-plugin matrix](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/compatibility.md) | All four released/current pairs with Node 18 and 22; object edits, undo, errors, history and concurrent agents across mixed plugin versions. |
+| [Queue and monitoring](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/queue-monitoring.md) | Fair scheduling, read batching, duplicate/late callbacks, real timeout races, retention and error history. |
+| [Action History](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/history-notifications.md) | Bounded observer backlog, grouped window refreshes, stable selection/filters and real reload checks. |
+| [History window](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/history-window.md) | Visible-row drawing, native texture cleanup, scroll/selection tests and measured allocation-event counts. |
+| [Agent sessions](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/session-retention.md) | Bounded completed identities, protected busy work and separate history for returning identities. |
+| [History persistence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/history-persistence.md) | Validated retention-aware restoration, bounded snapshots, recoverable failures and native Undo across reload. |
+| [Package Manager](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/packages.md) | Sequential requests across editor updates, expiration cleanup, legacy responses and local package add/remove with manifest restoration. |
+| [Result serialization](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/code-execution.md) | Valid JSON, bounded conversion/traversal and early HTTP byte limits; execution is not repeated after response failure. |
+| [Server HTTP downloads](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/response-limits.md#node-http-downloads) | The companion server bounds response reads with current and released plugins; overflow preserves unknown-outcome recovery without repeating commands. |
+| [Request input](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/request-input.md) | Complete HTTP/JSON before ticket creation, 8 body readers, 64 MiB reservations and a 30-second upload deadline; limits advertised for server preflight checks. |
+| [Undo across agents](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/undo.md) | Native stack/session checks, explicit cascade handling and action identity preserved through script reload. |
+| [Test Runner](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/testing.md) | Failure cleanup, native cancellation, retained details through reload and optional pages for large results. |
+| [Editor workflows](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/editor-workflows.md) | Scene reopening, enum/flags properties, object references, material/prefab assets and Scene capture cleanup. |
+| [Inline captures](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/graphics-capture.md) | Camera selection, dimension bounds, borrowed render-target restoration and decoded PNG checks on Built-in/Direct3D12. |
+| [Asset previews](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/asset-previews.md) | Deferred loading lets other agents progress; requested sizes and metadata-only options are honored, with native preview pixels preserved. |
+| [Mesh metadata](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/mesh-metadata.md) | Both object-path names, eight UV channels and native triangle counts; geometry buffers are no longer copied for metadata. |
+| [Multiplayer](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/multiplayer.md) | MPPM 3.0 Host/Client launch, independent agent routing and shared script recompilation. |
+| [ParrelSync](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/parrelsync.md) | Native marker/parent identity, 48 overlapping calls per Node version through Play Mode, recompilation and restart, plus settings persistence. |
+| [Builds](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/builds.md) | Five Windows Mono builds verify managed diagnostics and restoration of project settings. |
+| [Editor lifecycle](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/modernization.md) | Two editors, four Play Mode reload configurations and lost-result handling after script reload. |
+| [Dashboard](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/dashboard.md) | Card reuse, section persistence through script reload, 360 px geometry and actual Windows pixel review at 360/640 px. |
 
 </details>
 
-## License
+Older MPPM/ParrelSync versions, game networking, other OS/build platforms and additional optional packages need separate validation. [Full evidence and follow-up limits](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/modernization.md).
 
-AnkleBreaker Open License v1.0 — see [LICENSE](LICENSE)
+<details>
+<summary><strong>Reproduce the Unity checks</strong></summary>
 
-This license requires: (1) including the copyright notice, (2) displaying **"Made with AnkleBreaker MCP"** (or "Powered by AnkleBreaker MCP") attribution in any product built with it (personal/educational use is exempt), and (3) **reselling the tool is forbidden** — you may not sell, sublicense, or commercially distribute this software or derivatives of it. See the full [LICENSE](LICENSE) for details.
+From the plugin repository, with an installed editor and a disposable project directory:
+
+```powershell
+./tools~/validate-unity.ps1 -EditorPath 'C:/Program Files/Unity/Hub/Editor/6000.6.2f1/Editor/Unity.exe' -ProjectPath 'C:/UnityMcpValidation/Unity66'
+```
+
+The runner launches Unity hidden in batch mode, refuses an unmarked existing project and writes reports under `Library`. Unity ignores the development tools under `tools~` during package import.
+
+| Suite option | Scope |
+|---|---|
+| Default | Queue, HTTP dispatch, callbacks and timeout races |
+| `-Suite QueueAdmission` | HTTP command count/argument budgets, replay at capacity and terminal release; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/command-admission.md) |
+| `-Suite ResultRetention` | Completed-result budgets, history payload release and protected/synchronous recovery; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/result-retention.md) |
+| `-Suite SessionRetention` | Recent identity pressure, busy-agent protection, returning generations, replay/results and weak-reference release; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/session-retention.md) |
+| `-Suite ParrelSync` | Native marker, numeric/unknown index and original-project identity without the optional package installed; [live lifecycle evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/parrelsync.md) |
+| `-Suite HistoryNotifications` | Deferred observer delivery, pressure/clear/reentrancy, weak-reference collection, grouped window updates and stable selection/filters |
+| `-Suite HistoryPersistence` | File/retention limits, transactional loading, failed-save recovery, legacy identity/schema and Undo metadata |
+| `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
+| `-Suite Monitoring` | Error classification, history, persistence and create/undo |
+| `-Suite RequestInput` | Byte/Unicode boundaries, strict request parsing, queue/legacy/deferred rejection and guarded submission compatibility |
+| `-Suite RequestBody` | Declared/chunked framing, fragmented trailers, reader/byte admission, absolute deadlines and interruption cleanup |
+| `-Suite Undo` | Native Undo/Redo eligibility, agent/native cascades, session identity, group changes and history-window confirmation checks |
+| `-Suite Serialization` | JSON validity, output/traversal budgets, result conversion and owned HTTP writer checks |
+| `-Suite Testing` | Test Runner settings, callbacks, cancellation and UTC restoration |
+| `-Suite TestPagination` | Optional result pages, filtered offsets, legacy responses and measured construction costs; [contract and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/main/docs/test-pagination.md) |
+| `-Suite TestResults` | Discovery limits and authoritative final counts/details |
+| `-Suite TestPersistence` | Reload snapshots, native identity, corruption and history retention |
+| `-Suite RequestShutdown` | HTTP worker interruption without a false Unity error |
+| `-Suite Dashboard` | Card reuse, refresh allocations, interface reconstruction and saved preferences |
+| `-Suite HttpDiagnostics` | HTTP status/byte counters, input rejection, output failures and aggregate invariants |
+| `-Suite EditorCapture` | Windows capture selection, tab restoration, native pixels, GDI/texture cleanup and image bounds |
+| `-Suite GraphicsCapture` | Inline camera/asset pixels, invalid dimensions, render-target restoration and warmed texture counts; requires a graphics device |
+| `-Suite AssetPreview` | Preview options, render-state restoration, bounded deferred polling, expiry and fallback; requires a graphics device |
+| `-Suite MeshMetadata` | Object-path aliases, UV channels, primitive counts, shared resources, asset lookup and measured metadata costs |
+
+Batch UI checks exclude interactive rendering. The measured empty queue loop has zero allocation events after warmup; this is not a whole-plugin allocation claim.
+
+Verify the route registry with `node tools~/generate-routes.mjs --check`. The server repository contains the stdio, compatibility and concurrent-routing suites.
+
+</details>
+
+## Support and license
+
+[Report an issue](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues) with Unity, plugin and server versions and the affected operation. Support development through [GitHub Sponsors](https://github.com/sponsors/AnkleBreaker-Studio) or [Patreon](https://www.patreon.com/AnkleBreakerStudio).
+
+Distributed under the **AnkleBreaker Open License v1.0**. See [LICENSE](LICENSE) for attribution requirements and restrictions on reselling the tool. AI client/model costs are separate.

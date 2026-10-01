@@ -2,6 +2,217 @@
 
 All notable changes to this package will be documented in this file.
 
+## [Unreleased]
+
+### JSON parser
+- Return the existing empty-input result at end of input instead of throwing while checking whitespace; preserve normal values and trailing-whitespace handling.
+
+### Toolbar and menu access
+- Show the native MCP status element on first use even when the saved Unity toolbar layout hides it. Preserve a subsequent Hide choice and offer Show Toolbar Status in both menu roots.
+- Share the complete MCP dropdown between the main toolbar, Dashboard navigation, Action History navigation and the Window/Tools menus. Add direct Welcome, history, settings, documentation and Dashboard-section links.
+- Keep the canonical Welcome from main, restore the old Window entry as an alias, and resolve the Asset Store CLICKME Dashboard path without adding a second Welcome implementation.
+- Recover legacy toolbar injection after delayed startup or layout replacement; add keyboard activation, avoid duplicate controls and refresh native tooltips after port-mode changes.
+
+### Test result pagination
+- Add optional `resultOffset`/`resultLimit` detail pages while preserving unpaged responses, filtered result ordering and native completeness semantics.
+- Expose page counts, continuation and stability; construct only requested result dictionaries and use direct indexing for unfiltered pages.
+- Validate eight controlled checks, measured allocation-event scaling, existing Test Runner regressions and native EditMode results across current/released servers and script reloads.
+
+### Recent agent-session retention
+- Bound recently completed identities to 1,024 sessions without outstanding work, with oldest-completion eviction and constant-time list updates. Keep queued/executing agents protected and preserve the existing 256-inactive-session policy.
+- Isolate pending history by session generation without retaining evicted session objects. Returning identities start fresh counters and logs while global history, terminal results and protected retries remain intact.
+- Expose idle capacity/count and pressure evictions in queue diagnostics. Add nine native checks, existing queue/health/monitoring/Dashboard regressions and four current/released-server Node 18/22 runs with real script reloads.
+
+### Action History drawing and resource cleanup
+- Draw only the visible fixed-height rows while preserving full scroll range, row identity, target links and details. Clamp scrolling after filters shrink.
+- Replace the generated selection texture with direct rectangle drawing; release cached records/styles on disable. Sixteen baseline textures survived window destruction; the corrected window creates none.
+- Add native GUI sampling and interaction validation across current/released servers on Node 18/22, with minimum-version API compilation.
+- Correct allocation instrumentation: use GC.Alloc sample Count for events, expose raw Value with UnitType, and stop reporting nanosecond marker values as allocated bytes.
+
+### Action history persistence
+- Validate complete snapshots before replacing history, apply retention during load/save and preserve the highest action ID. Normalize invalid negative preferences without changing valid positive limits or zero retention.
+- Bound input/output to 32 MiB and align save/load JSON value budgets. Preserve old field names, numeric target identities, Unicode and Undo metadata.
+- Write a complete temporary snapshot before replacement; preserve failed-load sources until recovery or explicit Clear. Expose warnings, counters and load statistics through `historyPersistence`.
+- Add eighteen controlled checks, existing monitoring/queue/observer regressions and real current/released-server Undo/reload runs on Node 18/22. The 77-source Unity 2021 API compiler check passes; older-editor execution remains deferred.
+
+### Action history observers and window updates
+- Replace per-record `delayCall` closures with deferred editor-update delivery only when observers exist. Retain at most 10,000 notifications, drain up to 100 per update, and report pressure drops through `historyNotifications`.
+- Cancel pending delivery on clear/reload/quit, release unsubscribed backlogs, and isolate subscriber exceptions. Preserve the public event signature and ordered asynchronous delivery within capacity.
+- Refresh the Action History lists by revision while retaining periodic repaint and immediate filter/search changes. Preserve selected filters and record identity as older entries expire.
+- Validate thirteen controlled checks, weak-reference release, measured burst costs, existing queue/monitoring regressions and four live current/released-server runs on Node 18/22.
+
+### ParrelSync identity
+- Use the native `.clone` file instead of a folder-name guess, preserving normal projects named `_clone_<index>` and recognizing renamed clones.
+- Resolve `mainProjectPath` to a verifiable sibling Unity project using ParrelSync's final suffix convention; leave renamed/orphaned parent identity unknown.
+- Display unknown clone indices without `#-1` in the Dashboard and toolbar. Keep ParrelSync optional and existing public method signatures intact.
+- Add twelve controlled identity checks, real Unity 6.6 lifecycle runs with the current server, and separate released-server read checks on Node 18/22.
+
+### Completed results and history snapshots
+- Bound the polling cache to 4,096 terminal tickets and 256 MiB of weighted result cost, with oldest-first pressure eviction, age cleanup and additive queue metrics. Preserve synchronous/native result references and protected retry identities.
+- Remove full result graphs from pending history. Capture bounded scalar target metadata without custom conversions/comparers; retain editor-thread insertion, Undo behavior and raw ticket diagnostics.
+- Add fourteen controlled checks, weak-reference release evidence, existing queue/monitoring/serialization regressions and real current/published-server workflows on Node 18/22. Accounting is not a total heap quota.
+
+### Retained HTTP commands
+- Bound admitted HTTP commands to 256 outstanding tickets and 256 MiB of accounted argument cost across queued, legacy and deferred dispatch. Refuse before ticket creation with `command_queue_busy` and `requestAccepted: false`.
+- Keep protected replay/polling available at capacity and release admission once on terminal completion. Report current/peak counters and refusals in queue info; accounting is not a total managed-memory quota.
+- Add fifteen Unity admission checks and current/released-server live saturation coverage. Preserve native C# submission APIs and repair the package validation fixture's outdated dispatcher argument type.
+
+### Mesh and renderer metadata
+- Honor documented `objectPath` for mesh and renderer inspection while retaining the legacy `gameObjectPath` and asset lookup precedence.
+- Count all eight UV channels. Read vertex attributes and submesh metadata without copying geometry buffers; preserve triangulated quad counts and empty-layout semantics.
+- Preserve ordinary C# integer results and shared mesh/material references; avoid duplicate bone-array reads.
+- Add twenty batch checks and live current/released-server coverage on Node 18/22, with minimum-version API compilation and local allocation/timing evidence.
+
+### Responsive asset previews
+- Replace main-thread sleeps on all four preview routes with deferred polling: 50 ms per preview, four polls per update, a soft 5 ms allowance and at most 64 pending operations. Drop expired work and detach callbacks on reload/quit.
+- Honor asset/prefab sizes, material `includePreview` and texture `previewSize`; retain native dimensions when omitted. Support documented material `objectPath` alongside legacy `gameObjectPath`, and refuse invalid indices.
+- Share preview encoding with render-target restoration, texture cleanup and no redundant GPU upload. Preserve metadata when optional previews fail.
+- Retain synchronous C# signatures as immediate cached-preview/thumbnail lookups; MCP callback overloads preserve the bounded wait for full previews.
+- Add 26 functional/scheduler checks and live current/released-server fixtures. Keep all 17 capture regressions and minimum-version API compilation passing.
+
+### Inline graphics captures
+- Explicit missing cameras previously fell back to `Camera.main`; return a camera error while retaining the default when no name is supplied.
+- Refuse invalid dimensions before rendering: whole pixels, 1-8192 per side within the device limit, at most 33,554,432 pixels. Preserve 512-square defaults and successful result fields.
+- Restore borrowed camera and active render targets for Game/Scene captures and asset previews. Avoid uploading CPU-only PNG textures back to the GPU.
+- Add `-Suite GraphicsCapture`: seventeen checks for decoded pixels, dimensions, render state and texture cleanup. Validate direct MCP calls with current/released servers on Node 18/22; rendering evidence uses Built-in/Direct3D12 on Unity 6.6.
+
+### HTTP body completion and admission
+- Truncated HTTP bodies containing valid JSON could create a ticket. Check declared lengths and Mono chunk completion before parsing/dispatch; preserve fragmented final chunks and trailers.
+- Bound active body readers to eight and reserve at most 64 MiB of declared input, using 32 MiB per unknown-length body. Refuse excess admission with HTTP 503 and explicit non-acceptance.
+- Enforce an absolute 30-second body deadline, including stalled and trickling uploads. Close early-refused connections without draining unread input; release reservations on success, failure and worker interruption.
+- Add reader/reservation gauges, peaks and refusal/timeout counters to `queue/info.http` and the Dashboard. These limits exclude queued arguments, native buffers and total editor memory.
+- Add `-Suite RequestBody` with twelve controlled checks. Retain the 35 input, 14 HTTP, Dashboard and shutdown regressions, minimum-version compilation and current/released-server compatibility on Node 18/22.
+
+### Docked capture and Dashboard rendering
+- Docked captures included the tab strip and cut off the bottom of the content. Resolve the host's content rectangle from its actual borders; return an error if the bounds are unavailable.
+- Wrap Project Context explanations so help text remains inside the Dashboard at its 360 px minimum width.
+- Add owned floating/docked rendering fixtures for UI Toolkit, IMGUI and Dashboard review, with foreground/tab checks and cleanup on completion or assembly reload.
+
+### Editor-window capture
+- Remove keyboard-focus changes from captures. Refuse inactive/unshown views by default; optional `activateTab` selects an existing tab and restores its predecessor on success or failure.
+- Refuse duplicate full type names and return candidate `id:` selectors backed by string object IDs. Preserve existing type/title matching priority.
+- Bound the full native bitmap as well as the crop to 33,554,432 pixels before GDI allocation.
+- Add 17 controlled selection, tab restoration, native pixel, resource cleanup and size-bound checks. Retain the existing Windows capture backend and unsupported-platform responses.
+
+### HTTP activity and Dashboard refresh
+- Expose aggregate HTTP status, active/peak requests, body bytes, handler timings, input rejections, serialization failures and interruptions in `queue/info.http` and the Dashboard's HTTP Activity section.
+- Record domain reload count, hook-to-initialization duration and active requests at reload through editor SessionState. Keep HTTP and command outcomes distinct; retain no per-request payloads or identities.
+- Read typed queue snapshots in the Dashboard and reuse comparison buffers. Unchanged queue/HTTP sections allocate nothing in the warmed-up fixture; total idle refresh allocation events fall from 33,700 to 30,400 per 100 refreshes.
+- Add controlled HTTP checks, interrupted-worker counter validation and Dashboard label/control/persistence checks. Preserve existing queue fields, routes and tool schemas.
+
+### Request input validation
+- Enforce the existing 32 MiB inbound limit on actual bytes before decoding, including chunked bodies and BOMs. Close oversized uploads without draining them for connection reuse.
+- Reject malformed/non-object JSON before ticket creation or execution; bound request parsing to 64 container levels and 1,000,000 values/property names. Preserve valid number/container shapes and existing asset-file readers.
+- Parse queue envelopes and embedded arguments before dispatch, then pass dictionaries to synchronous and deferred commands. Return input-specific error codes and non-acceptance; advertise the body limit for companion-server preflight checks.
+- Add 35 controlled input checks, with guarded retry, native HTTP and byte-boundary coverage; retain generated routes and existing public tool schemas.
+
+### Native Undo state and cascade protection
+- Check retained MCP groups against Unity's actual Undo stack, editor-session identity and native entry signature. Reflect native Undo/Redo, clearing and external group changes instead of trusting historical group numbers.
+- Refuse newer native groups as well as newer MCP actions unless `force: true`; retain legacy MCP counts and add native-group details. Verify the resulting stack before reporting success.
+- Close synchronous groups before later editor work can join them. Keep deferred and execute-code targeting behavior unchanged.
+- Persist additive identity fields across script reload; keep old records readable without claiming that unverified groups can still be reverted.
+- Route the Action History window through the shared preview/revert checks, describe the cascade and lack of Redo, and reject stale confirmations. Add 18 controlled checks and a live multi-agent/reload fixture.
+
+### Result serialization
+- Emit valid JSON for non-finite floating-point values, culture-independent integers and unpaired UTF-16 surrogates. Preserve ordinary numeric/list shapes and getter-failure nulls.
+- Detect cycles and bound generic traversal to 64 container levels / 1,000,000 values. Propagate nested serialization errors instead of returning partial JSON.
+- Enforce the existing 16 MiB HTTP limit while serializing; return bounded 413/500 diagnostics without replay. Mark early size measurements as lower bounds.
+- Limit execution-result conversion to 100,000 values across the whole graph, preserving existing per-container caps. Result-limit and iterator errors identify that the snippet already executed.
+- Add sixteen controlled serialization/HTTP checks and real-server no-replay fixtures.
+
+### Test job persistence
+- Save versioned per-job SessionState snapshots with available results, failure diagnostics, all filters and current-test timing; reuse unchanged snapshots. Keep existing summary fields readable.
+- Replace age-based failure with native serialized run identity checks; expose uncertain recovery and damaged snapshots without hiding other valid jobs or replaying tests.
+- Retain at most 128 jobs for 30 minutes, evict old completed snapshots under a 32 MiB serialized-data budget, and expose retention diagnostics. Protect active/newest oversized results and report the soft-budget exception.
+- Preserve progress when native RunStarted repeats after reload. Add twelve controlled persistence checks and an actual native reload fixture.
+- Let normal HTTP-worker thread aborts propagate without logging a Unity error or sending a 500 response. Add an owned-worker reproduction.
+
+### Test discovery and results
+- Exclude empty suites from discovery, progress and result entries; use Unity's suite classification for parameterized tests. Report truncation only when another matching test exists.
+- Validate discovery limits as integers from 1 to 10,000, preserving the default of 200 and the returned-count meaning of `totalTests`. Stop collecting at the first matching overflow.
+- Reconcile completed jobs with Unity's aggregate counts and final result tree after missed or duplicated intermediate callbacks. Reuse existing result records and preserve suite-level failures.
+- Add `resultsComplete` to identify missing detailed results without changing job status or the legacy skipped/inconclusive count. Add `-Suite TestResults` and real parameterized/mixed/setup-failure fixtures.
+- Invalidate the affected Test Framework assembly cache before PlayMode execution when its private subsystem reset hook exists. The inspected 1.8 implementation otherwise keeps an empty initialized cache and runs zero tests on later entries without domain reload; the inspected 1.1.31 implementation is unaffected.
+
+### Test Runner lifecycle
+- Restore Play Mode settings and release callbacks after startup exceptions, framework errors and forced clears. Bind callbacks to their job so a stale callback cannot mutate its replacement.
+- Retain native run IDs and request cancellation when the installed Test Framework exposes it. Reject new jobs while native execution or cleanup remains active; report unavailable state detection explicitly.
+- Make clearing an absent job a no-op instead of starting all EditMode tests. Preserve existing fields and add native cancellation diagnostics.
+- Unregister callbacks and release the owned API before reload/shutdown. Restore persisted dates as UTC so older jobs do not sort ahead of newer jobs after reload.
+- Add `-Suite Testing` and intentional live test fixtures. The minimum-version API check covers 70 sources; older-editor execution remains deferred. See the companion server's `docs/testing.md` for real-editor evidence and limitations.
+
+### Package Manager
+- Replace main-thread sleep loops in all five package commands with sequential requests observed on editor updates. Preserve tool arguments and successful result payloads.
+- Skip pending requests whose tickets expire; let started Unity requests retain their slot until completion without overwriting timed-out outcomes. Unsubscribe polling when idle and clear it before reload/shutdown.
+- Preserve legacy synchronous responses by waiting on the HTTP worker, including deferred test discovery. Apply category settings to deferred handlers and map package routes to the Package Manager setting.
+- Use registered packages for synchronous Dashboard self-tests. Add `-Suite Packages` and legacy HTTP checks; live list/info/search/local-add/local-remove checks pass on Node 18 and 22 with current and released servers, the latter sequentially. The 70-file Unity 2021.3 API compiler check passes; actual older-editor execution remains deferred.
+
+### Dashboard
+- Reuse agent cards and typed display snapshots instead of rebuilding the entire agent section and transport dictionaries on every metric change. A local 100-refresh workload with one changing agent among twenty records 34,800 allocation events, down from 210,000; layout/rendering costs are excluded.
+- Fix duplicate controls and refresh schedules when Unity recreates the interface. Replace the prior news subscription and pause the old schedule.
+- Fix context actions overflowing the 360 px minimum width. Truncate long agent/request text with full-value tooltips and wrap statistics.
+- Remember section choices per project path, ignoring bubbled events from nested toggles. Put operational monitoring first, identify the project/version and initially collapse news.
+- Label the latest submitted request accurately instead of implying that it is currently executing. Preserve public session fields and queue behavior.
+- Add `-Suite Dashboard` for measured refreshes, agent lifecycle, interface reconstruction and saved preferences. Attached-window geometry and actual script-reload checks pass on Unity 6.6, alongside monitoring regressions and compiler-only Unity 2021.3.18f1 compatibility.
+
+### Code execution
+- Reuse unchanged Roslyn metadata references with file timestamp/size invalidation and bounds of 512 entries / 128 MiB of source images. A local twenty-call workload drops from 15.85 s to 1.01 s; project workloads vary.
+- Emit generated code in memory, fixing DLL leftovers after compilation errors and user exceptions. Report source lines relative to the submitted snippet.
+- Use Unity's assembly enumeration/loading/path APIs on 6.6+, with version-gated older runtime APIs. Actual 6000.6.2f1 validation runs on Mono; CoreCLR editor execution remains unverified.
+- Add compiler-cache and loaded-snippet counters to editor state. Preserve fresh compilation/execution semantics and existing result/error shapes.
+- Add `-Suite Execution` covering failures, cache reuse/invalidation/limits, execution after eviction and fixture cleanup. The minimum-version API compiler check now passes with 70 source files.
+
+### UMA compatibility and asset preservation
+- Move optional UMA assembly references out of the main bridge. Keep all 16 public handlers/routes available with explicit installation/define diagnostics when the integration is unavailable. Addresses [#25](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/25).
+- Adapt the UMA 3 slot-builder result, read-only logical names, removed slot material fields and changed library API. Use the existing JSON parser instead of requiring Newtonsoft. The official UMA V3.1f1 archive reproduced 42 compiler errors before these changes. Addresses [#27](https://github.com/AnkleBreaker-Studio/unity-mcp-plugin/issues/27).
+- Stop slot, wardrobe and race creation from deleting unrelated `Assets` folders. Check generated asset moves and preserve remaining files after a collision; post-process only newly generated slots.
+- Propagate slot/overlay renames through wardrobe recipe JSON v1/v2/v3 and refresh cached name hashes. Validate destinations and perform the file rename before applying dependent changes, preserving references on a rejected collision.
+- Add `tools~/validate-uma.ps1` and a real-editor fixture covering creation, verification, library registration, race changes, legacy recipe references, collisions and cleanup. Passed on Unity 6000.6.2f1 with UMA V3.1f1; the minimal-project health suite and all 16 missing-UMA facade checks also pass. UMA 2 execution and rendered/runtime avatar behavior remain unverified.
+
+### Improved
+- Add explicit `{enumValue:int}` writes and enum metadata while retaining existing numeric-index writes and named-value reads. Combined flags and unknown stored values remain inspectable.
+- Expose MPPM parent-project/virtual-player identity in ping and registry records, player IDs in player listings, and installed package/workflow/role diagnostics. Preserve ParrelSync metadata meanings.
+- Bound inactive agent sessions to 256, expire them after 30 idle minutes, release excess dictionary storage, and expose policy/eviction counters. Preserve outstanding work and use monotonic activity deadlines; the recent-session limit above additionally covers completed identities.
+- Reuse cleanup scratch lists. The isolated empty queue loop records zero allocation events after warmup, down from 3,000 per 100,000 updates.
+- Advertise protocol 3, retaining protocol-2 protected submission and scoped polling while adding managed build variants. Agent/request IDs recover one ticket within a bounded monotonic retry window; session changes, conflicting payloads and expired results cannot silently admit the operation again.
+- Index pending tickets by ID so status polling does not scan every agent queue as queue depth grows.
+- Add monotonic `queueWaitMs` and `processingTimeMs` plus `startedAt` to ticket status. Keep the existing `executionTimeMs` field and meaning for old servers and dashboards.
+- Add per-session failure/timeout counters and average wait/processing times. The dashboard displays these separately and reports running work even when no request is pending.
+
+### Fixed
+- Component property reads threw for combined enum flags, and invalid enum names reported success. Read unnamed values safely and reject invalid writes before applying them.
+- Asset listing ignored `maxResults`. Enforce the documented default of 500, accept 1-10,000, report total matches/truncation and skip metadata work beyond the result limit.
+- Scene captures replaced existing render targets and retained capture textures when file writing failed. Restore prior bindings and release owned textures in `finally`; validate image dimensions before allocation.
+- Dashboard `IntegerField` did not compile against the declared Unity 2021.3.18f1 minimum. Use the older editor namespace conditionally.
+- Adapt MPPM to Unity 6.6's native instance settings and Play Mode scenario manager. Retained legacy fields and runner-only selection could leave the requested client unconfigured or the Default scenario selected. Keep the older reflection path and read the actual stored role enum type.
+- Resolve CurrentPlayer in Unity's native module as well as the older package. Read registered package metadata for core/embedded packages, and native scenario status fields for progress.
+- Refuse scenario asset overwrites and reject invalid paths, roles and virtual-player counts before creating assets.
+- Write the instance registry as UTF-8 without a BOM so existing servers can parse it outside the fallback scan range.
+- Recognized handler errors appeared successful in plugin monitoring. Add `commandErrors`, ticket diagnostics and a history outcome flag while preserving existing statuses, raw results and exception counts. Dashboard and history now distinguish these failures.
+- Deferred completion and queued timeouts were absent from action history. Record every winning terminal transition once, drain a bounded history buffer on the editor thread, report dropped entries, and flush before optional reload/quit persistence. Preserve synchronous undo behavior and old saved records; explicit history/undo queries drain pending history, and clearing history includes the buffer.
+- Profiler/debugger mutations were batched as reads; replace route-name heuristics with an explicit read policy. Unknown routes stay serialized as writes, and compilation-error reads can batch.
+- Agents waiting over five minutes disappeared from active-session monitoring; keep sessions with outstanding work visible.
+- Restore Unity 6.6 Development diagnostics with the Checked managed code variant; default other builds to Release, accept an explicit variant, and restore the project's previous setting after success or failure. Older Unity versions retain the existing build path and reject the new optional argument explicitly.
+- Register legacy synchronous waiters before a ticket can complete and remove them before disposal, under the queue lock, to avoid lost wakeups and signaling disposed waiters.
+- Declare the uGUI and Test Framework dependencies already used by the command assembly. A minimal project could fail compilation because template-installed packages had hidden those requirements.
+- Finalize tickets atomically so duplicate callbacks, callbacks after expiration and synchronous timeout races cannot overwrite terminal results or count completion twice. Release work closures, remove expired pending work, and account for deferred exceptions and timeouts consistently.
+- Keep expired deferred tickets queryable as `TimedOut` until retention cleanup instead of dropping them immediately. Execution deadlines start when work begins; deadlines and retention use monotonic time.
+
+### Documentation
+- Rebuild the README around installation, multiple projects, fair scheduling, optional integrations and observable behavior; add a vector architecture visual and remove unsupported competitor/zero-editor-impact claims.
+
+### Validation
+- Add `tools~/check-unity2021-api.ps1` for compilation against installed minimum-version assemblies. The check passes with 69 source files after isolating UMA; it excludes optional UMA/ProBuilder code and does not run the editor or resolve packages. Actual older-editor execution is deferred.
+- Exercise real scene/component/reference/prefab/asset/screenshot workflows through the companion server on Unity 6.6, including failure-state preservation and fixture restoration.
+- Exercise a real MPPM 3.0 Host/Client scenario on Unity 6000.6.2f1, per-agent routing across both processes and a shared script recompilation. The companion server includes a repeatable opt-in suite, raw evidence and restored-fixture checks. Older MPPM and ParrelSync lifecycle remain unverified.
+- Add `-Suite Monitoring`: reproduce seven missed command errors and missing callback history, then verify 15 result shapes, concurrent callbacks, old/new persistence, bounded diagnostics/backlog, dashboard state, history endpoint and create/undo behavior. Extend the real 30-second timeout suite with exactly-once history checks.
+- Add `-Suite Health` for synthetic session retention, returning agents, scheduling and controlled allocation measurements. Validate the read policy against the generated route registry.
+- Live Windows Mono builds verify all four managed variants and setting restoration; two real editors exercise concurrent routing, four Play Mode configurations and actual script reload. Reproducible suites and reports live in the companion server repository.
+- Add `tools~/validate-unity.ps1` and an isolated editor runner covering object identity, agent FIFO and round-robin writes, read batching, deferred completion, synchronous completion and deep-queue polling.
+- Verified with the actual package on Unity 6000.6.2f1. Older Unity versions and optional multiplayer packages still require validation.
+- Reproduced duplicate callback result replacement before the fix. Added concurrent duplicate callbacks, late callbacks after expiration/eviction, execution deadlines after a long queue wait, real synchronous timeout races and dashboard label checks.
+- Add 40-way concurrent submission retries, cache-capacity checks and a real HTTP dispatcher test that creates one GameObject for repeated protected submissions and verifies existing queue/synchronous calls.
+
 ## [2.40.1] - 2026-10-01
 
 ### Added

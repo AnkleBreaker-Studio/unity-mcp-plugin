@@ -26,31 +26,9 @@ namespace UnityMCP.Editor
         private static Thread _listenerThread;
         private static bool _isRunning;
 
-        /// <summary>
-        /// Upper bound on an inbound request body. Outbound responses were already capped, but
-        /// the inbound read was an unbounded ReadToEnd — any local process could drive the
-        /// editor into an OOM with one request. 32 MB is far above any legitimate call
-        /// (the largest real payloads are execute-code snippets and batch component wiring).
-        /// </summary>
-        private const long MaxRequestBodyBytes = 32L * 1024 * 1024;
+        private const long MaxRequestBodyBytes = MCPRequestInput.MaxBodyBytes;
 
-        /// <summary>
-        /// Read at most <paramref name="limit"/> bytes' worth of characters from the reader.
-        /// Returns null when the stream exceeds the limit (chunked bodies report no
-        /// ContentLength64, so the size check alone is not sufficient).
-        /// </summary>
-        private static string ReadBounded(StreamReader reader, long limit)
-        {
-            var buffer = new char[8192];
-            var sb = new System.Text.StringBuilder();
-            int read;
-            while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                sb.Append(buffer, 0, read);
-                if (sb.Length > limit) return null;
-            }
-            return sb.ToString();
-        }
+        private static string ReadRequestBody(Stream input, Encoding encoding, long limit) => MCPRequestInput.Read(input, encoding, limit);
 
         /// <summary>
         /// The actual port this server is running on.
@@ -66,17 +44,26 @@ namespace UnityMCP.Editor
 
         // Routes whose Unity APIs use async callbacks (fire on next editor frame).
         // Register here instead of adding per-route if-conditions in HandleRequest/HandleQueueSubmit.
-        private static readonly Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
-            _deferredRoutes = new Dictionary<string, Action<Dictionary<string, object>, Action<object>>>
+        private static readonly Dictionary<string, Action<Dictionary<string, object>, Action<object>, Func<bool>>>
+            _deferredRoutes = new Dictionary<string, Action<Dictionary<string, object>, Action<object>, Func<bool>>>
         {
-            { "testing/list-tests", MCPTestRunnerCommands.ListTests },
+            { "testing/list-tests", (args, resolve, isActive) => MCPTestRunnerCommands.ListTests(args, resolve) },
+            { "packages/list", MCPPackageManagerCommands.ListPackages },
+            { "packages/add", MCPPackageManagerCommands.AddPackage },
+            { "packages/remove", MCPPackageManagerCommands.RemovePackage },
+            { "packages/search", MCPPackageManagerCommands.SearchPackage },
+            { "packages/info", MCPPackageManagerCommands.GetPackageInfo },
+            { "graphics/asset-preview", MCPGraphicsCommands.CaptureAssetPreview },
+            { "graphics/prefab-render", MCPGraphicsCommands.CaptureAssetPreview },
+            { "graphics/material-info", MCPGraphicsCommands.GetMaterialInfo },
+            { "graphics/texture-info", MCPGraphicsCommands.GetTextureInfo },
         };
 
         // ─── Capability handshake (unity-mcp-server PRs #32/#20) ───
         // One monotonic int, bumped whenever the bridge gains a wire-visible capability.
         // Servers compare it to decide between fast paths and graceful fallbacks.
         // v1: baseline — advertises the handshake itself + unknown-route 404s.
-        private const int ProtocolVersion = 1;
+        private const int ProtocolVersion = MCPRequestQueue.ProtocolVersion;
 
         private static string _pluginVersion;
         private static string PluginVersion
@@ -428,6 +415,7 @@ namespace UnityMCP.Editor
         {
             return apiPath == "ping"
                 || apiPath == "queue/status"
+                || apiPath == "queue/status-scoped"
                 || apiPath == "queue/info"
                 || apiPath == "context"
                 || apiPath.StartsWith("context/")
@@ -445,6 +433,7 @@ namespace UnityMCP.Editor
         {
             var request = context.Request;
             var response = context.Response;
+            var previousObservation = MCPHttpDiagnostics.Begin();
 
             try
             {
@@ -456,6 +445,7 @@ namespace UnityMCP.Editor
                 // Host), which we reject before touching any editor state.
                 if (!IsTrustedLocalRequest(request))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 403, new { error = "Forbidden: only local, non-browser clients may call the MCP bridge" });
                     return;
                 }
@@ -463,6 +453,7 @@ namespace UnityMCP.Editor
                 string path = request.Url.AbsolutePath.TrimStart('/');
                 if (!path.StartsWith("api/"))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 404, new { error = "Not found" });
                     return;
                 }
@@ -476,6 +467,7 @@ namespace UnityMCP.Editor
                 if (!IsReadOnlyRoute(apiPath) &&
                     !string.Equals(request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 405, new { error = $"Method {request.HttpMethod} not allowed for '{apiPath}' — use POST." });
                     return;
                 }
@@ -483,34 +475,32 @@ namespace UnityMCP.Editor
                 string body = "";
                 if (request.HasEntityBody)
                 {
-                    // Bound the inbound body: ReadToEnd on an unbounded stream let any local
-                    // process drive the editor into an OOM. The cap is far above any legitimate
-                    // call (large execute-code payloads included).
                     if (request.ContentLength64 > MaxRequestBodyBytes)
+                        throw new RequestInputException(413, "request_too_large", $"Request body too large ({request.ContentLength64} bytes; limit {MaxRequestBodyBytes}).");
+                    long reservation = request.ContentLength64 >= 0 ? request.ContentLength64 : MaxRequestBodyBytes;
+                    if (!MCPHttpDiagnostics.TryBeginBody(reservation))
+                        throw new RequestInputException(503, "request_body_busy", "Request body readers are busy. No command was accepted; retry later.");
+                    try
                     {
-                        SendJson(response, 413, new { error = $"Request body too large ({request.ContentLength64} bytes; limit {MaxRequestBodyBytes})." });
-                        return;
+                        using (var input = request.InputStream)
+                            body = MCPRequestInput.ReadHttpBody(input, request.ContentEncoding, request.ContentLength64);
                     }
-                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
-                        body = ReadBounded(reader, MaxRequestBodyBytes);
-                    if (body == null)
-                    {
-                        SendJson(response, 413, new { error = $"Request body exceeded the {MaxRequestBodyBytes}-byte limit." });
-                        return;
-                    }
+                    finally { MCPHttpDiagnostics.EndBody(reservation); }
                 }
 
                 string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
 
                 // ═══ Queue endpoints (async, non-blocking) ═══
-                if (apiPath == "queue/submit")
+                if (apiPath == "queue/submit" || apiPath == "queue/submit-once")
                 {
-                    HandleQueueSubmit(response, agentId, body);
+                    HandleQueueSubmit(response, agentId, body, apiPath == "queue/submit-once");
                     return;
                 }
-                if (apiPath == "queue/status")
+                var parsedBody = MCPRequestInput.ParseObject(body, out long argumentCost);
+                argumentCost += 2L * (agentId.Length + apiPath.Length);
+                if (apiPath == "queue/status" || apiPath == "queue/status-scoped")
                 {
-                    HandleQueueStatus(response, request);
+                    HandleQueueStatus(response, request, apiPath == "queue/status-scoped");
                     return;
                 }
                 if (apiPath == "queue/info")
@@ -535,17 +525,12 @@ namespace UnityMCP.Editor
                     return;
                 }
 
-                // ═══ Deferred paths (Unity APIs with async callbacks) ═══
-                // These complete via an async main-thread callback and MUST go through the async
-                // queue (queue/submit → SubmitDeferredRequest, which is non-blocking). Running one
-                // on this synchronous endpoint self-deadlocks the editor for the full sync timeout:
-                // the ticket executes on the main thread and blocks on the main-thread pump, which
-                // can't drain until the current update tick returns — but it's blocked inside it.
-                // The Node server always uses queue/submit; this guard only trips a raw/legacy
-                // direct POST, turning a 30s hang into an actionable error.
+                // Preserve legacy responses while Unity completes the request on later editor updates.
                 if (_deferredRoutes.ContainsKey(apiPath))
                 {
-                    SendJson(response, 409, new { error = $"Route '{apiPath}' must be called via the async queue (POST /api/queue/submit), not the synchronous endpoint." });
+                    var result = MCPRequestQueue.ExecuteHttpDeferredWithTracking(agentId, apiPath,
+                        (resolve, isActive) => RouteDeferredRequest(apiPath, parsedBody, resolve, isActive), argumentCost);
+                    SendJson(response, 200, result);
                     return;
                 }
 
@@ -561,10 +546,25 @@ namespace UnityMCP.Editor
 
                 // ═══ Legacy synchronous path (blocks until main thread processes) ═══
                 {
-                    var result = MCPRequestQueue.ExecuteWithTracking(agentId, apiPath,
-                        () => ExecuteOnMainThread(() => RouteRequest(apiPath, request.HttpMethod, body)));
+                    string method = request.HttpMethod;
+                    var result = MCPRequestQueue.ExecuteHttpWithTracking(agentId, apiPath,
+                        () => ExecuteOnMainThread(() => RouteRequest(apiPath, method, parsedBody)), argumentCost);
                     SendJson(response, 200, result);
                 }
+            }
+            catch (RequestInputException ex)
+            {
+                MCPHttpDiagnostics.RejectInput();
+                if (ex.Code == "request_body_timeout") MCPHttpDiagnostics.BodyTimedOut();
+                // Unread, refused or timed-out bodies must not be drained for connection reuse.
+                response.KeepAlive = false;
+                SendJson(response, ex.Status, new { error = ex.Message, code = ex.Code, requestAccepted = false });
+            }
+            catch (ThreadAbortException)
+            {
+                MCPHttpDiagnostics.Abort();
+                // Domain reload aborts waiting HTTP workers; logging an error would fail native tests.
+                throw;
             }
             catch (Exception ex)
             {
@@ -572,17 +572,22 @@ namespace UnityMCP.Editor
                 Debug.LogError($"[AB-UMCP] Request failed: {ex.Message}\n{ex.StackTrace}");
                 SendJson(response, 500, new { error = ex.Message });
             }
+            finally { MCPHttpDiagnostics.Finish(previousObservation); }
         }
 
         // ─── Queue Submit (async) ───
 
-        private static void HandleQueueSubmit(HttpListenerResponse response, string agentId, string body)
+        private static void HandleQueueSubmit(HttpListenerResponse response, string agentId, string body, bool requireGuard)
         {
             try
             {
                 var args = ParseJson(body);
-                string apiPath = args.ContainsKey("apiPath") ? args["apiPath"].ToString() : "";
-                string innerBody = args.ContainsKey("body") ? args["body"].ToString() : "";
+                if (args.TryGetValue("apiPath", out var route) && !(route is string))
+                    throw new RequestInputException(400, "invalid_request", "Queue apiPath must be a string.");
+                if (args.TryGetValue("body", out var payload) && !(payload is string))
+                    throw new RequestInputException(400, "invalid_request", "Queue body must be a JSON string.");
+                string apiPath = route as string ?? "";
+                string innerBody = payload as string ?? "";
 
                 if (string.IsNullOrEmpty(apiPath))
                 {
@@ -594,17 +599,37 @@ namespace UnityMCP.Editor
                 if (args.ContainsKey("agentId") && !string.IsNullOrEmpty(args["agentId"]?.ToString()))
                     agentId = args["agentId"].ToString();
 
+                var parsedBody = MCPRequestInput.ParseObject(innerBody, out long argumentCost);
+                argumentCost += 2L * (agentId.Length + apiPath.Length);
+                Func<MCPRequestQueue.RequestTicket> submit = () =>
+                {
+                    if (_deferredRoutes.ContainsKey(apiPath))
+                        return MCPRequestQueue.SubmitHttpDeferredRequest(agentId, apiPath, (resolve, isActive) =>
+                            RouteDeferredRequest(apiPath, parsedBody, resolve, isActive), argumentCost);
+                    return MCPRequestQueue.SubmitHttpRequest(agentId, apiPath, () =>
+                        RouteRequest(apiPath, "POST", parsedBody), argumentCost);
+                };
                 MCPRequestQueue.RequestTicket ticket;
-                if (_deferredRoutes.TryGetValue(apiPath, out var deferredHandler))
+                if (requireGuard || args.ContainsKey("requestId") || args.ContainsKey("queueSessionId") || args.ContainsKey("expiresAtMs"))
                 {
-                    ticket = MCPRequestQueue.SubmitDeferredRequest(agentId, apiPath, resolve =>
-                        deferredHandler(ParseJson(innerBody), resolve));
+                    if (!args.TryGetValue("requestId", out var requestId) || !(requestId is string)
+                        || !args.TryGetValue("queueSessionId", out var sessionId) || !(sessionId is string)
+                        || !args.TryGetValue("expiresAtMs", out var expires)
+                        || !long.TryParse(expires?.ToString(), out long expiresAtMs))
+                    {
+                        SendJson(response, 400, new { error = "requestId, queueSessionId and integer expiresAtMs are required together", code = "invalid_retry_guard" });
+                        return;
+                    }
+                    var submission = MCPRequestQueue.SubmitOnce(agentId, apiPath, innerBody,
+                        (string)requestId, (string)sessionId, expiresAtMs, submit);
+                    if (submission.Ticket == null)
+                    {
+                        SendJson(response, submission.StatusCode, new { error = submission.Error, code = submission.Code });
+                        return;
+                    }
+                    ticket = submission.Ticket;
                 }
-                else
-                {
-                    ticket = MCPRequestQueue.SubmitRequest(agentId, apiPath, () =>
-                        RouteRequest(apiPath, "POST", innerBody));
-                }
+                else ticket = submit();
 
                 // Return immediately with ticket info
                 SendJson(response, 202, new Dictionary<string, object>
@@ -613,8 +638,15 @@ namespace UnityMCP.Editor
                     { "status",        ticket.Status.ToString() },
                     { "queuePosition", ticket.QueuePosition },
                     { "agentId",       agentId },
+                    { "queueSessionId", MCPRequestQueue.SessionId },
                 });
             }
+            catch (RequestInputException ex)
+            {
+                MCPHttpDiagnostics.RejectInput();
+                SendJson(response, ex.Status, new { error = ex.Message, code = ex.Code, requestAccepted = false });
+            }
+            catch (ThreadAbortException) { throw; }
             catch (Exception ex)
             {
                 SendJson(response, 500, new { error = $"Queue submit failed: {ex.Message}" });
@@ -623,8 +655,14 @@ namespace UnityMCP.Editor
 
         // ─── Queue Status (polling) ───
 
-        private static void HandleQueueStatus(HttpListenerResponse response, HttpListenerRequest request)
+        private static void HandleQueueStatus(HttpListenerResponse response, HttpListenerRequest request, bool requireGuard)
         {
+            string sessionId = request.QueryString["queueSessionId"];
+            if ((requireGuard || sessionId != null) && !string.Equals(sessionId, MCPRequestQueue.SessionId, StringComparison.Ordinal))
+            {
+                SendJson(response, 409, new { error = "Queue session changed; the original ticket outcome is unknown", code = "queue_session_changed" });
+                return;
+            }
             string ticketIdStr = request.QueryString["ticketId"];
             if (string.IsNullOrEmpty(ticketIdStr) || !long.TryParse(ticketIdStr, out long ticketId))
             {
@@ -677,12 +715,29 @@ namespace UnityMCP.Editor
             };
         }
 
+        private static object DisabledCategoryError(string path)
+        {
+            string category = ExtractCategory(path);
+            if (category == "packages") category = "packagemanager";
+            if (category != "ping" && category != "agents" && category != "queue"
+                && !MCPSettingsManager.IsCategoryEnabled(category))
+                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
+            return null;
+        }
+
+        private static void RouteDeferredRequest(string path, Dictionary<string, object> args, Action<object> resolve, Func<bool> isActive)
+        {
+            var disabled = DisabledCategoryError(path);
+            if (disabled != null) { resolve(disabled); return; }
+            _deferredRoutes[path](args, resolve, isActive);
+        }
+
         /// <summary>
         /// Route API requests to the appropriate handler.
         /// NOTE: This entire method runs on the main thread (dispatched by HandleRequest
         /// or by MCPRequestQueue.ProcessNextRequests), so all Unity APIs work correctly.
         /// </summary>
-        private static object RouteRequest(string path, string method, string body)
+        private static object RouteRequest(string path, string method, Dictionary<string, object> args)
         {
             // ─── Meta endpoints (no category check) ───
             if (path == "_meta/routes")
@@ -690,13 +745,8 @@ namespace UnityMCP.Editor
                 return GetRegisteredRoutes();
             }
 
-            // Check if category is enabled
-            string category = ExtractCategory(path);
-            if (category != "ping" && category != "agents" && category != "queue"
-                && !MCPSettingsManager.IsCategoryEnabled(category))
-            {
-                return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
-            }
+            var disabled = DisabledCategoryError(path);
+            if (disabled != null) return disabled;
 
             switch (path)
             {
@@ -711,11 +761,15 @@ namespace UnityMCP.Editor
                         platform = Application.platform.ToString(),
                         isClone = MCPInstanceRegistry.IsParrelSyncClone(),
                         cloneIndex = MCPInstanceRegistry.GetParrelSyncCloneIndex(),
+                        isVirtualPlayer = MCPScenarioCommands.IsVirtualPlayer(),
+                        mainProjectPath = MCPInstanceRegistry.GetMainProjectPath(),
+                        virtualPlayerId = MCPInstanceRegistry.GetVirtualPlayerId(),
                         processId = System.Diagnostics.Process.GetCurrentProcess().Id,
                         // Capability handshake: servers gate newer wire features on this
                         // monotonic int so the pair degrades gracefully across version
                         // drift (server and plugin ship on separate release trains).
                         protocolVersion = ProtocolVersion,
+                        queueSessionId = MCPRequestQueue.SessionId,
                         pluginVersion = PluginVersion
                     };
 
@@ -723,89 +777,89 @@ namespace UnityMCP.Editor
                 case "editor/state":
                     return MCPEditorCommands.GetEditorState();
                 case "editor/play-mode":
-                    return MCPEditorCommands.SetPlayMode(ParseJson(body));
+                    return MCPEditorCommands.SetPlayMode(args);
                 case "editor/execute-menu-item":
-                    return MCPEditorCommands.ExecuteMenuItem(ParseJson(body));
+                    return MCPEditorCommands.ExecuteMenuItem(args);
                 case "editor/execute-code":
-                    return MCPEditorCommands.ExecuteCode(ParseJson(body));
+                    return MCPEditorCommands.ExecuteCode(args);
 
                 // ─── Scene ───
                 case "scene/info":
                     return MCPSceneCommands.GetSceneInfo();
                 case "scene/open":
-                    return MCPSceneCommands.OpenScene(ParseJson(body));
+                    return MCPSceneCommands.OpenScene(args);
                 case "scene/save":
-                    return MCPSceneCommands.SaveScene(ParseJson(body));
+                    return MCPSceneCommands.SaveScene(args);
                 case "scene/new":
-                    return MCPSceneCommands.NewScene(ParseJson(body));
+                    return MCPSceneCommands.NewScene(args);
                 case "scene/hierarchy":
-                    return MCPSceneCommands.GetHierarchy(ParseJson(body));
+                    return MCPSceneCommands.GetHierarchy(args);
 
                 // ─── GameObject ───
                 case "gameobject/create":
-                    return MCPGameObjectCommands.Create(ParseJson(body));
+                    return MCPGameObjectCommands.Create(args);
                 case "gameobject/delete":
-                    return MCPGameObjectCommands.Delete(ParseJson(body));
+                    return MCPGameObjectCommands.Delete(args);
                 case "gameobject/info":
-                    return MCPGameObjectCommands.GetInfo(ParseJson(body));
+                    return MCPGameObjectCommands.GetInfo(args);
                 case "gameobject/set-transform":
-                    return MCPGameObjectCommands.SetTransform(ParseJson(body));
+                    return MCPGameObjectCommands.SetTransform(args);
 
                 // ─── Component ───
                 case "component/add":
-                    return MCPComponentCommands.Add(ParseJson(body));
+                    return MCPComponentCommands.Add(args);
                 case "component/remove":
-                    return MCPComponentCommands.Remove(ParseJson(body));
+                    return MCPComponentCommands.Remove(args);
                 case "component/get-properties":
-                    return MCPComponentCommands.GetProperties(ParseJson(body));
+                    return MCPComponentCommands.GetProperties(args);
                 case "component/set-property":
-                    return MCPComponentCommands.SetProperty(ParseJson(body));
+                    return MCPComponentCommands.SetProperty(args);
                 case "component/set-reference":
-                    return MCPComponentCommands.SetReference(ParseJson(body));
+                    return MCPComponentCommands.SetReference(args);
                 case "component/batch-wire":
-                    return MCPComponentCommands.BatchWireReferences(ParseJson(body));
+                    return MCPComponentCommands.BatchWireReferences(args);
                 case "component/get-referenceable":
-                    return MCPComponentCommands.GetReferenceableObjects(ParseJson(body));
+                    return MCPComponentCommands.GetReferenceableObjects(args);
 
                 // ─── Assets ───
                 case "asset/list":
-                    return MCPAssetCommands.List(ParseJson(body));
+                    return MCPAssetCommands.List(args);
                 case "asset/import":
-                    return MCPAssetCommands.Import(ParseJson(body));
+                    return MCPAssetCommands.Import(args);
                 case "asset/delete":
-                    return MCPAssetCommands.Delete(ParseJson(body));
+                    return MCPAssetCommands.Delete(args);
                 case "asset/create-prefab":
-                    return MCPAssetCommands.CreatePrefab(ParseJson(body));
+                    return MCPAssetCommands.CreatePrefab(args);
                 case "asset/instantiate-prefab":
-                    return MCPAssetCommands.InstantiatePrefab(ParseJson(body));
+                    return MCPAssetCommands.InstantiatePrefab(args);
                 case "asset/create-material":
-                    return MCPAssetCommands.CreateMaterial(ParseJson(body));
+                    return MCPAssetCommands.CreateMaterial(args);
 
                 // ─── Scripts ───
                 case "script/create":
-                    return MCPScriptCommands.Create(ParseJson(body));
+                    return MCPScriptCommands.Create(args);
                 case "script/read":
-                    return MCPScriptCommands.Read(ParseJson(body));
+                    return MCPScriptCommands.Read(args);
                 case "script/update":
-                    return MCPScriptCommands.Update(ParseJson(body));
+                    return MCPScriptCommands.Update(args);
 
                 // ─── Renderer ───
                 case "renderer/set-material":
-                    return MCPRendererCommands.SetMaterial(ParseJson(body));
+                    return MCPRendererCommands.SetMaterial(args);
 
                 // ─── Build ───
                 case "build/start":
-                    return MCPBuildCommands.StartBuild(ParseJson(body));
+                    return MCPBuildCommands.StartBuild(args);
 
                 // ─── Console ───
                 case "console/log":
-                    return MCPConsoleCommands.GetLog(ParseJson(body));
+                    return MCPConsoleCommands.GetLog(args);
                 case "console/clear":
                     return MCPConsoleCommands.Clear();
 
                 // ─── Compilation ───
                 case "compilation/errors":
-                    return MCPConsoleCommands.GetCompilationErrors(ParseJson(body));
+                    return MCPConsoleCommands.GetCompilationErrors(args);
 
                 // ─── Project ───
                 case "project/info":
@@ -813,320 +867,320 @@ namespace UnityMCP.Editor
 
                 // ─── Animation ───
                 case "animation/create-controller":
-                    return MCPAnimationCommands.CreateController(ParseJson(body));
+                    return MCPAnimationCommands.CreateController(args);
                 case "animation/controller-info":
-                    return MCPAnimationCommands.GetControllerInfo(ParseJson(body));
+                    return MCPAnimationCommands.GetControllerInfo(args);
                 case "animation/add-parameter":
-                    return MCPAnimationCommands.AddParameter(ParseJson(body));
+                    return MCPAnimationCommands.AddParameter(args);
                 case "animation/remove-parameter":
-                    return MCPAnimationCommands.RemoveParameter(ParseJson(body));
+                    return MCPAnimationCommands.RemoveParameter(args);
                 case "animation/add-state":
-                    return MCPAnimationCommands.AddState(ParseJson(body));
+                    return MCPAnimationCommands.AddState(args);
                 case "animation/remove-state":
-                    return MCPAnimationCommands.RemoveState(ParseJson(body));
+                    return MCPAnimationCommands.RemoveState(args);
                 case "animation/add-transition":
-                    return MCPAnimationCommands.AddTransition(ParseJson(body));
+                    return MCPAnimationCommands.AddTransition(args);
                 case "animation/create-clip":
-                    return MCPAnimationCommands.CreateClip(ParseJson(body));
+                    return MCPAnimationCommands.CreateClip(args);
                 case "animation/clip-info":
-                    return MCPAnimationCommands.GetClipInfo(ParseJson(body));
+                    return MCPAnimationCommands.GetClipInfo(args);
                 case "animation/set-clip-curve":
-                    return MCPAnimationCommands.SetClipCurve(ParseJson(body));
+                    return MCPAnimationCommands.SetClipCurve(args);
                 case "animation/set-object-reference-curve":
-                    return MCPAnimationCommands.SetObjectReferenceCurve(ParseJson(body));
+                    return MCPAnimationCommands.SetObjectReferenceCurve(args);
                 case "animation/add-layer":
-                    return MCPAnimationCommands.AddLayer(ParseJson(body));
+                    return MCPAnimationCommands.AddLayer(args);
                 case "animation/assign-controller":
-                    return MCPAnimationCommands.AssignController(ParseJson(body));
+                    return MCPAnimationCommands.AssignController(args);
                 case "animation/get-curve-keyframes":
-                    return MCPAnimationCommands.GetCurveKeyframes(ParseJson(body));
+                    return MCPAnimationCommands.GetCurveKeyframes(args);
                 case "animation/remove-curve":
-                    return MCPAnimationCommands.RemoveCurve(ParseJson(body));
+                    return MCPAnimationCommands.RemoveCurve(args);
                 case "animation/add-keyframe":
-                    return MCPAnimationCommands.AddKeyframe(ParseJson(body));
+                    return MCPAnimationCommands.AddKeyframe(args);
                 case "animation/remove-keyframe":
-                    return MCPAnimationCommands.RemoveKeyframe(ParseJson(body));
+                    return MCPAnimationCommands.RemoveKeyframe(args);
                 case "animation/add-event":
-                    return MCPAnimationCommands.AddAnimationEvent(ParseJson(body));
+                    return MCPAnimationCommands.AddAnimationEvent(args);
                 case "animation/remove-event":
-                    return MCPAnimationCommands.RemoveAnimationEvent(ParseJson(body));
+                    return MCPAnimationCommands.RemoveAnimationEvent(args);
                 case "animation/get-events":
-                    return MCPAnimationCommands.GetAnimationEvents(ParseJson(body));
+                    return MCPAnimationCommands.GetAnimationEvents(args);
                 case "animation/set-clip-settings":
-                    return MCPAnimationCommands.SetClipSettings(ParseJson(body));
+                    return MCPAnimationCommands.SetClipSettings(args);
                 case "animation/remove-transition":
-                    return MCPAnimationCommands.RemoveTransition(ParseJson(body));
+                    return MCPAnimationCommands.RemoveTransition(args);
                 case "animation/remove-layer":
-                    return MCPAnimationCommands.RemoveLayer(ParseJson(body));
+                    return MCPAnimationCommands.RemoveLayer(args);
                 case "animation/create-blend-tree":
-                    return MCPAnimationCommands.CreateBlendTree(ParseJson(body));
+                    return MCPAnimationCommands.CreateBlendTree(args);
                 case "animation/get-blend-tree":
-                    return MCPAnimationCommands.GetBlendTreeInfo(ParseJson(body));
+                    return MCPAnimationCommands.GetBlendTreeInfo(args);
 
                 // ─── Prefab (Advanced) ───
                 case "prefab/info":
-                    return MCPPrefabCommands.GetPrefabInfo(ParseJson(body));
+                    return MCPPrefabCommands.GetPrefabInfo(args);
                 case "prefab/create-variant":
-                    return MCPPrefabCommands.CreateVariant(ParseJson(body));
+                    return MCPPrefabCommands.CreateVariant(args);
                 case "prefab/apply-overrides":
-                    return MCPPrefabCommands.ApplyOverrides(ParseJson(body));
+                    return MCPPrefabCommands.ApplyOverrides(args);
                 case "prefab/revert-overrides":
-                    return MCPPrefabCommands.RevertOverrides(ParseJson(body));
+                    return MCPPrefabCommands.RevertOverrides(args);
                 case "prefab/unpack":
-                    return MCPPrefabCommands.Unpack(ParseJson(body));
+                    return MCPPrefabCommands.Unpack(args);
                 case "prefab/set-object-reference":
-                    return MCPPrefabCommands.SetObjectReference(ParseJson(body));
+                    return MCPPrefabCommands.SetObjectReference(args);
                 case "prefab/duplicate":
-                    return MCPPrefabCommands.Duplicate(ParseJson(body));
+                    return MCPPrefabCommands.Duplicate(args);
                 case "prefab/set-active":
-                    return MCPPrefabCommands.SetActive(ParseJson(body));
+                    return MCPPrefabCommands.SetActive(args);
                 case "prefab/reparent":
-                    return MCPPrefabCommands.Reparent(ParseJson(body));
+                    return MCPPrefabCommands.Reparent(args);
 
                 // ─── Prefab Asset (Direct Editing) ───
                 case "prefab-asset/hierarchy":
-                    return MCPPrefabAssetCommands.GetHierarchy(ParseJson(body));
+                    return MCPPrefabAssetCommands.GetHierarchy(args);
                 case "prefab-asset/get-properties":
-                    return MCPPrefabAssetCommands.GetComponentProperties(ParseJson(body));
+                    return MCPPrefabAssetCommands.GetComponentProperties(args);
                 case "prefab-asset/set-property":
-                    return MCPPrefabAssetCommands.SetComponentProperty(ParseJson(body));
+                    return MCPPrefabAssetCommands.SetComponentProperty(args);
                 case "prefab-asset/add-component":
-                    return MCPPrefabAssetCommands.AddComponent(ParseJson(body));
+                    return MCPPrefabAssetCommands.AddComponent(args);
                 case "prefab-asset/remove-component":
-                    return MCPPrefabAssetCommands.RemoveComponent(ParseJson(body));
+                    return MCPPrefabAssetCommands.RemoveComponent(args);
                 case "prefab-asset/set-reference":
-                    return MCPPrefabAssetCommands.SetReference(ParseJson(body));
+                    return MCPPrefabAssetCommands.SetReference(args);
                 case "prefab-asset/add-gameobject":
-                    return MCPPrefabAssetCommands.AddGameObject(ParseJson(body));
+                    return MCPPrefabAssetCommands.AddGameObject(args);
                 case "prefab-asset/remove-gameobject":
-                    return MCPPrefabAssetCommands.RemoveGameObject(ParseJson(body));
+                    return MCPPrefabAssetCommands.RemoveGameObject(args);
 
                 // ─── Prefab Variant Management ───
                 case "prefab-asset/variant-info":
-                    return MCPPrefabAssetCommands.GetVariantInfo(ParseJson(body));
+                    return MCPPrefabAssetCommands.GetVariantInfo(args);
                 case "prefab-asset/compare-variant":
-                    return MCPPrefabAssetCommands.CompareVariantToBase(ParseJson(body));
+                    return MCPPrefabAssetCommands.CompareVariantToBase(args);
                 case "prefab-asset/apply-variant-override":
-                    return MCPPrefabAssetCommands.ApplyVariantOverride(ParseJson(body));
+                    return MCPPrefabAssetCommands.ApplyVariantOverride(args);
                 case "prefab-asset/revert-variant-override":
-                    return MCPPrefabAssetCommands.RevertVariantOverride(ParseJson(body));
+                    return MCPPrefabAssetCommands.RevertVariantOverride(args);
                 case "prefab-asset/transfer-variant-overrides":
-                    return MCPPrefabAssetCommands.TransferVariantOverrides(ParseJson(body));
+                    return MCPPrefabAssetCommands.TransferVariantOverrides(args);
 
                 // ─── Physics ───
                 case "physics/raycast":
-                    return MCPPhysicsCommands.Raycast(ParseJson(body));
+                    return MCPPhysicsCommands.Raycast(args);
                 case "physics/overlap-sphere":
-                    return MCPPhysicsCommands.OverlapSphere(ParseJson(body));
+                    return MCPPhysicsCommands.OverlapSphere(args);
                 case "physics/overlap-box":
-                    return MCPPhysicsCommands.OverlapBox(ParseJson(body));
+                    return MCPPhysicsCommands.OverlapBox(args);
                 case "physics/collision-matrix":
-                    return MCPPhysicsCommands.GetCollisionMatrix(ParseJson(body));
+                    return MCPPhysicsCommands.GetCollisionMatrix(args);
                 case "physics/set-collision-layer":
-                    return MCPPhysicsCommands.SetCollisionLayer(ParseJson(body));
+                    return MCPPhysicsCommands.SetCollisionLayer(args);
                 case "physics/set-gravity":
-                    return MCPPhysicsCommands.SetGravity(ParseJson(body));
+                    return MCPPhysicsCommands.SetGravity(args);
 
                 // ─── Lighting ───
                 case "lighting/info":
-                    return MCPLightingCommands.GetLightingInfo(ParseJson(body));
+                    return MCPLightingCommands.GetLightingInfo(args);
                 case "lighting/create":
-                    return MCPLightingCommands.CreateLight(ParseJson(body));
+                    return MCPLightingCommands.CreateLight(args);
                 case "lighting/set-environment":
-                    return MCPLightingCommands.SetEnvironment(ParseJson(body));
+                    return MCPLightingCommands.SetEnvironment(args);
                 case "lighting/create-reflection-probe":
-                    return MCPLightingCommands.CreateReflectionProbe(ParseJson(body));
+                    return MCPLightingCommands.CreateReflectionProbe(args);
                 case "lighting/create-light-probe-group":
-                    return MCPLightingCommands.CreateLightProbeGroup(ParseJson(body));
+                    return MCPLightingCommands.CreateLightProbeGroup(args);
 
                 // ─── Audio ───
                 case "audio/info":
-                    return MCPAudioCommands.GetAudioInfo(ParseJson(body));
+                    return MCPAudioCommands.GetAudioInfo(args);
                 case "audio/create-source":
-                    return MCPAudioCommands.CreateAudioSource(ParseJson(body));
+                    return MCPAudioCommands.CreateAudioSource(args);
                 case "audio/set-global":
-                    return MCPAudioCommands.SetGlobalAudio(ParseJson(body));
+                    return MCPAudioCommands.SetGlobalAudio(args);
 
                 // ─── Tags & Layers ───
                 case "taglayer/info":
-                    return MCPTagLayerCommands.GetTagsAndLayers(ParseJson(body));
+                    return MCPTagLayerCommands.GetTagsAndLayers(args);
                 case "taglayer/add-tag":
-                    return MCPTagLayerCommands.AddTag(ParseJson(body));
+                    return MCPTagLayerCommands.AddTag(args);
                 case "taglayer/set-tag":
-                    return MCPTagLayerCommands.SetTag(ParseJson(body));
+                    return MCPTagLayerCommands.SetTag(args);
                 case "taglayer/set-layer":
-                    return MCPTagLayerCommands.SetLayer(ParseJson(body));
+                    return MCPTagLayerCommands.SetLayer(args);
                 case "taglayer/set-static":
-                    return MCPTagLayerCommands.SetStatic(ParseJson(body));
+                    return MCPTagLayerCommands.SetStatic(args);
 
                 // ─── Selection & Scene View ───
                 case "selection/get":
-                    return MCPSelectionCommands.GetSelection(ParseJson(body));
+                    return MCPSelectionCommands.GetSelection(args);
                 case "selection/set":
-                    return MCPSelectionCommands.SetSelection(ParseJson(body));
+                    return MCPSelectionCommands.SetSelection(args);
                 case "selection/focus-scene-view":
-                    return MCPSelectionCommands.FocusSceneView(ParseJson(body));
+                    return MCPSelectionCommands.FocusSceneView(args);
                 case "selection/find-by-type":
-                    return MCPSelectionCommands.FindObjectsByType(ParseJson(body));
+                    return MCPSelectionCommands.FindObjectsByType(args);
 
                 // ─── Input Actions ───
                 case "input/create":
-                    return MCPInputCommands.CreateInputActions(ParseJson(body));
+                    return MCPInputCommands.CreateInputActions(args);
                 case "input/info":
-                    return MCPInputCommands.GetInputActionsInfo(ParseJson(body));
+                    return MCPInputCommands.GetInputActionsInfo(args);
                 case "input/add-map":
-                    return MCPInputCommands.AddActionMap(ParseJson(body));
+                    return MCPInputCommands.AddActionMap(args);
                 case "input/remove-map":
-                    return MCPInputCommands.RemoveActionMap(ParseJson(body));
+                    return MCPInputCommands.RemoveActionMap(args);
                 case "input/add-action":
-                    return MCPInputCommands.AddAction(ParseJson(body));
+                    return MCPInputCommands.AddAction(args);
                 case "input/remove-action":
-                    return MCPInputCommands.RemoveAction(ParseJson(body));
+                    return MCPInputCommands.RemoveAction(args);
                 case "input/add-binding":
-                    return MCPInputCommands.AddBinding(ParseJson(body));
+                    return MCPInputCommands.AddBinding(args);
                 case "input/add-composite-binding":
-                    return MCPInputCommands.AddCompositeBinding(ParseJson(body));
+                    return MCPInputCommands.AddCompositeBinding(args);
 
                 // ─── Assembly Definitions ───
                 case "asmdef/create":
-                    return MCPAssemblyDefCommands.CreateAssemblyDef(ParseJson(body));
+                    return MCPAssemblyDefCommands.CreateAssemblyDef(args);
                 case "asmdef/info":
-                    return MCPAssemblyDefCommands.GetAssemblyDefInfo(ParseJson(body));
+                    return MCPAssemblyDefCommands.GetAssemblyDefInfo(args);
                 case "asmdef/list":
-                    return MCPAssemblyDefCommands.ListAssemblyDefs(ParseJson(body));
+                    return MCPAssemblyDefCommands.ListAssemblyDefs(args);
                 case "asmdef/add-references":
-                    return MCPAssemblyDefCommands.AddReferences(ParseJson(body));
+                    return MCPAssemblyDefCommands.AddReferences(args);
                 case "asmdef/remove-references":
-                    return MCPAssemblyDefCommands.RemoveReferences(ParseJson(body));
+                    return MCPAssemblyDefCommands.RemoveReferences(args);
                 case "asmdef/set-platforms":
-                    return MCPAssemblyDefCommands.SetPlatforms(ParseJson(body));
+                    return MCPAssemblyDefCommands.SetPlatforms(args);
                 case "asmdef/update-settings":
-                    return MCPAssemblyDefCommands.UpdateSettings(ParseJson(body));
+                    return MCPAssemblyDefCommands.UpdateSettings(args);
                 case "asmdef/create-ref":
-                    return MCPAssemblyDefCommands.CreateAssemblyRef(ParseJson(body));
+                    return MCPAssemblyDefCommands.CreateAssemblyRef(args);
 
                 // ─── Profiler ───
                 case "profiler/enable":
-                    return MCPProfilerCommands.EnableProfiler(ParseJson(body));
+                    return MCPProfilerCommands.EnableProfiler(args);
                 case "profiler/stats":
-                    return MCPProfilerCommands.GetRenderingStats(ParseJson(body));
+                    return MCPProfilerCommands.GetRenderingStats(args);
                 case "profiler/memory":
-                    return MCPProfilerCommands.GetMemoryInfo(ParseJson(body));
+                    return MCPProfilerCommands.GetMemoryInfo(args);
                 case "profiler/frame-data":
-                    return MCPProfilerCommands.GetFrameData(ParseJson(body));
+                    return MCPProfilerCommands.GetFrameData(args);
                 case "profiler/analyze":
-                    return MCPProfilerCommands.AnalyzePerformance(ParseJson(body));
+                    return MCPProfilerCommands.AnalyzePerformance(args);
 
                 // ─── Frame Debugger ───
                 case "debugger/enable":
-                    return MCPProfilerCommands.EnableFrameDebugger(ParseJson(body));
+                    return MCPProfilerCommands.EnableFrameDebugger(args);
                 case "debugger/events":
-                    return MCPProfilerCommands.GetFrameEvents(ParseJson(body));
+                    return MCPProfilerCommands.GetFrameEvents(args);
                 case "debugger/event-details":
-                    return MCPProfilerCommands.GetFrameEventDetails(ParseJson(body));
+                    return MCPProfilerCommands.GetFrameEventDetails(args);
 
                 // ─── Memory Profiler ───
                 case "profiler/memory-status":
-                    return MCPMemoryProfilerCommands.GetStatus(ParseJson(body));
+                    return MCPMemoryProfilerCommands.GetStatus(args);
                 case "profiler/memory-breakdown":
-                    return MCPMemoryProfilerCommands.GetMemoryBreakdown(ParseJson(body));
+                    return MCPMemoryProfilerCommands.GetMemoryBreakdown(args);
                 case "profiler/memory-top-assets":
-                    return MCPMemoryProfilerCommands.GetTopMemoryConsumers(ParseJson(body));
+                    return MCPMemoryProfilerCommands.GetTopMemoryConsumers(args);
                 case "profiler/memory-snapshot":
-                    return MCPMemoryProfilerCommands.TakeMemorySnapshot(ParseJson(body));
+                    return MCPMemoryProfilerCommands.TakeMemorySnapshot(args);
 
                 // ─── Shader Graph ───
                 case "shadergraph/status":
-                    return MCPShaderGraphCommands.GetStatus(ParseJson(body));
+                    return MCPShaderGraphCommands.GetStatus(args);
                 case "shadergraph/list-shaders":
-                    return MCPShaderGraphCommands.ListShaders(ParseJson(body));
+                    return MCPShaderGraphCommands.ListShaders(args);
                 case "shadergraph/list":
-                    return MCPShaderGraphCommands.ListShaderGraphs(ParseJson(body));
+                    return MCPShaderGraphCommands.ListShaderGraphs(args);
                 case "shadergraph/info":
-                    return MCPShaderGraphCommands.GetShaderGraphInfo(ParseJson(body));
+                    return MCPShaderGraphCommands.GetShaderGraphInfo(args);
                 case "shadergraph/get-properties":
-                    return MCPShaderGraphCommands.GetShaderProperties(ParseJson(body));
+                    return MCPShaderGraphCommands.GetShaderProperties(args);
                 case "shadergraph/create":
-                    return MCPShaderGraphCommands.CreateShaderGraph(ParseJson(body));
+                    return MCPShaderGraphCommands.CreateShaderGraph(args);
                 case "shadergraph/open":
-                    return MCPShaderGraphCommands.OpenShaderGraph(ParseJson(body));
+                    return MCPShaderGraphCommands.OpenShaderGraph(args);
                 case "shadergraph/list-subgraphs":
-                    return MCPShaderGraphCommands.ListSubGraphs(ParseJson(body));
+                    return MCPShaderGraphCommands.ListSubGraphs(args);
                 case "shadergraph/list-vfx":
-                    return MCPShaderGraphCommands.ListVFXGraphs(ParseJson(body));
+                    return MCPShaderGraphCommands.ListVFXGraphs(args);
                 case "shadergraph/open-vfx":
-                    return MCPShaderGraphCommands.OpenVFXGraph(ParseJson(body));
+                    return MCPShaderGraphCommands.OpenVFXGraph(args);
                 case "shadergraph/get-nodes":
-                    return MCPShaderGraphCommands.GetGraphNodes(ParseJson(body));
+                    return MCPShaderGraphCommands.GetGraphNodes(args);
                 case "shadergraph/get-edges":
-                    return MCPShaderGraphCommands.GetGraphEdges(ParseJson(body));
+                    return MCPShaderGraphCommands.GetGraphEdges(args);
                 case "shadergraph/add-node":
-                    return MCPShaderGraphCommands.AddGraphNode(ParseJson(body));
+                    return MCPShaderGraphCommands.AddGraphNode(args);
                 case "shadergraph/remove-node":
-                    return MCPShaderGraphCommands.RemoveGraphNode(ParseJson(body));
+                    return MCPShaderGraphCommands.RemoveGraphNode(args);
                 case "shadergraph/connect":
-                    return MCPShaderGraphCommands.ConnectGraphNodes(ParseJson(body));
+                    return MCPShaderGraphCommands.ConnectGraphNodes(args);
                 case "shadergraph/disconnect":
-                    return MCPShaderGraphCommands.DisconnectGraphNodes(ParseJson(body));
+                    return MCPShaderGraphCommands.DisconnectGraphNodes(args);
                 case "shadergraph/set-node-property":
-                    return MCPShaderGraphCommands.SetGraphNodeProperty(ParseJson(body));
+                    return MCPShaderGraphCommands.SetGraphNodeProperty(args);
                 case "shadergraph/get-node-types":
-                    return MCPShaderGraphCommands.GetNodeTypes(ParseJson(body));
+                    return MCPShaderGraphCommands.GetNodeTypes(args);
 
                 // ─── Amplify Shader Editor ───
                 case "amplify/status":
-                    return MCPAmplifyCommands.GetStatus(ParseJson(body));
+                    return MCPAmplifyCommands.GetStatus(args);
                 case "amplify/list":
-                    return MCPAmplifyCommands.ListAmplifyShaders(ParseJson(body));
+                    return MCPAmplifyCommands.ListAmplifyShaders(args);
                 case "amplify/info":
-                    return MCPAmplifyCommands.GetAmplifyShaderInfo(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyShaderInfo(args);
                 case "amplify/open":
-                    return MCPAmplifyCommands.OpenAmplifyShader(ParseJson(body));
+                    return MCPAmplifyCommands.OpenAmplifyShader(args);
                 case "amplify/list-functions":
-                    return MCPAmplifyCommands.ListAmplifyFunctions(ParseJson(body));
+                    return MCPAmplifyCommands.ListAmplifyFunctions(args);
                 case "amplify/get-node-types":
-                    return MCPAmplifyCommands.GetAmplifyNodeTypes(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyNodeTypes(args);
                 case "amplify/get-nodes":
-                    return MCPAmplifyCommands.GetAmplifyGraphNodes(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyGraphNodes(args);
                 case "amplify/get-connections":
-                    return MCPAmplifyCommands.GetAmplifyGraphConnections(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyGraphConnections(args);
                 case "amplify/create-shader":
-                    return MCPAmplifyCommands.CreateAmplifyShader(ParseJson(body));
+                    return MCPAmplifyCommands.CreateAmplifyShader(args);
                 case "amplify/add-node":
-                    return MCPAmplifyCommands.AddAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.AddAmplifyNode(args);
                 case "amplify/remove-node":
-                    return MCPAmplifyCommands.RemoveAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.RemoveAmplifyNode(args);
                 case "amplify/connect":
-                    return MCPAmplifyCommands.ConnectAmplifyNodes(ParseJson(body));
+                    return MCPAmplifyCommands.ConnectAmplifyNodes(args);
                 case "amplify/disconnect":
-                    return MCPAmplifyCommands.DisconnectAmplifyNodes(ParseJson(body));
+                    return MCPAmplifyCommands.DisconnectAmplifyNodes(args);
                 case "amplify/node-info":
-                    return MCPAmplifyCommands.GetAmplifyNodeInfo(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyNodeInfo(args);
                 case "amplify/set-node-property":
-                    return MCPAmplifyCommands.SetAmplifyNodeProperty(ParseJson(body));
+                    return MCPAmplifyCommands.SetAmplifyNodeProperty(args);
                 case "amplify/move-node":
-                    return MCPAmplifyCommands.MoveAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.MoveAmplifyNode(args);
                 case "amplify/save":
-                    return MCPAmplifyCommands.SaveAmplifyGraph(ParseJson(body));
+                    return MCPAmplifyCommands.SaveAmplifyGraph(args);
                 case "amplify/close":
-                    return MCPAmplifyCommands.CloseAmplifyEditor(ParseJson(body));
+                    return MCPAmplifyCommands.CloseAmplifyEditor(args);
                 case "amplify/create-from-template":
-                    return MCPAmplifyCommands.CreateAmplifyFromTemplate(ParseJson(body));
+                    return MCPAmplifyCommands.CreateAmplifyFromTemplate(args);
                 case "amplify/focus-node":
-                    return MCPAmplifyCommands.FocusAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.FocusAmplifyNode(args);
                 case "amplify/master-node-info":
-                    return MCPAmplifyCommands.GetAmplifyMasterNodeInfo(ParseJson(body));
+                    return MCPAmplifyCommands.GetAmplifyMasterNodeInfo(args);
                 case "amplify/disconnect-all":
-                    return MCPAmplifyCommands.DisconnectAllAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.DisconnectAllAmplifyNode(args);
                 case "amplify/duplicate-node":
-                    return MCPAmplifyCommands.DuplicateAmplifyNode(ParseJson(body));
+                    return MCPAmplifyCommands.DuplicateAmplifyNode(args);
 
                 // ─── Agent Management ───
                 case "agents/list":
                     return MCPRequestQueue.GetActiveSessions();
                 case "agents/log":
                 {
-                    var agentArgs = ParseJson(body);
+                    var agentArgs = args;
                     string id = agentArgs.ContainsKey("agentId") ? agentArgs["agentId"].ToString() : "";
                     return new Dictionary<string, object>
                     {
@@ -1137,362 +1191,348 @@ namespace UnityMCP.Editor
 
                 // ─── Search ───
                 case "search/by-component":
-                    return MCPSearchCommands.FindByComponent(ParseJson(body));
+                    return MCPSearchCommands.FindByComponent(args);
                 case "search/by-tag":
-                    return MCPSearchCommands.FindByTag(ParseJson(body));
+                    return MCPSearchCommands.FindByTag(args);
                 case "search/by-layer":
-                    return MCPSearchCommands.FindByLayer(ParseJson(body));
+                    return MCPSearchCommands.FindByLayer(args);
                 case "search/by-name":
-                    return MCPSearchCommands.FindByName(ParseJson(body));
+                    return MCPSearchCommands.FindByName(args);
                 case "search/by-shader":
-                    return MCPSearchCommands.FindByShader(ParseJson(body));
+                    return MCPSearchCommands.FindByShader(args);
                 case "search/assets":
-                    return MCPSearchCommands.SearchAssets(ParseJson(body));
+                    return MCPSearchCommands.SearchAssets(args);
                 case "search/missing-references":
-                    return MCPSearchCommands.FindMissingReferences(ParseJson(body));
+                    return MCPSearchCommands.FindMissingReferences(args);
                 case "search/scene-stats":
-                    return MCPSearchCommands.GetSceneStats(ParseJson(body));
+                    return MCPSearchCommands.GetSceneStats(args);
 
                 // ─── Project Settings ───
                 case "settings/quality":
-                    return MCPProjectSettingsCommands.GetQualitySettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.GetQualitySettings(args);
                 case "settings/quality-level":
-                    return MCPProjectSettingsCommands.SetQualityLevel(ParseJson(body));
+                    return MCPProjectSettingsCommands.SetQualityLevel(args);
                 case "settings/physics":
-                    return MCPProjectSettingsCommands.GetPhysicsSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.GetPhysicsSettings(args);
                 case "settings/set-physics":
-                    return MCPProjectSettingsCommands.SetPhysicsSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.SetPhysicsSettings(args);
                 case "settings/time":
-                    return MCPProjectSettingsCommands.GetTimeSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.GetTimeSettings(args);
                 case "settings/set-time":
-                    return MCPProjectSettingsCommands.SetTimeSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.SetTimeSettings(args);
                 case "settings/player":
-                    return MCPProjectSettingsCommands.GetPlayerSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.GetPlayerSettings(args);
                 case "settings/set-player":
-                    return MCPProjectSettingsCommands.SetPlayerSettings(ParseJson(body));
+                    return MCPProjectSettingsCommands.SetPlayerSettings(args);
                 case "settings/render-pipeline":
-                    return MCPProjectSettingsCommands.GetRenderPipelineInfo(ParseJson(body));
+                    return MCPProjectSettingsCommands.GetRenderPipelineInfo(args);
 
                 // ─── Undo ───
                 case "undo/perform":
-                    return MCPUndoCommands.PerformUndo(ParseJson(body));
+                    return MCPUndoCommands.PerformUndo(args);
                 case "undo/last":
-                    return MCPUndoCommands.UndoLast(ParseJson(body));
+                    return MCPUndoCommands.UndoLast(args);
                 case "undo/redo":
-                    return MCPUndoCommands.PerformRedo(ParseJson(body));
+                    return MCPUndoCommands.PerformRedo(args);
                 case "undo/history":
-                    return MCPUndoCommands.GetUndoHistory(ParseJson(body));
+                    return MCPUndoCommands.GetUndoHistory(args);
                 case "undo/clear":
-                    return MCPUndoCommands.ClearUndo(ParseJson(body));
+                    return MCPUndoCommands.ClearUndo(args);
 
                 // ─── ProBuilder ───
                 case "probuilder/create-shape":
-                    return MCPProBuilderCommands.CreateShape(ParseJson(body));
+                    return MCPProBuilderCommands.CreateShape(args);
                 case "probuilder/info":
-                    return MCPProBuilderCommands.GetInfo(ParseJson(body));
+                    return MCPProBuilderCommands.GetInfo(args);
                 case "probuilder/extrude-faces":
-                    return MCPProBuilderCommands.ExtrudeFaces(ParseJson(body));
+                    return MCPProBuilderCommands.ExtrudeFaces(args);
                 case "probuilder/bevel-edges":
-                    return MCPProBuilderCommands.BevelEdges(ParseJson(body));
+                    return MCPProBuilderCommands.BevelEdges(args);
                 case "probuilder/subdivide":
-                    return MCPProBuilderCommands.Subdivide(ParseJson(body));
+                    return MCPProBuilderCommands.Subdivide(args);
                 case "probuilder/delete-faces":
-                    return MCPProBuilderCommands.DeleteFaces(ParseJson(body));
+                    return MCPProBuilderCommands.DeleteFaces(args);
                 case "probuilder/translate-faces":
-                    return MCPProBuilderCommands.TranslateFaces(ParseJson(body));
+                    return MCPProBuilderCommands.TranslateFaces(args);
                 case "probuilder/flip-normals":
-                    return MCPProBuilderCommands.FlipNormals(ParseJson(body));
+                    return MCPProBuilderCommands.FlipNormals(args);
                 case "probuilder/set-face-material":
-                    return MCPProBuilderCommands.SetFaceMaterial(ParseJson(body));
+                    return MCPProBuilderCommands.SetFaceMaterial(args);
                 case "probuilder/boolean":
-                    return MCPProBuilderCommands.BooleanOp(ParseJson(body));
+                    return MCPProBuilderCommands.BooleanOp(args);
                 case "probuilder/combine":
-                    return MCPProBuilderCommands.Combine(ParseJson(body));
+                    return MCPProBuilderCommands.Combine(args);
                 case "probuilder/probuilderize":
-                    return MCPProBuilderCommands.ProBuilderize(ParseJson(body));
+                    return MCPProBuilderCommands.ProBuilderize(args);
                 case "probuilder/center-pivot":
-                    return MCPProBuilderCommands.CenterPivot(ParseJson(body));
+                    return MCPProBuilderCommands.CenterPivot(args);
                 case "probuilder/export-mesh":
-                    return MCPProBuilderCommands.ExportMesh(ParseJson(body));
+                    return MCPProBuilderCommands.ExportMesh(args);
 
                 // ─── Screenshot / Scene View ───
                 case "screenshot/game":
-                    return MCPScreenshotCommands.CaptureGameView(ParseJson(body));
+                    return MCPScreenshotCommands.CaptureGameView(args);
                 case "screenshot/scene":
-                    return MCPScreenshotCommands.CaptureSceneView(ParseJson(body));
+                    return MCPScreenshotCommands.CaptureSceneView(args);
                 case "screenshot/editor-window":
-                    return MCPScreenshotCommands.CaptureEditorWindow(ParseJson(body));
+                    return MCPScreenshotCommands.CaptureEditorWindow(args);
                 case "sceneview/info":
-                    return MCPScreenshotCommands.GetSceneViewInfo(ParseJson(body));
+                    return MCPScreenshotCommands.GetSceneViewInfo(args);
                 case "sceneview/set-camera":
-                    return MCPScreenshotCommands.SetSceneViewCamera(ParseJson(body));
+                    return MCPScreenshotCommands.SetSceneViewCamera(args);
 
                 // ─── Graphics & Visuals ───
                 case "graphics/asset-preview":
-                    return MCPGraphicsCommands.CaptureAssetPreview(ParseJson(body));
+                    return MCPGraphicsCommands.CaptureAssetPreview(args);
                 case "graphics/scene-capture":
-                    return MCPGraphicsCommands.CaptureSceneView(ParseJson(body));
+                    return MCPGraphicsCommands.CaptureSceneView(args);
                 case "graphics/game-capture":
-                    return MCPGraphicsCommands.CaptureGameView(ParseJson(body));
+                    return MCPGraphicsCommands.CaptureGameView(args);
                 case "graphics/prefab-render":
-                    return MCPGraphicsCommands.RenderPrefabPreview(ParseJson(body));
+                    return MCPGraphicsCommands.RenderPrefabPreview(args);
                 case "graphics/mesh-info":
-                    return MCPGraphicsCommands.GetMeshInfo(ParseJson(body));
+                    return MCPGraphicsCommands.GetMeshInfo(args);
                 case "graphics/material-info":
-                    return MCPGraphicsCommands.GetMaterialInfo(ParseJson(body));
+                    return MCPGraphicsCommands.GetMaterialInfo(args);
                 case "graphics/texture-info":
-                    return MCPGraphicsCommands.GetTextureInfo(ParseJson(body));
+                    return MCPGraphicsCommands.GetTextureInfo(args);
                 case "graphics/renderer-info":
-                    return MCPGraphicsCommands.GetRendererInfo(ParseJson(body));
+                    return MCPGraphicsCommands.GetRendererInfo(args);
                 case "graphics/lighting-summary":
-                    return MCPGraphicsCommands.GetLightingSummary(ParseJson(body));
+                    return MCPGraphicsCommands.GetLightingSummary(args);
 
                 // ─── Terrain ───
                 case "terrain/create":
-                    return MCPTerrainCommands.CreateTerrain(ParseJson(body));
+                    return MCPTerrainCommands.CreateTerrain(args);
                 case "terrain/info":
-                    return MCPTerrainCommands.GetTerrainInfo(ParseJson(body));
+                    return MCPTerrainCommands.GetTerrainInfo(args);
                 case "terrain/set-height":
-                    return MCPTerrainCommands.SetHeight(ParseJson(body));
+                    return MCPTerrainCommands.SetHeight(args);
                 case "terrain/flatten":
-                    return MCPTerrainCommands.FlattenTerrain(ParseJson(body));
+                    return MCPTerrainCommands.FlattenTerrain(args);
                 case "terrain/add-layer":
-                    return MCPTerrainCommands.AddTerrainLayer(ParseJson(body));
+                    return MCPTerrainCommands.AddTerrainLayer(args);
                 case "terrain/get-height":
-                    return MCPTerrainCommands.GetHeightAtPosition(ParseJson(body));
+                    return MCPTerrainCommands.GetHeightAtPosition(args);
                 case "terrain/list":
-                    return MCPTerrainCommands.ListTerrains(ParseJson(body));
+                    return MCPTerrainCommands.ListTerrains(args);
                 case "terrain/raise-lower":
-                    return MCPTerrainCommands.RaiseLowerHeight(ParseJson(body));
+                    return MCPTerrainCommands.RaiseLowerHeight(args);
                 case "terrain/smooth":
-                    return MCPTerrainCommands.SmoothHeight(ParseJson(body));
+                    return MCPTerrainCommands.SmoothHeight(args);
                 case "terrain/noise":
-                    return MCPTerrainCommands.SetHeightsFromNoise(ParseJson(body));
+                    return MCPTerrainCommands.SetHeightsFromNoise(args);
                 case "terrain/set-heights-region":
-                    return MCPTerrainCommands.SetHeightsRegion(ParseJson(body));
+                    return MCPTerrainCommands.SetHeightsRegion(args);
                 case "terrain/get-heights-region":
-                    return MCPTerrainCommands.GetHeightsRegion(ParseJson(body));
+                    return MCPTerrainCommands.GetHeightsRegion(args);
                 case "terrain/remove-layer":
-                    return MCPTerrainCommands.RemoveTerrainLayer(ParseJson(body));
+                    return MCPTerrainCommands.RemoveTerrainLayer(args);
                 case "terrain/paint-layer":
-                    return MCPTerrainCommands.PaintTerrainLayer(ParseJson(body));
+                    return MCPTerrainCommands.PaintTerrainLayer(args);
                 case "terrain/fill-layer":
-                    return MCPTerrainCommands.FillTerrainLayer(ParseJson(body));
+                    return MCPTerrainCommands.FillTerrainLayer(args);
                 case "terrain/add-tree-prototype":
-                    return MCPTerrainCommands.AddTreePrototype(ParseJson(body));
+                    return MCPTerrainCommands.AddTreePrototype(args);
                 case "terrain/remove-tree-prototype":
-                    return MCPTerrainCommands.RemoveTreePrototype(ParseJson(body));
+                    return MCPTerrainCommands.RemoveTreePrototype(args);
                 case "terrain/place-trees":
-                    return MCPTerrainCommands.PlaceTrees(ParseJson(body));
+                    return MCPTerrainCommands.PlaceTrees(args);
                 case "terrain/clear-trees":
-                    return MCPTerrainCommands.ClearTrees(ParseJson(body));
+                    return MCPTerrainCommands.ClearTrees(args);
                 case "terrain/get-tree-instances":
-                    return MCPTerrainCommands.GetTreeInstances(ParseJson(body));
+                    return MCPTerrainCommands.GetTreeInstances(args);
                 case "terrain/add-detail-prototype":
-                    return MCPTerrainCommands.AddDetailPrototype(ParseJson(body));
+                    return MCPTerrainCommands.AddDetailPrototype(args);
                 case "terrain/paint-detail":
-                    return MCPTerrainCommands.PaintDetail(ParseJson(body));
+                    return MCPTerrainCommands.PaintDetail(args);
                 case "terrain/scatter-detail":
-                    return MCPTerrainCommands.ScatterDetail(ParseJson(body));
+                    return MCPTerrainCommands.ScatterDetail(args);
                 case "terrain/clear-detail":
-                    return MCPTerrainCommands.ClearDetail(ParseJson(body));
+                    return MCPTerrainCommands.ClearDetail(args);
                 case "terrain/set-holes":
-                    return MCPTerrainCommands.SetHoles(ParseJson(body));
+                    return MCPTerrainCommands.SetHoles(args);
                 case "terrain/set-settings":
-                    return MCPTerrainCommands.SetTerrainSettings(ParseJson(body));
+                    return MCPTerrainCommands.SetTerrainSettings(args);
                 case "terrain/resize":
-                    return MCPTerrainCommands.ResizeTerrain(ParseJson(body));
+                    return MCPTerrainCommands.ResizeTerrain(args);
                 case "terrain/create-grid":
-                    return MCPTerrainCommands.CreateTerrainGrid(ParseJson(body));
+                    return MCPTerrainCommands.CreateTerrainGrid(args);
                 case "terrain/set-neighbors":
-                    return MCPTerrainCommands.SetTerrainNeighbors(ParseJson(body));
+                    return MCPTerrainCommands.SetTerrainNeighbors(args);
                 case "terrain/import-heightmap":
-                    return MCPTerrainCommands.ImportHeightmap(ParseJson(body));
+                    return MCPTerrainCommands.ImportHeightmap(args);
                 case "terrain/export-heightmap":
-                    return MCPTerrainCommands.ExportHeightmap(ParseJson(body));
+                    return MCPTerrainCommands.ExportHeightmap(args);
                 case "terrain/get-steepness":
-                    return MCPTerrainCommands.GetSteepness(ParseJson(body));
+                    return MCPTerrainCommands.GetSteepness(args);
 
                 // ─── Particle System ───
                 case "particle/create":
-                    return MCPParticleCommands.CreateParticleSystem(ParseJson(body));
+                    return MCPParticleCommands.CreateParticleSystem(args);
                 case "particle/info":
-                    return MCPParticleCommands.GetParticleSystemInfo(ParseJson(body));
+                    return MCPParticleCommands.GetParticleSystemInfo(args);
                 case "particle/set-main":
-                    return MCPParticleCommands.SetMainModule(ParseJson(body));
+                    return MCPParticleCommands.SetMainModule(args);
                 case "particle/set-emission":
-                    return MCPParticleCommands.SetEmission(ParseJson(body));
+                    return MCPParticleCommands.SetEmission(args);
                 case "particle/set-shape":
-                    return MCPParticleCommands.SetShape(ParseJson(body));
+                    return MCPParticleCommands.SetShape(args);
                 case "particle/playback":
-                    return MCPParticleCommands.PlaybackControl(ParseJson(body));
+                    return MCPParticleCommands.PlaybackControl(args);
 
                 // ─── ScriptableObject ───
                 case "scriptableobject/create":
-                    return MCPScriptableObjectCommands.CreateScriptableObject(ParseJson(body));
+                    return MCPScriptableObjectCommands.CreateScriptableObject(args);
                 case "scriptableobject/info":
-                    return MCPScriptableObjectCommands.GetScriptableObjectInfo(ParseJson(body));
+                    return MCPScriptableObjectCommands.GetScriptableObjectInfo(args);
                 case "scriptableobject/set-field":
-                    return MCPScriptableObjectCommands.SetScriptableObjectField(ParseJson(body));
+                    return MCPScriptableObjectCommands.SetScriptableObjectField(args);
                 case "scriptableobject/list-types":
-                    return MCPScriptableObjectCommands.ListScriptableObjectTypes(ParseJson(body));
+                    return MCPScriptableObjectCommands.ListScriptableObjectTypes(args);
 
                 // ─── Texture ───
                 case "texture/info":
-                    return MCPTextureCommands.GetTextureInfo(ParseJson(body));
+                    return MCPTextureCommands.GetTextureInfo(args);
                 case "texture/set-import":
-                    return MCPTextureCommands.SetTextureImportSettings(ParseJson(body));
+                    return MCPTextureCommands.SetTextureImportSettings(args);
                 case "texture/reimport":
-                    return MCPTextureCommands.ReimportTexture(ParseJson(body));
+                    return MCPTextureCommands.ReimportTexture(args);
                 case "texture/set-sprite":
-                    return MCPTextureCommands.SetAsSprite(ParseJson(body));
+                    return MCPTextureCommands.SetAsSprite(args);
                 case "texture/set-normalmap":
-                    return MCPTextureCommands.SetAsNormalMap(ParseJson(body));
+                    return MCPTextureCommands.SetAsNormalMap(args);
 
                 // ─── Sprite Atlas ───
                 case "spriteatlas/create":
-                    return MCPSpriteAtlasCommands.CreateSpriteAtlas(ParseJson(body));
+                    return MCPSpriteAtlasCommands.CreateSpriteAtlas(args);
                 case "spriteatlas/info":
-                    return MCPSpriteAtlasCommands.GetSpriteAtlasInfo(ParseJson(body));
+                    return MCPSpriteAtlasCommands.GetSpriteAtlasInfo(args);
                 case "spriteatlas/add":
-                    return MCPSpriteAtlasCommands.AddToSpriteAtlas(ParseJson(body));
+                    return MCPSpriteAtlasCommands.AddToSpriteAtlas(args);
                 case "spriteatlas/remove":
-                    return MCPSpriteAtlasCommands.RemoveFromSpriteAtlas(ParseJson(body));
+                    return MCPSpriteAtlasCommands.RemoveFromSpriteAtlas(args);
                 case "spriteatlas/settings":
-                    return MCPSpriteAtlasCommands.SetSpriteAtlasSettings(ParseJson(body));
+                    return MCPSpriteAtlasCommands.SetSpriteAtlasSettings(args);
                 case "spriteatlas/delete":
-                    return MCPSpriteAtlasCommands.DeleteSpriteAtlas(ParseJson(body));
+                    return MCPSpriteAtlasCommands.DeleteSpriteAtlas(args);
                 case "spriteatlas/list":
-                    return MCPSpriteAtlasCommands.ListSpriteAtlases(ParseJson(body));
+                    return MCPSpriteAtlasCommands.ListSpriteAtlases(args);
 
                 // ─── Navigation ───
                 case "navigation/bake":
-                    return MCPNavigationCommands.BakeNavMesh(ParseJson(body));
+                    return MCPNavigationCommands.BakeNavMesh(args);
                 case "navigation/clear":
-                    return MCPNavigationCommands.ClearNavMesh(ParseJson(body));
+                    return MCPNavigationCommands.ClearNavMesh(args);
                 case "navigation/add-agent":
-                    return MCPNavigationCommands.AddNavMeshAgent(ParseJson(body));
+                    return MCPNavigationCommands.AddNavMeshAgent(args);
                 case "navigation/add-obstacle":
-                    return MCPNavigationCommands.AddNavMeshObstacle(ParseJson(body));
+                    return MCPNavigationCommands.AddNavMeshObstacle(args);
                 case "navigation/info":
-                    return MCPNavigationCommands.GetNavMeshInfo(ParseJson(body));
+                    return MCPNavigationCommands.GetNavMeshInfo(args);
                 case "navigation/set-destination":
-                    return MCPNavigationCommands.SetAgentDestination(ParseJson(body));
+                    return MCPNavigationCommands.SetAgentDestination(args);
 
                 // ─── UI ───
                 case "ui/create-canvas":
-                    return MCPUICommands.CreateCanvas(ParseJson(body));
+                    return MCPUICommands.CreateCanvas(args);
                 case "ui/create-element":
-                    return MCPUICommands.CreateUIElement(ParseJson(body));
+                    return MCPUICommands.CreateUIElement(args);
                 case "ui/info":
-                    return MCPUICommands.GetUIInfo(ParseJson(body));
+                    return MCPUICommands.GetUIInfo(args);
                 case "ui/set-text":
-                    return MCPUICommands.SetUIText(ParseJson(body));
+                    return MCPUICommands.SetUIText(args);
                 case "ui/set-image":
-                    return MCPUICommands.SetUIImage(ParseJson(body));
-
-                // ─── Package Manager ───
-                case "packages/list":
-                    return MCPPackageManagerCommands.ListPackages(ParseJson(body));
-                case "packages/add":
-                    return MCPPackageManagerCommands.AddPackage(ParseJson(body));
-                case "packages/remove":
-                    return MCPPackageManagerCommands.RemovePackage(ParseJson(body));
-                case "packages/search":
-                    return MCPPackageManagerCommands.SearchPackage(ParseJson(body));
-                case "packages/info":
-                    return MCPPackageManagerCommands.GetPackageInfo(ParseJson(body));
+                    return MCPUICommands.SetUIImage(args);
 
                 // ─── Constraints & LOD ───
                 case "constraint/add":
-                    return MCPConstraintCommands.AddConstraint(ParseJson(body));
+                    return MCPConstraintCommands.AddConstraint(args);
                 case "constraint/info":
-                    return MCPConstraintCommands.GetConstraintInfo(ParseJson(body));
+                    return MCPConstraintCommands.GetConstraintInfo(args);
                 case "lod/create":
-                    return MCPConstraintCommands.CreateLODGroup(ParseJson(body));
+                    return MCPConstraintCommands.CreateLODGroup(args);
                 case "lod/info":
-                    return MCPConstraintCommands.GetLODGroupInfo(ParseJson(body));
+                    return MCPConstraintCommands.GetLODGroupInfo(args);
 
                 // ─── Prefs ───
                 case "editorprefs/get":
-                    return MCPPrefsCommands.GetEditorPref(ParseJson(body));
+                    return MCPPrefsCommands.GetEditorPref(args);
                 case "editorprefs/set":
-                    return MCPPrefsCommands.SetEditorPref(ParseJson(body));
+                    return MCPPrefsCommands.SetEditorPref(args);
                 case "editorprefs/delete":
-                    return MCPPrefsCommands.DeleteEditorPref(ParseJson(body));
+                    return MCPPrefsCommands.DeleteEditorPref(args);
                 case "playerprefs/get":
-                    return MCPPrefsCommands.GetPlayerPref(ParseJson(body));
+                    return MCPPrefsCommands.GetPlayerPref(args);
                 case "playerprefs/set":
-                    return MCPPrefsCommands.SetPlayerPref(ParseJson(body));
+                    return MCPPrefsCommands.SetPlayerPref(args);
                 case "playerprefs/delete":
-                    return MCPPrefsCommands.DeletePlayerPref(ParseJson(body));
+                    return MCPPrefsCommands.DeletePlayerPref(args);
                 case "playerprefs/delete-all":
-                    return MCPPrefsCommands.DeleteAllPlayerPrefs(ParseJson(body));
+                    return MCPPrefsCommands.DeleteAllPlayerPrefs(args);
 
                 // ─── MPPM Scenario Management ───
                 case "scenario/list":
-                    return MCPScenarioCommands.ListScenarios(ParseJson(body));
+                    return MCPScenarioCommands.ListScenarios(args);
                 case "scenario/status":
-                    return MCPScenarioCommands.GetScenarioStatus(ParseJson(body));
+                    return MCPScenarioCommands.GetScenarioStatus(args);
                 case "scenario/activate":
-                    return MCPScenarioCommands.ActivateScenario(ParseJson(body));
+                    return MCPScenarioCommands.ActivateScenario(args);
                 case "scenario/start":
-                    return MCPScenarioCommands.StartScenario(ParseJson(body));
+                    return MCPScenarioCommands.StartScenario(args);
                 case "scenario/stop":
-                    return MCPScenarioCommands.StopScenario(ParseJson(body));
+                    return MCPScenarioCommands.StopScenario(args);
                 case "scenario/info":
-                    return MCPScenarioCommands.GetMultiplayerInfo(ParseJson(body));
+                    return MCPScenarioCommands.GetMultiplayerInfo(args);
                 case "scenario/create":
-                    return MCPScenarioCommands.CreateScenario(ParseJson(body));
+                    return MCPScenarioCommands.CreateScenario(args);
 
                 // ─── MPPM Virtual Player management ───
                 case "mppm/list-players":
-                    return MCPScenarioCommands.MppmListPlayers(ParseJson(body));
+                    return MCPScenarioCommands.MppmListPlayers(args);
                 case "mppm/activate-player":
-                    return MCPScenarioCommands.MppmActivatePlayer(ParseJson(body));
+                    return MCPScenarioCommands.MppmActivatePlayer(args);
                 case "mppm/deactivate-player":
-                    return MCPScenarioCommands.MppmDeactivatePlayer(ParseJson(body));
+                    return MCPScenarioCommands.MppmDeactivatePlayer(args);
 
-#if UMA_INSTALLED
                 // === UMA (Unity Multipurpose Avatar)
                 case "uma/inspect-fbx":
-                    return MCPUMACommands.InspectFbx(ParseJson(body));
+                    return MCPUMACommands.InspectFbx(args);
                 case "uma/create-slot":
-                    return MCPUMACommands.CreateSlot(ParseJson(body));
+                    return MCPUMACommands.CreateSlot(args);
                 case "uma/create-overlay":
-                    return MCPUMACommands.CreateOverlay(ParseJson(body));
+                    return MCPUMACommands.CreateOverlay(args);
                 case "uma/create-wardrobe-recipe":
-                    return MCPUMACommands.CreateWardrobeRecipe(ParseJson(body));
+                    return MCPUMACommands.CreateWardrobeRecipe(args);
                 case "uma/register-assets":
-                    return MCPUMACommands.RegisterAssets(ParseJson(body));
+                    return MCPUMACommands.RegisterAssets(args);
                 case "uma/list-global-library":
-                    return MCPUMACommands.ListGlobalLibrary(ParseJson(body));
+                    return MCPUMACommands.ListGlobalLibrary(args);
                 case "uma/list-wardrobe-slots":
-                    return MCPUMACommands.ListWardrobeSlots(ParseJson(body));
+                    return MCPUMACommands.ListWardrobeSlots(args);
                 case "uma/list-uma-materials":
-                    return MCPUMACommands.ListUMAMaterials(ParseJson(body));
+                    return MCPUMACommands.ListUMAMaterials(args);
                 case "uma/get-project-config":
-                    return MCPUMACommands.GetProjectConfig(ParseJson(body));
+                    return MCPUMACommands.GetProjectConfig(args);
                     case "uma/verify-recipe":
-                        return MCPUMACommands.VerifyRecipe(ParseJson(body));
+                        return MCPUMACommands.VerifyRecipe(args);
                     case "uma/rebuild-global-library":
-                        return MCPUMACommands.RebuildGlobalLibrary(ParseJson(body));
+                        return MCPUMACommands.RebuildGlobalLibrary(args);
                     case "uma/create-wardrobe-from-fbx":
-                        return MCPUMACommands.CreateWardrobeFromFbx(ParseJson(body));
+                        return MCPUMACommands.CreateWardrobeFromFbx(args);
                     case "uma/wardrobe-equip":
-                        return MCPUMACommands.WardrobeEquip(ParseJson(body));
+                        return MCPUMACommands.WardrobeEquip(args);
                     case "uma/edit-race":
-                        return MCPUMACommands.EditRace(ParseJson(body));
+                        return MCPUMACommands.EditRace(args);
                     case "uma/create-race":
-                        return MCPUMACommands.CreateRace(ParseJson(body));
+                        return MCPUMACommands.CreateRace(args);
                     case "uma/rename-asset":
-                        return MCPUMACommands.RenameAsset(ParseJson(body));
-#endif
+                        return MCPUMACommands.RenameAsset(args);
                 // ─── Testing ───
                 case "testing/run-tests":
-                    return MCPTestRunnerCommands.RunTests(ParseJson(body));
+                    return MCPTestRunnerCommands.RunTests(args);
                 case "testing/get-job":
-                    return MCPTestRunnerCommands.GetTestJob(ParseJson(body));
+                    return MCPTestRunnerCommands.GetTestJob(args);
                 // testing/list-tests is handled via the deferred path in HandleRequest
 
                 default:
@@ -1502,14 +1542,7 @@ namespace UnityMCP.Editor
 
         // ─── Helpers ───
 
-        private static Dictionary<string, object> ParseJson(string json)
-        {
-            if (string.IsNullOrEmpty(json))
-                return new Dictionary<string, object>();
-
-            return MiniJson.Deserialize(json) as Dictionary<string, object>
-                ?? new Dictionary<string, object>();
-        }
+        private static Dictionary<string, object> ParseJson(string json) => MCPRequestInput.ParseObject(json);
 
         /// <summary>
         /// Execute a function on Unity's main thread and wait for the result.
@@ -1571,32 +1604,42 @@ namespace UnityMCP.Editor
         {
             response.StatusCode = statusCode;
             response.ContentType = "application/json";
-            string json = MiniJson.Serialize(data);
-            byte[] buffer = Encoding.UTF8.GetBytes(json);
-
-            // Size validation — protect against Write EOF on large projects
-            if (buffer.Length > ResponseHardLimitBytes)
+            string json;
+            try { json = MiniJson.Serialize(data, ResponseHardLimitBytes); }
+            catch (MiniJson.SerializationException error)
             {
-                Debug.LogWarning($"[AB-UMCP] Response too large ({buffer.Length / (1024 * 1024)}MB), replacing with error. Use pagination parameters.");
+                MCPHttpDiagnostics.SerializationFailed();
+                bool oversized = error.Reason == "byte_limit";
+                string message = error.Message.Length > 2048 ? error.Message.Substring(0, 2048) : error.Message;
                 var errorData = new Dictionary<string, object>
                 {
-                    { "error", "response_too_large" },
-                    { "size", buffer.Length },
-                    { "limit", ResponseHardLimitBytes },
-                    { "message", "Response exceeded size limit. Use pagination parameters (maxNodes, limit, maxResults) to request smaller chunks." },
+                    { "error", oversized ? "response_too_large" : "response_serialization_failed" },
+                    { "reason", error.Reason },
+                    { "outcomeUnknown", true },
+                    { "message", oversized ? "Response exceeded size limit. Use pagination parameters (maxNodes, limit, maxResults) to request smaller chunks." : message },
+                    { "hint", "The original operation may already have completed. Inspect its effects or original ticket before repeating a write." }
                 };
-                json = MiniJson.Serialize(errorData);
-                buffer = Encoding.UTF8.GetBytes(json);
-                response.StatusCode = 413; // Payload Too Large
+                if (oversized)
+                {
+                    errorData["size"] = error.BytesRequired;
+                    errorData["sizeIsLowerBound"] = true;
+                    errorData["limit"] = ResponseHardLimitBytes;
+                    Debug.LogWarning("[AB-UMCP] Response exceeded the 16 MiB serialization limit; use pagination parameters.");
+                }
+                json = MiniJson.Serialize(errorData, ResponseHardLimitBytes);
+                response.StatusCode = oversized ? 413 : 500;
             }
-            else if (buffer.Length > ResponseSoftLimitBytes)
+            byte[] buffer = Encoding.UTF8.GetBytes(json);
+            if (buffer.Length > ResponseSoftLimitBytes)
             {
                 Debug.LogWarning($"[AB-UMCP] Large response ({buffer.Length / (1024 * 1024)}MB). Consider using pagination parameters.");
             }
 
             response.ContentLength64 = buffer.Length;
             response.OutputStream.Write(buffer, 0, buffer.Length);
+            MCPHttpDiagnostics.WroteBytes(buffer.Length);
             response.OutputStream.Close();
+            MCPHttpDiagnostics.ResponseCompleted(response.StatusCode);
         }
 
         private static string GetProjectPath()

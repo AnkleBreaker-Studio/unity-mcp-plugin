@@ -4,8 +4,6 @@
   "references": [
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner",
-    "UMA_Core",
-    "UMA_Core_Editor",
     "Unity.ProBuilder",
     "Unity.ProBuilder.Editor",
     "Unity.ProBuilder.Csg"

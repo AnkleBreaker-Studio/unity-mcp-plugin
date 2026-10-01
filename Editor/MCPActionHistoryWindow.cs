@@ -31,11 +31,13 @@ namespace UnityMCP.Editor
         // Cached results
         private List<MCPActionRecord> _filteredRecords = new List<MCPActionRecord>();
         private double _lastRefreshTime;
+        private long _lastHistoryRevision = -1;
         private const double RefreshInterval = 0.5;
 
         // Layout
         private float _detailPanelHeight = 180f;
         private bool _isResizingPanel;
+        private float RowHeight => EditorGUIUtility.singleLineHeight + 4;
 
         // ═══════════════════════════════════════════════════════════
         //  Colors & Styles (matching MCPDashboardWindow)
@@ -52,7 +54,6 @@ namespace UnityMCP.Editor
         private GUIStyle _dotStyle;
         private GUIStyle _rowStyle;
         private GUIStyle _rowAltStyle;
-        private GUIStyle _rowSelectedStyle;
         private GUIStyle _smallLabel;
         private GUIStyle _detailLabel;
         private GUIStyle _linkStyle;
@@ -62,7 +63,7 @@ namespace UnityMCP.Editor
         //  Menu & Show
         // ═══════════════════════════════════════════════════════════
 
-        [MenuItem("Window/AB Unity MCP/Action History")]
+        [MenuItem("Window/AB Unity MCP/Action History", false, 10)]
         public static void ShowWindow()
         {
             var window = GetWindow<MCPActionHistoryWindow>("MCP Action History");
@@ -75,30 +76,37 @@ namespace UnityMCP.Editor
 
         private void OnEnable()
         {
-            MCPActionHistory.OnActionRecorded += OnNewAction;
-            RefreshFilters();
-            RefreshList();
+            RefreshHistory();
         }
 
         private void OnDisable()
         {
-            MCPActionHistory.OnActionRecorded -= OnNewAction;
-        }
-
-        private void OnNewAction(MCPActionRecord record)
-        {
-            RefreshFilters();
-            RefreshList();
-            Repaint();
+            _filteredRecords.Clear();
+            _selectedRecord = null;
+            _selectedIndex = -1;
+            _stylesInitialized = false;
+            _headerStyle = _dotStyle = _rowStyle = _rowAltStyle = _smallLabel = _detailLabel = _linkStyle = null;
         }
 
         private void OnInspectorUpdate()
         {
             if (EditorApplication.timeSinceStartup - _lastRefreshTime > RefreshInterval)
             {
-                RefreshList();
+                _lastRefreshTime = EditorApplication.timeSinceStartup;
+                if (_lastHistoryRevision != MCPActionHistory.Revision)
+                {
+                    RefreshHistory();
+                }
+                // Native Undo/target availability can change without a new MCP action.
                 Repaint();
             }
+        }
+
+        private void RefreshHistory()
+        {
+            RefreshFilters();
+            RefreshList();
+            _lastHistoryRevision = MCPActionHistory.Revision;
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -131,12 +139,6 @@ namespace UnityMCP.Editor
 
             _rowAltStyle = new GUIStyle(_rowStyle);
 
-            _rowSelectedStyle = new GUIStyle(_rowStyle);
-            var selTex = new Texture2D(1, 1);
-            selTex.SetPixel(0, 0, new Color(0.24f, 0.48f, 0.9f, 0.3f));
-            selTex.Apply();
-            _rowSelectedStyle.normal.background = selTex;
-
             _smallLabel = new GUIStyle(EditorStyles.miniLabel)
             {
                 wordWrap = false,
@@ -164,6 +166,8 @@ namespace UnityMCP.Editor
 
         private void RefreshFilters()
         {
+            string selectedAgent = _agentFilterIndex > 0 && _agentFilterIndex < _agentOptions.Length ? _agentOptions[_agentFilterIndex] : null;
+            string selectedCategory = _categoryFilterIndex > 0 && _categoryFilterIndex < _categoryOptions.Length ? _categoryOptions[_categoryFilterIndex] : null;
             var agents = MCPActionHistory.GetDistinctAgents();
             _agentOptions = new string[agents.Count + 1];
             _agentOptions[0] = "All Agents";
@@ -176,9 +180,9 @@ namespace UnityMCP.Editor
             for (int i = 0; i < cats.Count; i++)
                 _categoryOptions[i + 1] = cats[i];
 
-            // Clamp filter indices
-            if (_agentFilterIndex >= _agentOptions.Length) _agentFilterIndex = 0;
-            if (_categoryFilterIndex >= _categoryOptions.Length) _categoryFilterIndex = 0;
+            // Retention can remove earlier options without removing the selected agent/category.
+            _agentFilterIndex = selectedAgent == null ? 0 : Math.Max(0, Array.IndexOf(_agentOptions, selectedAgent));
+            _categoryFilterIndex = selectedCategory == null ? 0 : Math.Max(0, Array.IndexOf(_categoryOptions, selectedCategory));
         }
 
         private void RefreshList()
@@ -193,6 +197,8 @@ namespace UnityMCP.Editor
 
             // Reverse so newest is first
             _filteredRecords.Reverse();
+            _selectedIndex = _selectedRecord == null ? -1 : _filteredRecords.IndexOf(_selectedRecord);
+            if (_selectedIndex < 0) _selectedRecord = null;
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -216,6 +222,9 @@ namespace UnityMCP.Editor
         private void DrawToolbar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+            if (GUILayout.Button(new GUIContent("MCP \u25BE", "Open the complete MCP menu"), EditorStyles.toolbarDropDown, GUILayout.Width(58)))
+                MCPToolbarElement.ShowMenu(GUILayoutUtility.GetLastRect());
 
             // Agent filter
             EditorGUI.BeginChangeCheck();
@@ -269,86 +278,59 @@ namespace UnityMCP.Editor
         {
             float listHeight = position.height - _detailPanelHeight - 28; // 28 = toolbar
             if (listHeight < 80) listHeight = 80;
-
-            _listScroll = EditorGUILayout.BeginScrollView(_listScroll, GUILayout.Height(listHeight));
-
-            if (_filteredRecords.Count == 0)
+            Rect viewport = GUILayoutUtility.GetRect(0, position.width, listHeight, listHeight, GUILayout.ExpandWidth(true));
+            float width = Mathf.Max(1, position.width - 18);
+            float contentHeight = _filteredRecords.Count * RowHeight;
+            _listScroll.x = 0;
+            _listScroll.y = Mathf.Clamp(_listScroll.y, 0, Mathf.Max(0, contentHeight - listHeight));
+            _listScroll = GUI.BeginScrollView(viewport, _listScroll, new Rect(0, 0, width, Mathf.Max(listHeight, contentHeight)));
+            try
             {
-                EditorGUILayout.HelpBox("No actions recorded yet. Perform MCP tool calls to see them here.", MessageType.Info);
-            }
-            else
-            {
-                for (int i = 0; i < _filteredRecords.Count; i++)
+                if (_filteredRecords.Count == 0)
+                    GUI.Label(new Rect(4, 4, width - 8, 40), MCPActionHistory.Count == 0
+                        ? "No actions recorded yet. Perform MCP tool calls to see them here."
+                        : "No actions match the current filters.", EditorStyles.helpBox);
+                else
                 {
-                    var record = _filteredRecords[i];
-                    bool isSelected = (i == _selectedIndex);
-
-                    GUIStyle style = isSelected ? _rowSelectedStyle : (i % 2 == 0 ? _rowStyle : _rowAltStyle);
-                    EditorGUILayout.BeginHorizontal(style);
-
-                    // Status dot
-                    Color dotColor = GetStatusColor(record.Status);
-                    var prevColor = GUI.color;
-                    GUI.color = dotColor;
-                    GUILayout.Label("\u25CF", _dotStyle, GUILayout.Width(18));
-                    GUI.color = prevColor;
-
-                    // Timestamp
-                    GUILayout.Label(record.Timestamp.ToString("HH:mm:ss"), _smallLabel,
-                        GUILayout.Width(55));
-
-                    // Agent badge
-                    string agentShort = TruncateAgent(record.AgentId);
-                    prevColor = GUI.color;
-                    GUI.color = ColorBlue;
-                    GUILayout.Label(agentShort, _smallLabel, GUILayout.Width(65));
-                    GUI.color = prevColor;
-
-                    // Category
-                    prevColor = GUI.color;
-                    GUI.color = GetCategoryColor(record.Category);
-                    GUILayout.Label(record.Category ?? "", _smallLabel, GUILayout.Width(75));
-                    GUI.color = prevColor;
-
-                    // Action command
-                    string cmd = MCPActionRecord.ExtractCommand(record.ActionName);
-                    GUILayout.Label(cmd, EditorStyles.miniLabel, GUILayout.Width(110));
-
-                    // Target path (clickable)
-                    if (!string.IsNullOrEmpty(record.TargetPath))
-                    {
-                        if (GUILayout.Button(TruncateString(record.TargetPath, 30), _linkStyle))
-                        {
-                            SelectTargetObject(record);
-                        }
-                    }
-                    else
-                    {
-                        GUILayout.FlexibleSpace();
-                    }
-
-                    // Duration
-                    GUILayout.Label($"{record.ExecutionTimeMs}ms", _smallLabel, GUILayout.Width(50));
-
-                    EditorGUILayout.EndHorizontal();
-
-                    // Check if row was clicked
-                    Rect rowRect = GUILayoutUtility.GetLastRect();
-                    if (Event.current.type == EventType.MouseDown && rowRect.Contains(Event.current.mousePosition))
-                    {
-                        _selectedIndex = i;
-                        _selectedRecord = record;
-                        Event.current.Use();
-                        Repaint();
-
-                        // Double-click to frame in scene
-                        if (Event.current.clickCount == 2)
-                            FrameTargetObject(record);
-                    }
+                    // Fixed-height rows retain the full scroll extent while formatting only the visible slice.
+                    int first = Mathf.Max(0, Mathf.FloorToInt(_listScroll.y / RowHeight));
+                    int end = Math.Min(_filteredRecords.Count, first + Mathf.CeilToInt(listHeight / RowHeight) + 1);
+                    for (int i = first; i < end; i++)
+                        DrawActionRow(new Rect(0, i * RowHeight, width, RowHeight), _filteredRecords[i], i);
                 }
             }
+            finally { GUI.EndScrollView(); }
+        }
 
-            EditorGUILayout.EndScrollView();
+        private void DrawActionRow(Rect row, MCPActionRecord record, int index)
+        {
+            if (index == _selectedIndex) EditorGUI.DrawRect(row, new Color(0.24f, 0.48f, 0.9f, 0.3f));
+            else GUI.Box(row, GUIContent.none, index % 2 == 0 ? _rowStyle : _rowAltStyle);
+            var cell = new Rect(row.x + 4, row.y + 2, 18, row.height - 4);
+            Color previous = GUI.color;
+            GUI.color = GetStatusColor(record.DisplayStatus);
+            GUI.Label(cell, new GUIContent("\u25CF", record.DisplayStatus), _dotStyle);
+            GUI.color = previous;
+            cell.x += cell.width; cell.width = 55;
+            GUI.Label(cell, record.Timestamp.ToString("HH:mm:ss"), _smallLabel);
+            cell.x += cell.width; cell.width = 65;
+            GUI.color = ColorBlue; GUI.Label(cell, TruncateAgent(record.AgentId), _smallLabel); GUI.color = previous;
+            cell.x += cell.width; cell.width = 75;
+            GUI.color = GetCategoryColor(record.Category); GUI.Label(cell, record.Category ?? "", _smallLabel); GUI.color = previous;
+            cell.x += cell.width; cell.width = 110;
+            GUI.Label(cell, MCPActionRecord.ExtractCommand(record.ActionName), EditorStyles.miniLabel);
+            cell.x += cell.width; cell.width = Mathf.Max(0, row.xMax - cell.x - 54);
+            if (!string.IsNullOrEmpty(record.TargetPath) && GUI.Button(cell, new GUIContent(TruncateString(record.TargetPath, 30), record.TargetPath), _linkStyle))
+                SelectTargetObject(record);
+            cell.x += cell.width; cell.width = 50;
+            GUI.Label(cell, $"{record.ExecutionTimeMs}ms", _smallLabel);
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && row.Contains(Event.current.mousePosition))
+            {
+                _selectedIndex = index; _selectedRecord = record;
+                bool frame = Event.current.clickCount == 2;
+                Event.current.Use(); Repaint();
+                if (frame) FrameTargetObject(record);
+            }
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -420,12 +402,15 @@ namespace UnityMCP.Editor
                 {
                     if (GUILayout.Button("Undo", EditorStyles.miniButton, GUILayout.Width(40)))
                     {
-                        if (EditorUtility.DisplayDialog("Undo Action",
-                            $"Undo '{MCPActionRecord.ExtractCommand(r.ActionName)}'?\n\nThis will revert all changes in this undo group.",
-                            "Undo", "Cancel"))
+                        var preview = MCPUndoCommands.PreviewRecordedAction(r);
+                        if (preview.TryGetValue("error", out var previewError))
+                            EditorUtility.DisplayDialog("Undo unavailable", previewError.ToString(), "OK");
+                        else if (EditorUtility.DisplayDialog("Undo Action", (string)preview["message"], "Revert changes", "Cancel"))
                         {
-                            Undo.RevertAllDownToGroup(r.UndoGroup);
-                            Debug.Log($"[MCP History] Reverted to undo group {r.UndoGroup}");
+                            var result = MCPUndoCommands.RevertRecordedAction(r, true, (string)preview["stackRevision"]);
+                            if (result.TryGetValue("error", out var revertError))
+                                EditorUtility.DisplayDialog("Undo unavailable", revertError.ToString(), "OK");
+                            else Debug.Log("[MCP History] " + result["message"]);
                         }
                     }
                 }
@@ -442,8 +427,8 @@ namespace UnityMCP.Editor
                 _detailScroll = EditorGUILayout.BeginScrollView(_detailScroll);
 
                 // Status & timing
-                Color statusColor = GetStatusColor(r.Status);
-                DrawDetailRow("Status", r.Status, statusColor);
+                Color statusColor = GetStatusColor(r.DisplayStatus);
+                DrawDetailRow("Status", r.DisplayStatus, statusColor);
                 DrawDetailRow("Agent", r.AgentId);
                 DrawDetailRow("Time", r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
                 DrawDetailRow("Duration", $"{r.ExecutionTimeMs}ms");
@@ -545,6 +530,7 @@ namespace UnityMCP.Editor
             {
                 case "Completed": return ColorGreen;
                 case "Failed":    return ColorRed;
+                case "Command error": return ColorRed;
                 case "TimedOut":  return ColorOrange;
                 default:          return ColorYellow;
             }

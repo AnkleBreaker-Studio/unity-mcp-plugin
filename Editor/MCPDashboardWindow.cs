@@ -259,7 +259,7 @@ namespace UnityMCP.Editor
             if (clone)
             {
                 var cloneRow = Row(_statusRows);
-                Text(cloneRow, $"⤷ ParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}", "ab-dash__blue-text");
+                Text(cloneRow, "⤷ " + MCPInstanceRegistry.GetParrelSyncCloneLabel(), "ab-dash__blue-text");
             }
         }
 

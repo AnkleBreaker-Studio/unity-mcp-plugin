@@ -22,7 +22,7 @@ namespace UnityMCP.Editor
     ///
     /// Supports:
     ///   - Multiple different projects open simultaneously
-    ///   - ParrelSync clones (detected via folder naming convention)
+    ///   - ParrelSync clones (identified by their native .clone marker)
     ///   - Any multi-instance Unity workflow
     /// </summary>
     public static class MCPInstanceRegistry
@@ -403,7 +403,7 @@ namespace UnityMCP.Editor
         public static string GetMainProjectPath()
         {
             string project = GetProjectPath();
-            if (!MCPScenarioCommands.IsVirtualPlayer()) return project;
+            if (!MCPScenarioCommands.IsVirtualPlayer()) return GetParrelSyncOriginalProjectPath(project);
             var vp = Directory.GetParent(project);
             var library = vp?.Parent;
             // Unity stores virtual projects under Library/VP; do not infer a parent for an unknown layout.
@@ -415,29 +415,53 @@ namespace UnityMCP.Editor
             MCPScenarioCommands.IsVirtualPlayer() ? Path.GetFileName(GetProjectPath()) : "";
 
         /// <summary>
-        /// Detect if this project is a ParrelSync clone based on folder naming convention.
-        /// ParrelSync clones have folders named "ProjectName_clone_X".
+        /// Detect ParrelSync's native clone marker without requiring its optional assembly.
         /// </summary>
         public static bool IsParrelSyncClone()
         {
-            string projectPath = GetProjectPath();
-            string folderName = Path.GetFileName(projectPath);
-            return folderName != null && System.Text.RegularExpressions.Regex.IsMatch(folderName, @"_clone_\d+$");
+            return IsParrelSyncClonePath(GetProjectPath());
         }
 
+        internal static bool IsParrelSyncClonePath(string projectPath) =>
+            !string.IsNullOrEmpty(projectPath) && File.Exists(Path.Combine(projectPath, ".clone"));
+
         /// <summary>
-        /// Get the clone index if this is a ParrelSync clone, or -1 if it's the original.
+        /// Get a marked clone's numeric suffix, or -1 when it is absent/unknown.
         /// </summary>
         public static int GetParrelSyncCloneIndex()
         {
-            string projectPath = GetProjectPath();
-            string folderName = Path.GetFileName(projectPath);
-            if (folderName == null) return -1;
+            return GetParrelSyncCloneIndex(GetProjectPath());
+        }
+
+        internal static int GetParrelSyncCloneIndex(string projectPath)
+        {
+            if (!IsParrelSyncClonePath(projectPath)) return -1;
+            string folderName = Path.GetFileName(projectPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
             var match = System.Text.RegularExpressions.Regex.Match(folderName, @"_clone_(\d+)$");
             if (match.Success && int.TryParse(match.Groups[1].Value, out int index))
                 return index;
             return -1;
+        }
+
+        internal static string GetParrelSyncOriginalProjectPath(string projectPath)
+        {
+            if (!IsParrelSyncClonePath(projectPath)) return projectPath;
+            string trimmed = projectPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string folder = Path.GetFileName(trimmed);
+            int suffix = folder.LastIndexOf("_clone", StringComparison.Ordinal);
+            string parent = Path.GetDirectoryName(trimmed);
+            if (suffix <= 0 || string.IsNullOrEmpty(parent)) return "";
+            string original = Path.Combine(parent, folder.Substring(0, suffix));
+            // A suffix alone does not identify a source Unity project; renamed/orphaned clones remain unknown.
+            return Directory.Exists(Path.Combine(original, "Assets")) && File.Exists(Path.Combine(original, "ProjectSettings", "ProjectVersion.txt"))
+                ? original.Replace('\\', '/') : "";
+        }
+
+        internal static string GetParrelSyncCloneLabel()
+        {
+            int index = GetParrelSyncCloneIndex();
+            return index >= 0 ? "ParrelSync Clone #" + index : "ParrelSync Clone";
         }
 
         // ─── Mutex-Protected Registry Access ───

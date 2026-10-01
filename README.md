@@ -117,11 +117,12 @@ The declared minimum remains **Unity 2021.3.18f1**. All 75 editor sources includ
 | [Asset previews](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/asset-previews.md) | Deferred loading lets other agents progress; requested sizes and metadata-only options are honored, with native preview pixels preserved. |
 | [Mesh metadata](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/mesh-metadata.md) | Both object-path names, eight UV channels and native triangle counts; geometry buffers are no longer copied for metadata. |
 | [Multiplayer](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/multiplayer.md) | MPPM 3.0 Host/Client launch, independent agent routing and shared script recompilation. |
+| [ParrelSync](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/parrelsync.md) | Native marker/parent identity, 48 overlapping calls per Node version through Play Mode, recompilation and restart, plus settings persistence. |
 | [Builds](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/builds.md) | Five Windows Mono builds verify managed diagnostics and restoration of project settings. |
 | [Editor lifecycle](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md) | Two editors, four Play Mode reload configurations and lost-result handling after script reload. |
 | [Dashboard](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/dashboard.md) | Card reuse, section persistence through script reload, 360 px geometry and actual Windows pixel review at 360/640 px. |
 
-Older MPPM versions, ParrelSync lifecycle, game networking, other OS/build platforms and additional optional packages need separate validation. [Full evidence and remaining work](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md).
+Older MPPM/ParrelSync versions, game networking, other OS/build platforms and additional optional packages need separate validation. [Full evidence and remaining work](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/modernization.md).
 
 <details>
 <summary><strong>Reproduce the Unity checks</strong></summary>
@@ -139,6 +140,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | Default | Queue, HTTP dispatch, callbacks and timeout races |
 | `-Suite QueueAdmission` | HTTP command count/argument budgets, replay at capacity and terminal release; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/command-admission.md) |
 | `-Suite ResultRetention` | Completed-result budgets, history payload release and protected/synchronous recovery; [limits and evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/result-retention.md) |
+| `-Suite ParrelSync` | Native marker, numeric/unknown index and original-project identity without the optional package installed; [live lifecycle evidence](https://github.com/AnkleBreaker-Studio/unity-mcp-server/blob/Development-Unity66-Modernization/docs/parrelsync.md) |
 | `-Suite Health` | Session retention, read/write scheduling and idle queue allocations |
 | `-Suite Monitoring` | Error classification, history, persistence and create/undo |
 | `-Suite RequestInput` | Byte/Unicode boundaries, strict request parsing, queue/legacy/deferred rejection and guarded submission compatibility |

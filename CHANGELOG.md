@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### ParrelSync identity
+- Use the native `.clone` file instead of a folder-name guess, preserving normal projects named `_clone_<index>` and recognizing renamed clones.
+- Resolve `mainProjectPath` to a verifiable sibling Unity project using ParrelSync's final suffix convention; leave renamed/orphaned parent identity unknown.
+- Display unknown clone indices without `#-1` in the Dashboard and toolbar. Keep ParrelSync optional and existing public method signatures intact.
+- Add twelve controlled identity checks, real Unity 6.6 lifecycle runs with the current server, and separate released-server read checks on Node 18/22.
+
 ### Completed results and history snapshots
 - Bound the polling cache to 4,096 terminal tickets and 256 MiB of weighted result cost, with oldest-first pressure eviction, age cleanup and additive queue metrics. Preserve synchronous/native result references and protected retry identities.
 - Remove full result graphs from pending history. Capture bounded scalar target metadata without custom conversions/comparers; retain editor-thread insertion, Undo behavior and raw ticket diagnostics.

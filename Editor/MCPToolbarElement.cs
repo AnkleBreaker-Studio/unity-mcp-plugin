@@ -123,7 +123,7 @@ namespace UnityMCP.Editor
                 string tip = $"AB Unity MCP \u2014 Running on {portInfo}";
 
                 if (MCPInstanceRegistry.IsParrelSyncClone())
-                    tip += $"\nParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}";
+                    tip += "\n" + MCPInstanceRegistry.GetParrelSyncCloneLabel();
 
                 if (ActiveAgents > 0)
                     tip += $"\n{ActiveAgents} active agent{(ActiveAgents > 1 ? "s" : "")}";
@@ -211,7 +211,7 @@ namespace UnityMCP.Editor
                 menu.AddDisabledItem(new GUIContent($"\u25CF  Running \u2014 Port {activePort}{portMode}"));
 
                 if (MCPInstanceRegistry.IsParrelSyncClone())
-                    menu.AddDisabledItem(new GUIContent($"   ParrelSync Clone #{MCPInstanceRegistry.GetParrelSyncCloneIndex()}"));
+                    menu.AddDisabledItem(new GUIContent("   " + MCPInstanceRegistry.GetParrelSyncCloneLabel()));
             }
             else
             {

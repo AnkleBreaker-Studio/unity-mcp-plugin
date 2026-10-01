@@ -4,6 +4,12 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Editor-window capture
+- Remove keyboard-focus changes from captures. Refuse inactive/unshown views by default; optional `activateTab` selects an existing tab and restores its predecessor on success or failure.
+- Refuse duplicate full type names and return candidate `id:` selectors backed by string object IDs. Preserve existing type/title matching priority.
+- Bound the full native bitmap as well as the crop to 33,554,432 pixels before GDI allocation.
+- Add 17 controlled selection, tab restoration, native pixel, resource cleanup and size-bound checks. Retain the existing Windows capture backend and unsupported-platform responses.
+
 ### HTTP activity and Dashboard refresh
 - Expose aggregate HTTP status, active/peak requests, body bytes, handler timings, input rejections, serialization failures and interruptions in `queue/info.http` and the Dashboard's HTTP Activity section.
 - Record domain reload count, hook-to-initialization duration and active requests at reload through editor SessionState. Keep HTTP and command outcomes distinct; retain no per-request payloads or identities.

@@ -143,6 +143,7 @@ The runner launches Unity hidden in batch mode, refuses an unmarked existing pro
 | `-Suite RequestShutdown` | HTTP worker interruption without a false Unity error |
 | `-Suite Dashboard` | Card reuse, refresh allocations, interface reconstruction and saved preferences |
 | `-Suite HttpDiagnostics` | HTTP status/byte counters, input rejection, output failures and aggregate invariants |
+| `-Suite EditorCapture` | Windows capture selection, tab restoration, native pixels, GDI/texture cleanup and image bounds |
 
 Batch UI checks exclude interactive rendering. The measured empty queue loop has zero allocation events after warmup; this is not a whole-plugin allocation claim.
 

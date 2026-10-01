@@ -71,6 +71,27 @@ public static class UnityMcpRequestInputValidation
         var client = new Thread(() => {
             try {
                 byte[] bytes = Encoding.UTF8.GetBytes(body);
+                if (origin != null)
+                {
+                    using (var socket = new TcpClient())
+                    {
+                        socket.Connect(IPAddress.Loopback, port); socket.ReceiveTimeout = 10000;
+                        byte[] packet = Encoding.UTF8.GetBytes("POST /api/" + route + " HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nOrigin: " + origin
+                            + "\r\nContent-Length: " + bytes.Length + "\r\nConnection: close\r\n\r\n" + body);
+                        var stream = socket.GetStream(); stream.Write(packet, 0, packet.Length);
+                        using (var reader = new StreamReader(stream))
+                        {
+                            code = int.Parse(reader.ReadLine().Split(' ')[1]);
+                            int length = 0; string line;
+                            while (!string.IsNullOrEmpty(line = reader.ReadLine()))
+                                if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) length = int.Parse(line.Substring(15).Trim());
+                            Require(length > 0 && length < 10000, "Invalid origin-refusal response size");
+                            var chars = new char[length]; Require(reader.ReadBlock(chars, 0, length) == length, "Incomplete origin response");
+                            responseBody = new string(chars);
+                        }
+                    }
+                    return;
+                }
                 if (chunked && bytes.Length > 32 * 1024 * 1024)
                 {
                     using (var socket = new TcpClient())
@@ -120,6 +141,7 @@ public static class UnityMcpRequestInputValidation
                     return;
                 }
                 var request = WebRequest.CreateHttp(url + "api/" + route);
+                request.ServicePoint.Expect100Continue = false;
                 request.Method = "POST"; request.Proxy = null; request.Timeout = 15000;
                 request.ContentType = "application/json; charset=utf-8";
                 if (origin != null) request.Headers["Origin"] = origin;

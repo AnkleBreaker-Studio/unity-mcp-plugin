@@ -26,6 +26,7 @@ namespace UnityMCP.Editor
             internal long Revision, Received, Completed, Active, PeakActive;
             internal long Responses2xx, Responses4xx, Responses5xx, OtherResponses, Incomplete, Aborted;
             internal long InputRejected, InputBytes, OutputBytes, SerializationFailures;
+            internal long BodyReaders, PeakBodyReaders, ReservedBodyBytes, PeakReservedBodyBytes, BodyReadTimeouts, BodyAdmissionRefusals;
             internal double TotalDurationMs, MaxDurationMs, LastReloadMs;
             internal int DomainReloads;
             internal long ActiveAtLastReload;
@@ -40,6 +41,11 @@ namespace UnityMCP.Editor
                 { "otherResponses", OtherResponses }, { "incompleteRequests", Incomplete }, { "abortedRequests", Aborted },
                 { "inputRejectedRequests", InputRejected }, { "inputBytesRead", InputBytes }, { "outputBytesWritten", OutputBytes },
                 { "responseSerializationFailures", SerializationFailures },
+                { "activeBodyReaders", BodyReaders }, { "peakBodyReaders", PeakBodyReaders },
+                { "reservedBodyBytes", ReservedBodyBytes }, { "peakReservedBodyBytes", PeakReservedBodyBytes },
+                { "bodyReadTimeouts", BodyReadTimeouts }, { "bodyAdmissionRefusals", BodyAdmissionRefusals },
+                { "maxBodyReaders", MCPRequestInput.MaxConcurrentBodyReads }, { "maxReservedBodyBytes", MCPRequestInput.MaxReservedBodyBytes },
+                { "bodyReadTimeoutMs", MCPRequestInput.BodyReadTimeoutMs },
                 { "averageDurationMs", AverageDurationMs }, { "maxDurationMs", MaxDurationMs },
                 { "domainReloadCount", DomainReloads }, { "lastDomainReloadMs", LastReloadMs },
                 { "activeRequestsAtLastReload", ActiveAtLastReload }
@@ -66,6 +72,29 @@ namespace UnityMCP.Editor
         }
 
         internal static Snapshot Read() { lock (Gate) return totals; }
+
+        internal static bool TryBeginBody(long reservation)
+        {
+            lock (Gate)
+            {
+                totals.Revision++;
+                if (totals.BodyReaders >= MCPRequestInput.MaxConcurrentBodyReads
+                    || reservation > MCPRequestInput.MaxReservedBodyBytes - totals.ReservedBodyBytes)
+                { totals.BodyAdmissionRefusals++; return false; }
+                totals.BodyReaders++;
+                totals.ReservedBodyBytes += reservation;
+                totals.PeakBodyReaders = Math.Max(totals.PeakBodyReaders, totals.BodyReaders);
+                totals.PeakReservedBodyBytes = Math.Max(totals.PeakReservedBodyBytes, totals.ReservedBodyBytes);
+                return true;
+            }
+        }
+
+        internal static void EndBody(long reservation)
+        {
+            lock (Gate) { totals.BodyReaders--; totals.ReservedBodyBytes -= reservation; totals.Revision++; }
+        }
+
+        internal static void BodyTimedOut() { lock (Gate) { totals.BodyReadTimeouts++; totals.Revision++; } }
 
         internal static Observation Begin()
         {

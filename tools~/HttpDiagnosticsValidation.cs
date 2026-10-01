@@ -23,6 +23,18 @@ public static class UnityMcpHttpDiagnosticsValidation
         catch (Exception error) { Checks.Add(new { name, passed = false, error = error.ToString() }); }
     }
 
+    private static string Line(Stream stream)
+    {
+        var text = new StringBuilder();
+        while (text.Length < 16384)
+        {
+            int value = stream.ReadByte(); Require(value >= 0, "Unexpected response EOF");
+            if (value == '\n') return text.ToString().TrimEnd('\r');
+            text.Append((char)value);
+        }
+        throw new InvalidOperationException("Unbounded response header");
+    }
+
     private static object Exchange(string route, string body, int expectedStatus, string origin = null, string method = "POST", long? expectedInput = null)
     {
         var before = Snapshot();
@@ -35,19 +47,23 @@ public static class UnityMcpHttpDiagnosticsValidation
         string failure = null, responseBody = null; int status = 0;
         var client = new Thread(() => {
             try {
-                var request = WebRequest.CreateHttp(url + route);
-                request.Method = method; request.Proxy = null; request.Timeout = 10000;
-                request.ContentType = "application/json; charset=utf-8";
-                if (origin != null) request.Headers["Origin"] = origin;
-                if (method == "POST") {
-                    request.ContentLength = bytes.Length;
-                    using (var output = request.GetRequestStream()) output.Write(bytes, 0, bytes.Length);
+                using (var socket = new TcpClient()) {
+                    socket.Connect(IPAddress.Loopback, port); socket.ReceiveTimeout = 10000;
+                    string header = method + " /" + route + " HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nContent-Type: application/json; charset=utf-8\r\nConnection: close\r\n"
+                        + (origin == null ? "" : "Origin: " + origin + "\r\n") + "Content-Length: " + bytes.Length + "\r\n\r\n";
+                    byte[] packet = Encoding.UTF8.GetBytes(header).Concat(bytes).ToArray();
+                    var stream = socket.GetStream(); stream.Write(packet, 0, packet.Length);
+                    status = int.Parse(Line(stream).Split(' ')[1]);
+                    int length = -1; string line;
+                    while ((line = Line(stream)).Length > 0)
+                        if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) length = int.Parse(line.Substring(15).Trim());
+                    Require(length >= 0 && length <= 16 * 1024 * 1024, "Invalid response size");
+                    byte[] received = new byte[length];
+                    for (int offset = 0; offset < length;) {
+                        int read = stream.Read(received, offset, length - offset); Require(read > 0, "Incomplete response"); offset += read;
+                    }
+                    responseBody = Encoding.UTF8.GetString(received);
                 }
-                HttpWebResponse response;
-                try { response = (HttpWebResponse)request.GetResponse(); }
-                catch (WebException error) { response = (HttpWebResponse)error.Response; if (response == null) throw; }
-                using (response) using (var reader = new StreamReader(response.GetResponseStream()))
-                { status = (int)response.StatusCode; responseBody = reader.ReadToEnd(); }
             } catch (Exception error) { failure = "Client: " + error.Message; }
         }) { IsBackground = true };
         try {

@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### HTTP body completion and admission
+- Truncated HTTP bodies containing valid JSON could create a ticket. Check declared lengths and Mono chunk completion before parsing/dispatch; preserve fragmented final chunks and trailers.
+- Bound active body readers to eight and reserve at most 64 MiB of declared input, using 32 MiB per unknown-length body. Refuse excess admission with HTTP 503 and explicit non-acceptance.
+- Enforce an absolute 30-second body deadline, including stalled and trickling uploads. Close early-refused connections without draining unread input; release reservations on success, failure and worker interruption.
+- Add reader/reservation gauges, peaks and refusal/timeout counters to `queue/info.http` and the Dashboard. These limits exclude queued arguments, native buffers and total editor memory.
+- Add `-Suite RequestBody` with twelve controlled checks. Retain the 35 input, 14 HTTP, Dashboard and shutdown regressions, minimum-version compilation and current/released-server compatibility on Node 18/22.
+
 ### Docked capture and Dashboard rendering
 - Docked captures included the tab strip and cut off the bottom of the content. Resolve the host's content rectangle from its actual borders; return an error if the bounds are unavailable.
 - Wrap Project Context explanations so help text remains inside the Dashboard at its 360 px minimum width.

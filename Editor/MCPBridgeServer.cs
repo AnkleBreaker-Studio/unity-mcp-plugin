@@ -441,6 +441,7 @@ namespace UnityMCP.Editor
                 // Host), which we reject before touching any editor state.
                 if (!IsTrustedLocalRequest(request))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 403, new { error = "Forbidden: only local, non-browser clients may call the MCP bridge" });
                     return;
                 }
@@ -448,6 +449,7 @@ namespace UnityMCP.Editor
                 string path = request.Url.AbsolutePath.TrimStart('/');
                 if (!path.StartsWith("api/"))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 404, new { error = "Not found" });
                     return;
                 }
@@ -461,6 +463,7 @@ namespace UnityMCP.Editor
                 if (!IsReadOnlyRoute(apiPath) &&
                     !string.Equals(request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
                 {
+                    response.KeepAlive = false;
                     SendJson(response, 405, new { error = $"Method {request.HttpMethod} not allowed for '{apiPath}' — use POST." });
                     return;
                 }
@@ -470,8 +473,15 @@ namespace UnityMCP.Editor
                 {
                     if (request.ContentLength64 > MaxRequestBodyBytes)
                         throw new RequestInputException(413, "request_too_large", $"Request body too large ({request.ContentLength64} bytes; limit {MaxRequestBodyBytes}).");
-                    using (var input = request.InputStream)
-                        body = ReadRequestBody(input, request.ContentEncoding, MaxRequestBodyBytes);
+                    long reservation = request.ContentLength64 >= 0 ? request.ContentLength64 : MaxRequestBodyBytes;
+                    if (!MCPHttpDiagnostics.TryBeginBody(reservation))
+                        throw new RequestInputException(503, "request_body_busy", "Request body readers are busy. No command was accepted; retry later.");
+                    try
+                    {
+                        using (var input = request.InputStream)
+                            body = MCPRequestInput.ReadHttpBody(input, request.ContentEncoding, request.ContentLength64);
+                    }
+                    finally { MCPHttpDiagnostics.EndBody(reservation); }
                 }
 
                 string agentId = request.Headers["X-Agent-Id"] ?? "anonymous";
@@ -539,8 +549,9 @@ namespace UnityMCP.Editor
             catch (RequestInputException ex)
             {
                 MCPHttpDiagnostics.RejectInput();
-                // An unread oversized body must not be drained to reuse this connection.
-                if (ex.Code == "request_too_large") response.KeepAlive = false;
+                if (ex.Code == "request_body_timeout") MCPHttpDiagnostics.BodyTimedOut();
+                // Unread, refused or timed-out bodies must not be drained for connection reuse.
+                response.KeepAlive = false;
                 SendJson(response, ex.Status, new { error = ex.Message, code = ex.Code, requestAccepted = false });
             }
             catch (ThreadAbortException)

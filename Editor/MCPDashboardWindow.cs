@@ -57,7 +57,7 @@ namespace UnityMCP.Editor
         private readonly List<KeyValuePair<string, int>> _queueDepths = new List<KeyValuePair<string, int>>();
         private readonly List<KeyValuePair<string, int>> _shownQueueDepths = new List<KeyValuePair<string, int>>();
         private long _httpRevision = -1;
-        private Label _httpActivity, _httpResponses, _httpFailures, _httpBytes, _httpTiming, _httpReloads;
+        private Label _httpActivity, _httpResponses, _httpFailures, _httpBytes, _httpTiming, _httpReloads, _httpInput;
         private string _expandedTestCategory;
         private IVisualElementScheduledItem _refreshSchedule;
         private readonly List<MCPAgentSession.DashboardSnapshot> _agentSnapshots = new List<MCPAgentSession.DashboardSnapshot>();
@@ -440,11 +440,13 @@ namespace UnityMCP.Editor
             _httpResponses = HttpLine(rows);
             _httpFailures = HttpLine(rows);
             _httpBytes = HttpLine(rows);
+            _httpInput = HttpLine(rows);
             _httpTiming = HttpLine(rows);
             _httpReloads = HttpLine(rows);
             _httpResponses.tooltip = "HTTP status codes do not describe command success. Incomplete means no response finished writing.";
             _httpFailures.tooltip = "Input rejects occur before a ticket is accepted. Serialization failures can occur after execution.";
             _httpBytes.tooltip = "Body bytes read and successful response-body writes, aggregated when each handler ends. Excludes headers and active handlers; writing does not confirm client receipt.";
+            _httpInput.tooltip = "At most 8 bodies are read together, with 64 MiB reserved across them. Unknown lengths reserve 32 MiB. Each read has a 30-second total deadline; these limits exclude queued arguments and native buffering.";
             _httpTiming.tooltip = "From entry into the HTTP worker to its exit, including queue waits. Excludes network latency and time waiting for a worker.";
             _httpReloads.tooltip = "Reload count persists for this editor session. Duration runs from the before-reload hook to diagnostics initialization; it excludes script compilation and does not measure bridge readiness.";
             var note = HttpLine(rows);
@@ -468,6 +470,7 @@ namespace UnityMCP.Editor
             _httpResponses.text = $"Responses: {snapshot.Responses2xx} 2xx · {snapshot.Responses4xx} 4xx · {snapshot.Responses5xx} 5xx · {snapshot.OtherResponses} other · {snapshot.Incomplete} incomplete";
             _httpFailures.text = $"{snapshot.InputRejected} input rejects · {snapshot.SerializationFailures} serialization failures · {snapshot.Aborted} interrupted";
             _httpBytes.text = $"Body traffic: {snapshot.InputBytes:N0} B read · {snapshot.OutputBytes:N0} B written";
+            _httpInput.text = $"Uploads: {snapshot.BodyReaders}/{MCPRequestInput.MaxConcurrentBodyReads} reading · {snapshot.ReservedBodyBytes / (1024.0 * 1024):F1} MiB reserved · {snapshot.BodyAdmissionRefusals} busy refusals · {snapshot.BodyReadTimeouts} timed out";
             _httpTiming.text = $"Handler time: {snapshot.AverageDurationMs:F1} ms average · {snapshot.MaxDurationMs:F1} ms maximum";
             _httpReloads.text = snapshot.DomainReloads == 0 ? "Domain reloads: none recorded this session"
                 : $"Domain reloads: {snapshot.DomainReloads} · last {snapshot.LastReloadMs:F0} ms · {snapshot.ActiveAtLastReload} active at reload";

@@ -1231,6 +1231,17 @@ namespace UnityMCP.Editor
                 var motions = args["motions"] as List<object>;
                 if (motions != null)
                 {
+                    // Unity respaces thresholds evenly while useAutomaticThresholds is on (the default),
+                    // which would discard the thresholds the caller gave.
+                    foreach (var motionObj in motions)
+                    {
+                        if (!is2D && motionObj is Dictionary<string, object> entry && entry.ContainsKey("threshold"))
+                        {
+                            tree.useAutomaticThresholds = false;
+                            break;
+                        }
+                    }
+
                     foreach (var motionObj in motions)
                     {
                         var m = motionObj as Dictionary<string, object>;

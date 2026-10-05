@@ -103,7 +103,7 @@ namespace UnityMCP.Editor
 
             // Meshes
             var meshResult = ProfileAssetType<Mesh>("Meshes", includeDetails, maxPerCategory,
-                m => $"{m.vertexCount} verts, {m.triangles.Length / 3} tris");
+                m => $"{m.vertexCount} verts, {MCPGraphicsCommands.CountMeshTrianglesLong(m)} tris");
             categories["meshes"] = meshResult;
             grandTotal += (long)((Dictionary<string, object>)meshResult)["totalBytes"];
 
@@ -167,7 +167,9 @@ namespace UnityMCP.Editor
         {
             var objects = Resources.FindObjectsOfTypeAll<T>();
             long totalBytes = 0;
-            var items = new List<AssetMemInfo>();
+            // Only (object, size) for every object: names, asset paths and details are computed
+            // for the returned top entries alone, not for everything loaded in the editor.
+            var items = new List<KeyValuePair<T, long>>();
 
             foreach (var obj in objects)
             {
@@ -175,15 +177,7 @@ namespace UnityMCP.Editor
                 totalBytes += size;
 
                 if (includeDetails)
-                {
-                    items.Add(new AssetMemInfo
-                    {
-                        name = obj.name,
-                        sizeBytes = size,
-                        detail = detailFunc != null ? detailFunc(obj) : null,
-                        assetPath = AssetDatabase.GetAssetPath(obj),
-                    });
-                }
+                    items.Add(new KeyValuePair<T, long>(obj, size));
             }
 
             var result = new Dictionary<string, object>
@@ -195,17 +189,21 @@ namespace UnityMCP.Editor
 
             if (includeDetails && items.Count > 0)
             {
-                items.Sort((a, b) => b.sizeBytes.CompareTo(a.sizeBytes));
+                items.Sort((a, b) => b.Value.CompareTo(a.Value));
                 var topItems = items.Take(maxPerCategory).Select(item =>
                 {
+                    var obj = item.Key;
+                    string name = obj.name;
+                    string detail = detailFunc != null ? detailFunc(obj) : null;
+                    string assetPath = AssetDatabase.GetAssetPath(obj);
                     var d = new Dictionary<string, object>
                     {
-                        { "name", string.IsNullOrEmpty(item.name) ? "(unnamed)" : item.name },
-                        { "sizeMB", Math.Round(item.sizeBytes / (1024.0 * 1024.0), 3) },
-                        { "sizeBytes", item.sizeBytes },
+                        { "name", string.IsNullOrEmpty(name) ? "(unnamed)" : name },
+                        { "sizeMB", Math.Round(item.Value / (1024.0 * 1024.0), 3) },
+                        { "sizeBytes", item.Value },
                     };
-                    if (!string.IsNullOrEmpty(item.detail)) d["detail"] = item.detail;
-                    if (!string.IsNullOrEmpty(item.assetPath)) d["assetPath"] = item.assetPath;
+                    if (!string.IsNullOrEmpty(detail)) d["detail"] = detail;
+                    if (!string.IsNullOrEmpty(assetPath)) d["assetPath"] = assetPath;
                     return d;
                 }).ToArray();
 
@@ -213,14 +211,6 @@ namespace UnityMCP.Editor
             }
 
             return result;
-        }
-
-        private struct AssetMemInfo
-        {
-            public string name;
-            public long sizeBytes;
-            public string detail;
-            public string assetPath;
         }
 
         // ─── Top Memory Consumers ───

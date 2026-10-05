@@ -12,6 +12,18 @@ namespace UnityMCP.Editor
             string name = args.ContainsKey("name") ? args["name"].ToString() : "New GameObject";
             string primitiveType = args.ContainsKey("primitiveType") ? args["primitiveType"].ToString() : "Empty";
 
+            // Resolve the parent before creating anything, with the shared lookup (it also finds
+            // inactive objects). A non-empty parent that does not resolve is an error, not a silent
+            // fallback to the scene root; an empty or absent parent still means the scene root.
+            string parentPath = args.ContainsKey("parent") ? args["parent"]?.ToString() : null;
+            GameObject parent = null;
+            if (!string.IsNullOrEmpty(parentPath))
+            {
+                parent = FindGameObject(new Dictionary<string, object> { { "path", parentPath } });
+                if (parent == null)
+                    return new { error = $"Parent GameObject '{parentPath}' not found" };
+            }
+
             GameObject go;
             if (primitiveType == "Empty" || string.IsNullOrEmpty(primitiveType))
             {
@@ -28,11 +40,7 @@ namespace UnityMCP.Editor
             }
 
             // Set parent
-            if (args.ContainsKey("parent"))
-            {
-                var parent = GameObject.Find(args["parent"].ToString());
-                if (parent != null) go.transform.SetParent(parent.transform);
-            }
+            if (parent != null) go.transform.SetParent(parent.transform);
 
             // Set transform
             if (args.ContainsKey("position"))
@@ -50,6 +58,7 @@ namespace UnityMCP.Editor
                 { "name", go.name },
                 { "instanceId", MCPObjectId.Get(go) },
                 { "position", Vector3ToDict(go.transform.position) },
+                { "parent", parent != null ? GetHierarchyPath(parent) : "root" },
             };
         }
 
@@ -219,7 +228,16 @@ namespace UnityMCP.Editor
                     FindObjectsInactive.Include, FindObjectsSortMode.None);
                 foreach (var obj in allObjects)
                 {
-                    if (obj.name == path || GetHierarchyPath(obj) == path)
+                    // A child's hierarchy path always ends with "/" + its name, so the parent chain
+                    // is built only for objects whose name closes the requested path. Same matches,
+                    // same order, without a path string per scanned object.
+                    string name = obj.name;
+                    if (name == path)
+                        return obj;
+                    if (path.Length > name.Length
+                        && path[path.Length - name.Length - 1] == '/'
+                        && path.EndsWith(name, StringComparison.Ordinal)
+                        && GetHierarchyPath(obj) == path)
                         return obj;
                 }
             }

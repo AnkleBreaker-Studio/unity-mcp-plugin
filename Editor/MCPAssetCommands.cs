@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using ShaderPropertyType = UnityEngine.Rendering.ShaderPropertyType;
 
 namespace UnityMCP.Editor
 {
@@ -212,6 +214,17 @@ namespace UnityMCP.Editor
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
             if (prefab == null) return new { error = $"Prefab not found at {prefabPath}" };
 
+            // Resolve the parent before instantiating (the shared lookup also finds inactive objects),
+            // so an unresolved parent is an error and leaves nothing in the scene.
+            string parentPath = args.ContainsKey("parent") ? args["parent"]?.ToString() : null;
+            GameObject parent = null;
+            if (!string.IsNullOrEmpty(parentPath))
+            {
+                parent = MCPGameObjectCommands.FindGameObject(new Dictionary<string, object> { { "path", parentPath } });
+                if (parent == null)
+                    return new { error = $"Parent GameObject '{parentPath}' not found" };
+            }
+
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
             if (instance == null) return new { error = "Failed to instantiate prefab" };
 
@@ -224,11 +237,7 @@ namespace UnityMCP.Editor
             if (args.ContainsKey("rotation"))
                 instance.transform.eulerAngles = MCPGameObjectCommands.DictToVector3(args["rotation"] as Dictionary<string, object>);
 
-            if (args.ContainsKey("parent"))
-            {
-                var parent = GameObject.Find(args["parent"].ToString());
-                if (parent != null) instance.transform.SetParent(parent.transform);
-            }
+            if (parent != null) instance.transform.SetParent(parent.transform);
 
             Undo.RegisterCreatedObjectUndo(instance, $"Instantiate {prefab.name}");
 
@@ -238,6 +247,7 @@ namespace UnityMCP.Editor
                 { "name", instance.name },
                 { "instanceId", MCPObjectId.Get(instance) },
                 { "position", MCPGameObjectCommands.Vector3ToDict(instance.transform.position) },
+                { "parent", parent != null ? MCPGameObjectCommands.GetHierarchyPath(parent) : "root" },
             };
         }
 
@@ -251,6 +261,14 @@ namespace UnityMCP.Editor
 
             var shader = Shader.Find(shaderName);
             if (shader == null) return new { error = $"Shader '{shaderName}' not found" };
+
+            Dictionary<string, object> properties = null;
+            if (args.ContainsKey("properties") && args["properties"] != null)
+            {
+                properties = args["properties"] as Dictionary<string, object>;
+                if (properties == null)
+                    return new { error = "properties must be an object of shader property names to values" };
+            }
 
             // Don't reset an existing tuned material back to defaults.
             var materialOverwrite = MCPAssetSafety.OverwriteGuard(path, args);
@@ -273,6 +291,20 @@ namespace UnityMCP.Editor
                 }
             }
 
+            var appliedProperties = new List<string>();
+            var ignoredProperties = new List<Dictionary<string, object>>();
+            if (properties != null)
+            {
+                foreach (var entry in properties)
+                {
+                    string reason = ApplyShaderProperty(material, entry.Key, entry.Value);
+                    if (reason == null)
+                        appliedProperties.Add(entry.Key);
+                    else
+                        ignoredProperties.Add(new Dictionary<string, object> { { "name", entry.Key }, { "reason", reason } });
+                }
+            }
+
             // Ensure directory exists (normalize backslashes from Path.GetDirectoryName on Windows)
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             if (!string.IsNullOrEmpty(dir) && !AssetDatabase.IsValidFolder(dir))
@@ -291,7 +323,93 @@ namespace UnityMCP.Editor
             AssetDatabase.CreateAsset(material, path);
             AssetDatabase.SaveAssets();
 
-            return new { success = true, path, shader = shaderName };
+            var result = new Dictionary<string, object>
+            {
+                { "success", true },
+                { "path", path },
+                { "shader", shaderName },
+            };
+            if (properties != null)
+            {
+                result["appliedProperties"] = appliedProperties;
+                result["ignoredProperties"] = ignoredProperties;
+            }
+            return result;
+        }
+
+        // Sets one shader property through the type the shader declares for it. Returns null on
+        // success, otherwise why the value was not applied so the caller can report it.
+        private static string ApplyShaderProperty(Material material, string name, object value)
+        {
+            int index = material.shader.FindPropertyIndex(name);
+            if (index < 0)
+                return $"shader '{material.shader.name}' has no property '{name}'";
+
+            var propertyType = material.shader.GetPropertyType(index);
+            try
+            {
+                switch (propertyType)
+                {
+                    case ShaderPropertyType.Float:
+                    case ShaderPropertyType.Range:
+                        if (!TryGetNumber(value, out float number))
+                            return $"{propertyType} property expects a number";
+                        material.SetFloat(name, number);
+                        return null;
+                    case ShaderPropertyType.Int:
+                        if (!TryGetNumber(value, out float integer) || integer != Mathf.Round(integer)
+                            || integer < int.MinValue || (double)integer > int.MaxValue)
+                            return "Int property expects an integer";
+                        material.SetInteger(name, (int)integer);
+                        return null;
+                    case ShaderPropertyType.Color:
+                        if (!(value is Dictionary<string, object> color))
+                            return "Color property expects an object {r, g, b, a}";
+                        material.SetColor(name, new Color(
+                            MCPArgs.GetFloat(color, "r", 1f), MCPArgs.GetFloat(color, "g", 1f),
+                            MCPArgs.GetFloat(color, "b", 1f), MCPArgs.GetFloat(color, "a", 1f)));
+                        return null;
+                    case ShaderPropertyType.Vector:
+                        if (!(value is Dictionary<string, object> vector))
+                            return "Vector property expects an object {x, y, z, w}";
+                        material.SetVector(name, new Vector4(
+                            MCPArgs.GetFloat(vector, "x", 0f), MCPArgs.GetFloat(vector, "y", 0f),
+                            MCPArgs.GetFloat(vector, "z", 0f), MCPArgs.GetFloat(vector, "w", 0f)));
+                        return null;
+                    case ShaderPropertyType.Texture:
+                        if (value == null)
+                        {
+                            material.SetTexture(name, null);
+                            return null;
+                        }
+                        var texture = value is string texturePath ? AssetDatabase.LoadAssetAtPath<Texture>(texturePath) : null;
+                        if (texture == null)
+                            return $"Texture property expects the asset path of a texture (got '{value}')";
+                        material.SetTexture(name, texture);
+                        return null;
+                    default:
+                        return $"{propertyType} properties are not supported";
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        private static bool TryGetNumber(object value, out float number)
+        {
+            switch (value)
+            {
+                case double d: number = (float)d; return true;
+                case float f: number = f; return true;
+                case long l: number = l; return true;
+                case int i: number = i; return true;
+                // Shader toggles are Float properties, so accept booleans as 1/0.
+                case bool flag: number = flag ? 1f : 0f; return true;
+                case string s: return float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out number);
+                default: number = 0f; return false;
+            }
         }
     }
 }

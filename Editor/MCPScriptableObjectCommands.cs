@@ -218,7 +218,11 @@ namespace UnityMCP.Editor
                 case SerializedPropertyType.Boolean: return prop.boolValue;
                 case SerializedPropertyType.Float: return prop.floatValue;
                 case SerializedPropertyType.String: return prop.stringValue;
-                case SerializedPropertyType.Enum: return prop.enumNames[prop.enumValueIndex];
+                case SerializedPropertyType.Enum:
+                    // Combined flags and unknown serialized values have no named index, but remain valid stored values.
+                    int enumIndex = prop.enumValueIndex;
+                    return enumIndex >= 0 && enumIndex < prop.enumNames.Length
+                        ? (object)prop.enumNames[enumIndex] : prop.intValue;
                 case SerializedPropertyType.ObjectReference:
                     return prop.objectReferenceValue != null ? prop.objectReferenceValue.name : null;
                 case SerializedPropertyType.Vector2:

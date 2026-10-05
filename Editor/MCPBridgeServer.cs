@@ -109,6 +109,11 @@ namespace UnityMCP.Editor
             // ports in the 7890-7899 range and exhaust availability for real editors.
             if (Application.isBatchMode) return;
 
+            // Initialize types that HTTP workers use here, on the main thread, before the listener starts.
+            // Their initializers read SessionState/EditorPrefs; run first on a worker, they fail for the whole domain.
+            foreach (var type in new[] { typeof(MCPSettingsManager), typeof(MCPHttpDiagnostics), typeof(MCPActionHistory) })
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+
             // Restart if: auto-start is allowed (respects the Virtual Player setting)
             // OR the server was running before a domain reload.
             bool wasRunning = SessionState.GetBool(WasRunningKey, false);
@@ -433,7 +438,16 @@ namespace UnityMCP.Editor
         {
             var request = context.Request;
             var response = context.Response;
-            var previousObservation = MCPHttpDiagnostics.Begin();
+            MCPHttpDiagnostics.Observation previousObservation;
+            try { previousObservation = MCPHttpDiagnostics.Begin(); }
+            catch (ThreadAbortException) { throw; }
+            catch (Exception ex)
+            {
+                // SendJson reports to the diagnostics that just failed; answer without them so the client never hangs.
+                Debug.LogError($"[AB-UMCP] Request diagnostics failed: {ex.Message}");
+                SendUntrackedJson(response, 500, MiniJson.Serialize(new Dictionary<string, object> { { "error", ex.Message } }));
+                return;
+            }
 
             try
             {
@@ -520,7 +534,8 @@ namespace UnityMCP.Editor
                 }
                 if (apiPath.StartsWith("context/"))
                 {
-                    string category = apiPath.Substring("context/".Length);
+                    // AbsolutePath keeps %20 and non-ASCII escapes; decode once so the name checks see the real file name.
+                    string category = Uri.UnescapeDataString(apiPath.Substring("context/".Length));
                     SendJson(response, 200, ExecuteOnMainThread(() => MCPContextManager.GetContextResponse(category)));
                     return;
                 }
@@ -715,10 +730,23 @@ namespace UnityMCP.Editor
             };
         }
 
+        // Route prefixes whose Dashboard toggle has another name. ExtractCategory keeps the raw prefix for _meta/routes.
+        private static readonly Dictionary<string, string> _categoryAliases = new Dictionary<string, string>
+        {
+            { "packages", "packagemanager" },
+            { "editorprefs", "prefs" },
+            { "playerprefs", "prefs" },
+            { "settings", "projectsettings" },
+            { "prefab-asset", "prefabasset" },
+        };
+
         private static object DisabledCategoryError(string path)
         {
             string category = ExtractCategory(path);
-            if (category == "packages") category = "packagemanager";
+            if (_categoryAliases.TryGetValue(category, out var alias)) category = alias;
+            // Memory Profiler routes stay under the profiler toggle that already gated them; either toggle blocks them.
+            if (path.StartsWith("profiler/memory-", StringComparison.Ordinal) && !MCPSettingsManager.IsCategoryEnabled("memoryprofiler"))
+                category = "memoryprofiler";
             if (category != "ping" && category != "agents" && category != "queue"
                 && !MCPSettingsManager.IsCategoryEnabled(category))
                 return new { error = $"Category '{category}' is currently disabled. Enable it in Window > AB Unity MCP > Dashboard." };
@@ -1640,6 +1668,18 @@ namespace UnityMCP.Editor
             MCPHttpDiagnostics.WroteBytes(buffer.Length);
             response.OutputStream.Close();
             MCPHttpDiagnostics.ResponseCompleted(response.StatusCode);
+        }
+
+        // For a request that has no diagnostics observation; the unread body rules out connection reuse.
+        private static void SendUntrackedJson(HttpListenerResponse response, int statusCode, string json)
+        {
+            byte[] buffer = Encoding.UTF8.GetBytes(json);
+            response.KeepAlive = false;
+            response.StatusCode = statusCode;
+            response.ContentType = "application/json";
+            response.ContentLength64 = buffer.Length;
+            try { response.OutputStream.Write(buffer, 0, buffer.Length); }
+            finally { response.OutputStream.Close(); }
         }
 
         private static string GetProjectPath()

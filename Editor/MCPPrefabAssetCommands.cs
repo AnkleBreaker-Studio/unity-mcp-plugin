@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace UnityMCP.Editor
@@ -264,10 +265,17 @@ namespace UnityMCP.Editor
                     return new { error = $"Type '{componentType}' not found" };
 
                 var components = go.GetComponents(type);
-                if (components == null || index >= components.Length)
+                if (components == null || index < 0 || index >= components.Length)
                     return new { error = $"Component '{componentType}' at index {index} not found on '{go.name}'" };
 
-                UnityEngine.Object.DestroyImmediate(components[index]);
+                var component = components[index];
+                UnityEngine.Object.DestroyImmediate(component);
+
+                // Unity refuses to destroy a Transform or a component another one requires: it only logs
+                // an error. Check before saving, so an unchanged prefab is not re-saved as a success.
+                if (component != null)
+                    return new { error = $"Unity refused to remove {component.GetType().Name} from '{go.name}': {MCPComponentCommands.DescribeRemovalBlocker(go, component)}." };
+
                 PrefabUtility.SaveAsPrefabAsset(root, assetPath);
 
                 return new Dictionary<string, object>
@@ -368,8 +376,10 @@ namespace UnityMCP.Editor
                     if (targetRef == null)
                         return new { error = $"Asset not found at '{referenceAssetPath}'" };
 
-                    prop.objectReferenceValue = targetRef;
-                    refDescription = $"{targetRef.name} ({targetRef.GetType().Name})";
+                    // Type-checked assignment with read-back; on failure nothing is saved.
+                    if (!MCPComponentCommands.TryAssignObjectReference(prop, targetRef, out var assigned, out string assignError))
+                        return new { error = assignError };
+                    refDescription = $"{assigned.name} ({assigned.GetType().Name})";
                 }
                 else if (!string.IsNullOrEmpty(referencePrefabPath))
                 {
@@ -392,8 +402,9 @@ namespace UnityMCP.Editor
                         targetRef = refGo;
                     }
 
-                    prop.objectReferenceValue = targetRef;
-                    refDescription = $"{targetRef.name} ({targetRef.GetType().Name})";
+                    if (!MCPComponentCommands.TryAssignObjectReference(prop, targetRef, out var assigned, out string assignError))
+                        return new { error = assignError };
+                    refDescription = $"{assigned.name} ({assigned.GetType().Name})";
                 }
                 else
                 {
@@ -594,6 +605,11 @@ namespace UnityMCP.Editor
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 if (path == searchBasePath) continue;
 
+                // Load-free prefilter on the dependency database: a variant, also a variant of a variant,
+                // always has its original base among its recursive dependencies. Prefabs that merely nest
+                // the base pass too, so the load-and-confirm below still decides.
+                if (Array.IndexOf(AssetDatabase.GetDependencies(path, true), searchBasePath) < 0) continue;
+
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (go == null) continue;
 
@@ -634,10 +650,12 @@ namespace UnityMCP.Editor
             if (PrefabUtility.GetPrefabAssetType(asset) != PrefabAssetType.Variant)
                 return new { error = $"'{assetPath}' is not a variant prefab" };
 
-            // Instantiate to read overrides (PrefabUtility override APIs need an instance or asset)
-            var instance = PrefabUtility.InstantiatePrefab(asset) as GameObject;
-            if (instance == null)
-                return new { error = "Failed to instantiate variant for comparison" };
+            // The variant's contents root is the instance of its base inside the variant, so the override
+            // APIs on it list the variant's added and removed items. A scene instance of the variant
+            // would only show its (empty) overrides against the variant itself.
+            var root = PrefabUtility.LoadPrefabContents(assetPath);
+            if (root == null)
+                return new { error = $"Failed to load prefab at '{assetPath}'" };
 
             try
             {
@@ -664,7 +682,7 @@ namespace UnityMCP.Editor
                 }
 
                 // Added components
-                var addedComponents = PrefabUtility.GetAddedComponents(instance);
+                var addedComponents = PrefabUtility.GetAddedComponents(root);
                 var addedCompList = new List<Dictionary<string, object>>();
                 foreach (var added in addedComponents)
                 {
@@ -676,7 +694,7 @@ namespace UnityMCP.Editor
                 }
 
                 // Removed components
-                var removedComponents = PrefabUtility.GetRemovedComponents(instance);
+                var removedComponents = PrefabUtility.GetRemovedComponents(root);
                 var removedCompList = new List<Dictionary<string, object>>();
                 foreach (var removed in removedComponents)
                 {
@@ -688,7 +706,7 @@ namespace UnityMCP.Editor
                 }
 
                 // Added GameObjects
-                var addedGOs = PrefabUtility.GetAddedGameObjects(instance);
+                var addedGOs = PrefabUtility.GetAddedGameObjects(root);
                 var addedGOList = new List<Dictionary<string, object>>();
                 foreach (var added in addedGOs)
                 {
@@ -702,7 +720,7 @@ namespace UnityMCP.Editor
                 // Removed GameObjects
                 var removedGOList = new List<Dictionary<string, object>>();
 #if UNITY_2022_1_OR_NEWER
-                var removedGOs = PrefabUtility.GetRemovedGameObjects(instance);
+                var removedGOs = PrefabUtility.GetRemovedGameObjects(root);
                 foreach (var removed in removedGOs)
                 {
                     removedGOList.Add(new Dictionary<string, object>
@@ -711,13 +729,13 @@ namespace UnityMCP.Editor
                     });
                 }
 #else
-                // Fallback for Unity < 2022.1: compare asset children vs instance children
-                var assetSource = PrefabUtility.GetCorrespondingObjectFromSource(instance);
+                // Fallback for Unity < 2022.1: compare the base's children vs the variant contents' children
+                var assetSource = PrefabUtility.GetCorrespondingObjectFromSource(root);
                 if (assetSource != null)
                 {
                     foreach (Transform assetChild in assetSource.transform)
                     {
-                        var correspondingInInstance = instance.transform.Find(assetChild.name);
+                        var correspondingInInstance = root.transform.Find(assetChild.name);
                         if (correspondingInInstance == null)
                         {
                             removedGOList.Add(new Dictionary<string, object>
@@ -745,7 +763,7 @@ namespace UnityMCP.Editor
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(instance);
+                PrefabUtility.UnloadPrefabContents(root);
             }
         }
 
@@ -754,116 +772,7 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object ApplyVariantOverride(Dictionary<string, object> args)
         {
-            string assetPath = GetString(args, "assetPath");
-            if (string.IsNullOrEmpty(assetPath))
-                return new { error = "assetPath is required" };
-
-            bool applyAll = args.ContainsKey("applyAll") && Convert.ToBoolean(args["applyAll"]);
-            string propertyPath = GetString(args, "propertyPath");
-            string targetComponentType = GetString(args, "targetComponentType");
-            string targetGameObject = GetString(args, "targetGameObject");
-
-            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
-            if (asset == null)
-                return new { error = $"Prefab not found at '{assetPath}'" };
-
-            if (PrefabUtility.GetPrefabAssetType(asset) != PrefabAssetType.Variant)
-                return new { error = $"'{assetPath}' is not a variant prefab" };
-
-            var instance = PrefabUtility.InstantiatePrefab(asset) as GameObject;
-            if (instance == null)
-                return new { error = "Failed to instantiate variant" };
-
-            try
-            {
-                var basePrefab = PrefabUtility.GetCorrespondingObjectFromOriginalSource(asset);
-                string basePath = basePrefab != null ? AssetDatabase.GetAssetPath(basePrefab) : null;
-                if (string.IsNullOrEmpty(basePath))
-                    return new { error = "Could not determine base prefab path" };
-
-                int appliedCount = 0;
-
-                if (applyAll)
-                {
-                    // Apply everything to base
-                    PrefabUtility.ApplyPrefabInstance(instance, InteractionMode.AutomatedAction);
-                    appliedCount = -1; // signals "all"
-                }
-                else
-                {
-                    // Apply specific overrides matching filters
-                    var objectOverrides = PrefabUtility.GetObjectOverrides(instance);
-                    foreach (var ov in objectOverrides)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetComponentType))
-                        {
-                            var comp = ov.instanceObject as Component;
-                            if (comp == null || comp.GetType().Name != targetComponentType)
-                                matches = false;
-                        }
-                        if (!string.IsNullOrEmpty(targetGameObject))
-                        {
-                            var comp = ov.instanceObject as Component;
-                            var go = ov.instanceObject as GameObject;
-                            string goName = comp != null ? comp.gameObject.name : go != null ? go.name : "";
-                            if (goName != targetGameObject)
-                                matches = false;
-                        }
-                        if (matches)
-                        {
-                            ov.Apply(basePath, InteractionMode.AutomatedAction);
-                            appliedCount++;
-                        }
-                    }
-
-                    // Apply added components
-                    var addedComps = PrefabUtility.GetAddedComponents(instance);
-                    foreach (var ac in addedComps)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetComponentType) && ac.instanceComponent.GetType().Name != targetComponentType)
-                            matches = false;
-                        if (!string.IsNullOrEmpty(targetGameObject) && ac.instanceComponent.gameObject.name != targetGameObject)
-                            matches = false;
-                        if (matches)
-                        {
-                            ac.Apply(basePath, InteractionMode.AutomatedAction);
-                            appliedCount++;
-                        }
-                    }
-
-                    // Apply added GameObjects
-                    var addedGOs = PrefabUtility.GetAddedGameObjects(instance);
-                    foreach (var ag in addedGOs)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetGameObject) && ag.instanceGameObject.name != targetGameObject)
-                            matches = false;
-                        if (matches)
-                        {
-                            ag.Apply(basePath, InteractionMode.AutomatedAction);
-                            appliedCount++;
-                        }
-                    }
-                }
-
-                return new Dictionary<string, object>
-                {
-                    { "success", true },
-                    { "variant", asset.name },
-                    { "basePrefab", basePrefab != null ? basePrefab.name : "unknown" },
-                    { "appliedCount", appliedCount == -1 ? "all" : (object)appliedCount },
-                };
-            }
-            catch (Exception ex)
-            {
-                return new { error = $"Failed to apply overrides: {ex.Message}" };
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(instance);
-            }
+            return ChangeVariantOverrides(args, true);
         }
 
         /// <summary>
@@ -872,13 +781,29 @@ namespace UnityMCP.Editor
         /// </summary>
         public static object RevertVariantOverride(Dictionary<string, object> args)
         {
+            return ChangeVariantOverrides(args, false);
+        }
+
+        /// <summary>
+        /// Shared body of apply/revert-variant-override. It works on the variant's contents, never on a
+        /// scene instance: the contents root is the instance of the immediate base inside the variant, so
+        /// its override lists are the variant's own overrides against that base (a scene instance of the
+        /// variant has none). Without applyAll/revertAll, componentType and gameObject filter them.
+        /// </summary>
+        private static object ChangeVariantOverrides(Dictionary<string, object> args, bool apply)
+        {
             string assetPath = GetString(args, "assetPath");
             if (string.IsNullOrEmpty(assetPath))
                 return new { error = "assetPath is required" };
 
-            bool revertAll = args.ContainsKey("revertAll") && Convert.ToBoolean(args["revertAll"]);
-            string targetComponentType = GetString(args, "targetComponentType");
-            string targetGameObject = GetString(args, "targetGameObject");
+            string allKey = apply ? "applyAll" : "revertAll";
+            bool all = args.ContainsKey(allKey) && Convert.ToBoolean(args[allKey]);
+            // The server sends componentType/gameObject; targetComponentType/targetGameObject are the older names.
+            string componentType = GetString(args, "componentType");
+            if (string.IsNullOrEmpty(componentType)) componentType = GetString(args, "targetComponentType");
+            string gameObjectFilter = GetString(args, "gameObject");
+            if (string.IsNullOrEmpty(gameObjectFilter)) gameObjectFilter = GetString(args, "targetGameObject");
+            if (all) componentType = gameObjectFilter = "";
 
             var asset = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
             if (asset == null)
@@ -887,93 +812,162 @@ namespace UnityMCP.Editor
             if (PrefabUtility.GetPrefabAssetType(asset) != PrefabAssetType.Variant)
                 return new { error = $"'{assetPath}' is not a variant prefab" };
 
-            var instance = PrefabUtility.InstantiatePrefab(asset) as GameObject;
-            if (instance == null)
-                return new { error = "Failed to instantiate variant" };
+            var root = PrefabUtility.LoadPrefabContents(assetPath);
+            if (root == null)
+                return new { error = $"Failed to load prefab at '{assetPath}'" };
 
             try
             {
-                int revertedCount = 0;
-
-                if (revertAll)
-                {
-                    PrefabUtility.RevertPrefabInstance(instance, InteractionMode.AutomatedAction);
-                    revertedCount = -1;
-                }
-                else
-                {
-                    var objectOverrides = PrefabUtility.GetObjectOverrides(instance);
-                    foreach (var ov in objectOverrides)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetComponentType))
-                        {
-                            var comp = ov.instanceObject as Component;
-                            if (comp == null || comp.GetType().Name != targetComponentType)
-                                matches = false;
-                        }
-                        if (!string.IsNullOrEmpty(targetGameObject))
-                        {
-                            var comp = ov.instanceObject as Component;
-                            var go = ov.instanceObject as GameObject;
-                            string goName = comp != null ? comp.gameObject.name : go != null ? go.name : "";
-                            if (goName != targetGameObject)
-                                matches = false;
-                        }
-                        if (matches)
-                        {
-                            ov.Revert();
-                            revertedCount++;
-                        }
-                    }
-
-                    var addedComps = PrefabUtility.GetAddedComponents(instance);
-                    foreach (var ac in addedComps)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetComponentType) && ac.instanceComponent.GetType().Name != targetComponentType)
-                            matches = false;
-                        if (!string.IsNullOrEmpty(targetGameObject) && ac.instanceComponent.gameObject.name != targetGameObject)
-                            matches = false;
-                        if (matches)
-                        {
-                            ac.Revert();
-                            revertedCount++;
-                        }
-                    }
-
-                    var addedGOs = PrefabUtility.GetAddedGameObjects(instance);
-                    foreach (var ag in addedGOs)
-                    {
-                        bool matches = true;
-                        if (!string.IsNullOrEmpty(targetGameObject) && ag.instanceGameObject.name != targetGameObject)
-                            matches = false;
-                        if (matches)
-                        {
-                            ag.Revert();
-                            revertedCount++;
-                        }
-                    }
-                }
-
-                // Save the reverted variant back to disk
-                PrefabUtility.ApplyPrefabInstance(instance, InteractionMode.AutomatedAction);
-
-                return new Dictionary<string, object>
-                {
-                    { "success", true },
-                    { "variant", asset.name },
-                    { "revertedCount", revertedCount == -1 ? "all" : (object)revertedCount },
-                };
+                return ChangeVariantContentsOverrides(root, asset, assetPath, apply, componentType, gameObjectFilter);
             }
             catch (Exception ex)
             {
-                return new { error = $"Failed to revert overrides: {ex.Message}" };
+                return new { error = $"Failed to {(apply ? "apply" : "revert")} overrides: {ex.Message}" };
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(instance);
+                PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        /// <summary>
+        /// Apply each matching override of the loaded variant contents to the immediate base, or revert it,
+        /// then save the variant so it keeps no applied or reverted override. Counts are real; filters that
+        /// match nothing, or overrides Unity rejects, are reported as errors.
+        /// </summary>
+        private static object ChangeVariantContentsOverrides(GameObject root, GameObject asset, string assetPath, bool apply,
+            string componentType, string gameObjectFilter)
+        {
+            // Immediate base: the overrides on this root are relative to it (for a variant of a variant,
+            // not to the original base), and ApplyPrefabInstance would target it too.
+            var basePrefab = PrefabUtility.GetCorrespondingObjectFromSource(root);
+            string basePath = basePrefab != null ? AssetDatabase.GetAssetPath(basePrefab) : null;
+            if (string.IsNullOrEmpty(basePath))
+                return new { error = "Could not determine base prefab path" };
+            if (apply && PrefabUtility.IsPartOfImmutablePrefab(basePrefab))
+                return new { error = $"Base prefab '{basePath}' is a model or read-only prefab; overrides cannot be applied to it" };
+
+            var overrides = CollectVariantOverrides(root, componentType, gameObjectFilter);
+            if (overrides.Count == 0 && (!string.IsNullOrEmpty(componentType) || !string.IsNullOrEmpty(gameObjectFilter)))
+                return new { error = $"No override on '{assetPath}' matches componentType '{componentType}' and gameObject '{gameObjectFilter}'" };
+
+            int changedCount = 0;
+            var failures = new List<string>();
+            foreach (var (prefabOverride, label) in overrides)
+            {
+                try
+                {
+                    if (apply)
+                        prefabOverride.Apply(basePath, InteractionMode.AutomatedAction);
+                    else
+                        prefabOverride.Revert(InteractionMode.AutomatedAction);
+                    changedCount++;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{label}: {ex.Message}");
+                }
+            }
+
+            // Save the variant: an applied override is now redundant in it (an applied added component
+            // would otherwise exist twice once the base has it), and a reverted one must leave its file.
+            if (changedCount > 0)
+            {
+                PrefabUtility.SaveAsPrefabAsset(root, assetPath, out bool saved);
+                if (!saved)
+                    return new { error = $"{changedCount} override(s) were {(apply ? $"applied to '{basePath}'" : "reverted")}, but saving the variant '{assetPath}' failed" };
+            }
+
+            var result = new Dictionary<string, object>
+            {
+                { "success", failures.Count == 0 },
+                { "variant", asset.name },
+            };
+            if (apply)
+            {
+                result["basePrefab"] = basePrefab.name;
+                result["basePrefabPath"] = basePath;
+            }
+            result[apply ? "appliedCount" : "revertedCount"] = changedCount;
+            if (failures.Count > 0)
+            {
+                result["error"] = $"{failures.Count} of {overrides.Count} override(s) could not be {(apply ? "applied" : "reverted")}";
+                result["failures"] = failures;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Overrides the variant contents root holds against its immediate base (default root overrides
+        /// excluded) that pass the filters, each with a label for error reports. A componentType filter
+        /// leaves out added and removed GameObjects. Added items come first, so property overrides applied
+        /// after them can still reference them.
+        /// </summary>
+        private static List<(PrefabOverride Override, string Label)> CollectVariantOverrides(GameObject root,
+            string componentType, string gameObjectFilter)
+        {
+            var matches = new List<(PrefabOverride Override, string Label)>();
+            bool anyType = string.IsNullOrEmpty(componentType);
+
+            foreach (var added in PrefabUtility.GetAddedGameObjects(root))
+            {
+                var go = added.instanceGameObject;
+                if (anyType && MatchesGameObjectFilter(gameObjectFilter, root, go))
+                    matches.Add((added, $"added GameObject {DescribePathInPrefab(root, go)}"));
+            }
+            foreach (var added in PrefabUtility.GetAddedComponents(root))
+            {
+                var component = added.instanceComponent;
+                if (MatchesComponentType(component, componentType) && MatchesGameObjectFilter(gameObjectFilter, root, component.gameObject))
+                    matches.Add((added, $"added {component.GetType().Name} on {DescribePathInPrefab(root, component.gameObject)}"));
+            }
+            foreach (var removed in PrefabUtility.GetRemovedComponents(root))
+            {
+                var holder = removed.containingInstanceGameObject;
+                if (MatchesComponentType(removed.assetComponent, componentType) && MatchesGameObjectFilter(gameObjectFilter, root, holder))
+                    matches.Add((removed, $"removed {removed.assetComponent.GetType().Name} on {DescribePathInPrefab(root, holder)}"));
+            }
+#if UNITY_2022_1_OR_NEWER
+            foreach (var removed in PrefabUtility.GetRemovedGameObjects(root))
+            {
+                string parentPath = GetPathInPrefab(root, removed.parentOfRemovedGameObjectInInstance);
+                string name = removed.assetGameObject.name;
+                string path = parentPath.Length > 0 ? parentPath + "/" + name : name;
+                if (anyType && MatchesGameObjectFilter(gameObjectFilter, name, path))
+                    matches.Add((removed, $"removed GameObject '{path}'"));
+            }
+#endif
+            foreach (var changed in PrefabUtility.GetObjectOverrides(root, false))
+            {
+                var component = changed.instanceObject as Component;
+                var go = component != null ? component.gameObject : changed.instanceObject as GameObject;
+                if (MatchesComponentType(component, componentType) && MatchesGameObjectFilter(gameObjectFilter, root, go))
+                    matches.Add((changed, $"property overrides of {(component != null ? component.GetType().Name : "GameObject")} on {DescribePathInPrefab(root, go)}"));
+            }
+            return matches;
+        }
+
+        private static bool MatchesComponentType(UnityEngine.Object obj, string componentType)
+        {
+            if (string.IsNullOrEmpty(componentType)) return true;
+            return obj is Component && (obj.GetType().Name == componentType || obj.GetType().FullName == componentType);
+        }
+
+        private static bool MatchesGameObjectFilter(string filter, GameObject root, GameObject go)
+        {
+            if (string.IsNullOrEmpty(filter)) return true;
+            return go != null && MatchesGameObjectFilter(filter, go.name, GetPathInPrefab(root, go));
+        }
+
+        /// <summary>
+        /// An empty filter matches everything; otherwise the bare name or the path below the root
+        /// ('Body/Head', as prefabPath takes it) must equal it.
+        /// </summary>
+        private static bool MatchesGameObjectFilter(string filter, string name, string pathInPrefab)
+        {
+            if (string.IsNullOrEmpty(filter)) return true;
+            string wanted = filter.Trim('/');
+            return name == wanted || pathInPrefab == wanted;
         }
 
         /// <summary>
@@ -995,6 +989,19 @@ namespace UnityMCP.Editor
 
             if (sourceAsset == null) return new { error = $"Source prefab not found at '{sourceAssetPath}'" };
             if (targetAsset == null) return new { error = $"Target prefab not found at '{targetAssetPath}'" };
+
+            // Modification targets are objects of the immediate base, so they only identify the same
+            // object in both variants when both are variants of that same base.
+            var sourceBase = PrefabUtility.GetPrefabAssetType(sourceAsset) == PrefabAssetType.Variant
+                ? PrefabUtility.GetCorrespondingObjectFromSource(sourceAsset) : null;
+            var targetBase = PrefabUtility.GetPrefabAssetType(targetAsset) == PrefabAssetType.Variant
+                ? PrefabUtility.GetCorrespondingObjectFromSource(targetAsset) : null;
+            if (sourceBase == null || targetBase == null || sourceBase != targetBase)
+            {
+                string sourceBasePath = sourceBase != null ? AssetDatabase.GetAssetPath(sourceBase) : "not a variant";
+                string targetBasePath = targetBase != null ? AssetDatabase.GetAssetPath(targetBase) : "not a variant";
+                return new { error = $"Source and target must be variants of the same base prefab (source base: {sourceBasePath}, target base: {targetBasePath})" };
+            }
 
             // Get source overrides
             var sourceMods = PrefabUtility.GetPropertyModifications(sourceAsset);
@@ -1028,21 +1035,23 @@ namespace UnityMCP.Editor
                     if (!string.IsNullOrEmpty(filterPropertyPath) && !mod.propertyPath.Contains(filterPropertyPath))
                         continue;
 
-                    // Check if this override already exists on target, replace or add
+                    // Check if this override already exists on target, replace or add. Match the same base
+                    // object, not the same type: the root and a child Transform both have m_LocalPosition.x.
                     bool found = false;
+                    bool changed = true;
                     for (int i = 0; i < newMods.Count; i++)
                     {
-                        if (newMods[i].target != null &&
-                            newMods[i].target.GetType() == mod.target.GetType() &&
+                        if (newMods[i].target == mod.target &&
                             newMods[i].propertyPath == mod.propertyPath)
                         {
+                            changed = newMods[i].value != mod.value || newMods[i].objectReference != mod.objectReference;
                             newMods[i] = mod;
                             found = true;
                             break;
                         }
                     }
                     if (!found) newMods.Add(mod);
-                    transferred++;
+                    if (changed) transferred++;
                 }
 
                 PrefabUtility.SetPropertyModifications(targetRoot, newMods.ToArray());
@@ -1081,6 +1090,22 @@ namespace UnityMCP.Editor
                 if (current == null) return null;
             }
             return current.gameObject;
+        }
+
+        /// <summary>Path of <paramref name="go"/> below the prefab root, as FindInPrefab takes it ("" for the root).</summary>
+        private static string GetPathInPrefab(GameObject root, GameObject go)
+        {
+            if (go == null || go == root) return "";
+            string path = go.name;
+            for (var parent = go.transform.parent; parent != null && parent != root.transform; parent = parent.parent)
+                path = parent.name + "/" + path;
+            return path;
+        }
+
+        private static string DescribePathInPrefab(GameObject root, GameObject go)
+        {
+            string path = GetPathInPrefab(root, go);
+            return path.Length > 0 ? $"'{path}'" : "the root";
         }
 
         private static Dictionary<string, object> BuildHierarchyNode(GameObject go, int depth, int maxDepth)

@@ -52,9 +52,12 @@ namespace UnityMCP.Editor
 
             ProfilerDriver.enabled = enable;
 
-            if (args.ContainsKey("deepProfiling"))
+            // deepProfile is the schema key; deepProfiling is what older servers sent.
+            string deepKey = args.ContainsKey("deepProfile") ? "deepProfile"
+                : args.ContainsKey("deepProfiling") ? "deepProfiling" : null;
+            if (deepKey != null)
             {
-                bool deep = GetBool(args, "deepProfiling", false);
+                bool deep = GetBool(args, deepKey, false);
                 ProfilerDriver.deepProfiling = deep;
             }
 
@@ -412,7 +415,15 @@ namespace UnityMCP.Editor
             if (_fdUtilType == null || _fdEventDataType == null)
                 return new Dictionary<string, object> { { "error", "Frame Debugger types not found." } };
 
-            int index = args.ContainsKey("index") ? Convert.ToInt32(args["index"]) : GetFDStaticInt("limit");
+            // eventIndex is the schema key; index is what older servers sent. A supplied index that is
+            // not an integer is an error: defaulting to the selected event returns the wrong draw call.
+            string indexKey = args.ContainsKey("eventIndex") ? "eventIndex"
+                : args.ContainsKey("index") ? "index" : null;
+            int index;
+            if (indexKey == null)
+                index = GetFDStaticInt("limit");
+            else if (!TryGetEventIndex(args, indexKey, out index))
+                return new Dictionary<string, object> { { "error", $"{indexKey} must be an integer event index (got '{args[indexKey]}')" } };
             int count = GetFDStaticInt("count");
 
             if (index < 0 || index >= count)
@@ -735,6 +746,19 @@ namespace UnityMCP.Editor
                 }
             }
             catch { }
+        }
+
+        private static bool TryGetEventIndex(Dictionary<string, object> args, string key, out int index)
+        {
+            index = 0;
+            if (args[key] == null) return false;
+            try
+            {
+                index = MCPArgs.GetInt(args, key, 0);
+                return true;
+            }
+            catch (ArgumentException) { return false; }
+            catch (OverflowException) { return false; }
         }
 
         private static bool GetBool(Dictionary<string, object> args, string key, bool defaultValue)

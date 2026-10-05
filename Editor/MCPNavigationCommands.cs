@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.SceneManagement;
 
 namespace UnityMCP.Editor
 {
@@ -16,28 +18,91 @@ namespace UnityMCP.Editor
 
         public static object BakeNavMesh(Dictionary<string, object> args)
         {
-            var settings = NavMesh.GetSettingsByIndex(0);
-            
-            if (args.ContainsKey("agentRadius"))
-                settings.agentRadius = Convert.ToSingle(args["agentRadius"]);
-            if (args.ContainsKey("agentHeight"))
-                settings.agentHeight = Convert.ToSingle(args["agentHeight"]);
-            if (args.ContainsKey("agentSlope"))
-                settings.agentSlope = Convert.ToSingle(args["agentSlope"]);
-            if (args.ContainsKey("agentClimb"))
-                settings.agentClimb = Convert.ToSingle(args["agentClimb"]);
+            // NavMesh.GetSettingsByIndex returns a struct copy, so assigning agent values to it
+            // never reached the bake. The legacy bake reads the active scene's NavMesh build
+            // settings (what the Navigation window's Bake tab edits): write those instead.
+            Dictionary<string, object> agentSettings = null;
+            if (AgentBuildSettingNames.Any(args.ContainsKey))
+            {
+                var settingsError = ApplyAgentBuildSettings(args, out agentSettings);
+                if (settingsError != null) return settingsError;
+            }
 
 #pragma warning disable CS0618 // NavMeshBuilder: migration to NavMeshSurface API deferred
             UnityEditor.AI.NavMeshBuilder.BuildNavMesh();
 #pragma warning restore CS0618
 
             var triangulation = NavMesh.CalculateTriangulation();
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "success", true },
                 { "vertices", triangulation.vertices.Length },
                 { "triangles", triangulation.indices.Length / 3 },
             };
+            if (agentSettings != null)
+            {
+                result["agentSettings"] = agentSettings;
+                result["agentSettingsScope"] = "Written to the active scene's NavMesh bake settings; they persist with the scene.";
+            }
+            return result;
+        }
+
+        private static readonly string[] AgentBuildSettingNames = { "agentRadius", "agentHeight", "agentSlope", "agentClimb" };
+
+        /// <summary>
+        /// Write the requested agent* arguments to the active scene's m_BuildSettings and read
+        /// them back. Returns an error object (nothing is baked) when a value is out of range or
+        /// a property is missing on this Unity version, otherwise null with the effective values.
+        /// </summary>
+        private static object ApplyAgentBuildSettings(Dictionary<string, object> args, out Dictionary<string, object> effective)
+        {
+            effective = null;
+            var requested = new Dictionary<string, float>();
+            foreach (var name in AgentBuildSettingNames)
+            {
+                if (!args.ContainsKey(name)) continue;
+                float value = Convert.ToSingle(args[name]);
+                bool valid = name == "agentSlope" ? value >= 0f && value <= 60f
+                    : name == "agentClimb" ? value >= 0f
+                    : value > 0f;
+                if (!valid)
+                    return new { error = $"{name} is out of range: {value} (agentRadius and agentHeight must be > 0, agentSlope within [0, 60], agentClimb >= 0). NavMesh was not baked." };
+                requested[name] = value;
+            }
+
+#pragma warning disable CS0618 // NavMeshBuilder: migration to NavMeshSurface API deferred
+            var settingsObject = UnityEditor.AI.NavMeshBuilder.navMeshSettingsObject;
+#pragma warning restore CS0618
+            if (settingsObject == null)
+                return new { error = "The active scene has no NavMesh settings object; agent settings cannot be applied. NavMesh was not baked." };
+
+            var serialized = new SerializedObject(settingsObject);
+            var properties = new Dictionary<string, SerializedProperty>();
+            foreach (var name in AgentBuildSettingNames)
+            {
+                var property = serialized.FindProperty("m_BuildSettings." + name);
+                if (property == null || property.propertyType != SerializedPropertyType.Float)
+                    return new { error = $"NavMesh setting m_BuildSettings.{name} was not found on this Unity version; agent settings cannot be applied. NavMesh was not baked." };
+                properties[name] = property;
+            }
+
+            foreach (var entry in requested)
+                properties[entry.Key].floatValue = entry.Value;
+            serialized.ApplyModifiedProperties();
+            if (!EditorApplication.isPlaying)
+                EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+
+            serialized.Update();
+            foreach (var entry in requested)
+            {
+                if (!Mathf.Approximately(properties[entry.Key].floatValue, entry.Value))
+                    return new { error = $"NavMesh setting {entry.Key} did not persist (requested {entry.Value}, read back {properties[entry.Key].floatValue}). NavMesh was not baked." };
+            }
+
+            effective = new Dictionary<string, object>();
+            foreach (var name in AgentBuildSettingNames)
+                effective[name] = properties[name].floatValue;
+            return null;
         }
 
         // ─── Clear NavMesh ───

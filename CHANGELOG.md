@@ -4,6 +4,32 @@ All notable changes to this package will be documented in this file.
 
 ## [Unreleased]
 
+### Category toggles and bridge reliability
+- The prefs, project settings, prefab asset and memory profiler toggles now block `editorprefs/*`, `playerprefs/*`, `settings/*`, `prefab-asset/*` and `profiler/memory-*`; memory profiler routes are also blocked when Profiler is off. Users who had already turned these toggles off will see those routes refused.
+- Initialize HTTP diagnostics, action history and settings on the main thread before the listener starts, and answer 500 instead of hanging when diagnostics fail.
+- Seed ticket numbers from the wall clock so unscoped polling cannot match another request after a domain reload.
+- Measure large results exactly instead of charging them the whole retention budget, so one large read no longer evicts every unpolled result.
+- Read context categories whose names contain spaces or non-ASCII characters.
+
+### Command correctness
+- Prefab variant apply, revert and compare work on the variant's contents, honour component and GameObject filters and include added or removed components and children. Override transfer matches overrides by target object and requires variants of the same base.
+- Revert and unpack of prefab instances are recorded in Undo. Apply results state that the asset write cannot be undone.
+- Create, instantiate and reparent return an error for a parent that cannot be resolved instead of using the scene root.
+- Object-reference setters convert or validate the assigned object against the field type and verify that Unity stored it. Component removal reports when Unity refused it.
+- Scene save and prefab variant creation refuse to overwrite a different existing asset without `overwrite`.
+- NavMesh bake applies agent radius, height, slope and climb. ScriptableObject reads tolerate flag and unnamed enum values. UI creation uses the built-in font available in each supported Unity version.
+- Material creation applies `properties` and lists the properties it could not apply. Animation tools accept `typeName`, `blendTreeName` and 2D blend positions; Frame Debugger and Profiler accept `eventIndex` and `deepProfile`.
+
+### Editor performance
+- Scene statistics and the memory breakdown count triangles from index counts, once per mesh, instead of copying index buffers.
+- Variant lookup filters candidates through the dependency database before loading prefabs.
+- Cache component type resolution and avoid building hierarchy paths for objects whose name cannot match.
+- Cap `selection/find-by-type` at 500 results by default and report `totalFound`, `returned`, `limit` and `truncated`.
+- Captures import only the written file when it lies inside the project's Assets folder instead of refreshing the whole AssetDatabase.
+
+### Package contents
+- Move README images to `Documentation~/media` so Unity no longer imports about 11 MB of GIFs, and remove the orphan `Editor/Testing.meta`.
+
 ### JSON parser
 - Return the existing empty-input result at end of input instead of throwing while checking whitespace; preserve normal values and trailing-whitespace handling.
 

@@ -419,6 +419,8 @@ namespace UnityMCP.Editor
             long totalVertices = 0;
             long totalTriangles = 0;
             var componentCounts = new Dictionary<string, int>();
+            // Shared meshes are counted once per MeshFilter (totals unchanged) but measured once.
+            var trianglesPerMesh = new Dictionary<Mesh, long>();
 
             void CountRecursive(GameObject go)
             {
@@ -433,11 +435,21 @@ namespace UnityMCP.Editor
                         componentCounts[typeName] = 0;
                     componentCounts[typeName]++;
 
-                    if (comp is MeshFilter mf && mf.sharedMesh != null)
+                    if (comp is MeshFilter mf)
                     {
-                        totalMeshes++;
-                        totalVertices += mf.sharedMesh.vertexCount;
-                        totalTriangles += mf.sharedMesh.triangles.Length / 3;
+                        var mesh = mf.sharedMesh;
+                        if (mesh != null)
+                        {
+                            totalMeshes++;
+                            totalVertices += mesh.vertexCount;
+                            if (!trianglesPerMesh.TryGetValue(mesh, out long triangles))
+                            {
+                                // Index counts, not mesh.triangles: that copies the whole index buffer.
+                                triangles = MCPGraphicsCommands.CountMeshTrianglesLong(mesh);
+                                trianglesPerMesh[mesh] = triangles;
+                            }
+                            totalTriangles += triangles;
+                        }
                     }
                     if (comp is Light) totalLights++;
                     if (comp is Camera) totalCameras++;

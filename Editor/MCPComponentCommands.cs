@@ -46,11 +46,48 @@ namespace UnityMCP.Editor
             int index = args.ContainsKey("index") ? Convert.ToInt32(args["index"]) : 0;
 
             var components = go.GetComponents(type);
-            if (index >= components.Length)
+            if (index < 0 || index >= components.Length)
                 return new { error = $"Component index {index} out of range (found {components.Length})" };
 
-            Undo.DestroyObjectImmediate(components[index]);
+            var component = components[index];
+            Undo.DestroyObjectImmediate(component);
+
+            // Unity refuses to destroy a Transform or a component another one requires: it only logs
+            // an error and throws nothing, so check that the component is really gone.
+            if (component != null)
+                return new { error = $"Unity refused to remove {component.GetType().Name} from '{go.name}': {DescribeRemovalBlocker(go, component)}." };
+
             return new { success = true, removed = typeName, fromGameObject = go.name };
+        }
+
+        /// <summary>Why Unity kept a component it was asked to destroy, for the error message.</summary>
+        internal static string DescribeRemovalBlocker(GameObject go, Component component)
+        {
+            Type type = component.GetType();
+            var dependents = new List<string>();
+            foreach (var sibling in go.GetComponents<Component>())
+            {
+                if (sibling == null || sibling == component) continue;
+                foreach (RequireComponent require in sibling.GetType().GetCustomAttributes(typeof(RequireComponent), true))
+                {
+                    if (IsRequiredType(require.m_Type0, type) || IsRequiredType(require.m_Type1, type) || IsRequiredType(require.m_Type2, type))
+                    {
+                        dependents.Add(sibling.GetType().Name);
+                        break;
+                    }
+                }
+            }
+
+            if (dependents.Count > 0)
+                return $"{string.Join(", ", dependents)} {(dependents.Count == 1 ? "requires" : "require")} it; remove {(dependents.Count == 1 ? "that component" : "those components")} first";
+            if (component is Transform)
+                return "a GameObject's Transform cannot be removed";
+            return "another component probably depends on it (see the Console)";
+        }
+
+        private static bool IsRequiredType(Type required, Type componentType)
+        {
+            return required != null && required.IsAssignableFrom(componentType);
         }
 
         public static object GetProperties(Dictionary<string, object> args)
@@ -262,8 +299,8 @@ namespace UnityMCP.Editor
                 return new { error = "Provide one of: assetPath, referenceGameObject, referenceInstanceId, or clear=true" };
             }
 
-            prop.objectReferenceValue = targetRef;
-            serialized.ApplyModifiedProperties();
+            if (!TryAssignObjectReference(prop, targetRef, out var assigned, out string assignError))
+                return new { error = assignError };
 
             return new Dictionary<string, object>
             {
@@ -271,8 +308,8 @@ namespace UnityMCP.Editor
                 { "gameObject", go.name },
                 { "component", component.GetType().Name },
                 { "property", propertyName },
-                { "referenceName", targetRef.name },
-                { "referenceType", targetRef.GetType().Name },
+                { "referenceName", assigned.name },
+                { "referenceType", assigned.GetType().Name },
             };
         }
 
@@ -460,7 +497,48 @@ namespace UnityMCP.Editor
 
         // ─── Helpers ───
 
+        // FindType results by exact input name, null (not found) included. Static state resets on
+        // domain reload; a newly loaded assembly (e.g. an execute-code compilation) can change what
+        // a name resolves to, so AssemblyLoad clears the cache and bumps the generation.
+        private static readonly Dictionary<string, Type> _typeCache = new Dictionary<string, Type>();
+        private static readonly object _typeCacheLock = new object();
+        private static int _typeCacheGeneration;
+
+        static MCPComponentCommands()
+        {
+            AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+        }
+
+        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
+        {
+            lock (_typeCacheLock)
+            {
+                _typeCache.Clear();
+                _typeCacheGeneration++;
+            }
+        }
+
         internal static Type FindType(string name)
+        {
+            if (name == null) return ResolveType(name);
+
+            int generation;
+            lock (_typeCacheLock)
+            {
+                if (_typeCache.TryGetValue(name, out var cached)) return cached;
+                generation = _typeCacheGeneration;
+            }
+
+            Type resolved = ResolveType(name);
+            lock (_typeCacheLock)
+            {
+                // An assembly loaded during the scan may make this result stale: do not keep it.
+                if (generation == _typeCacheGeneration) _typeCache[name] = resolved;
+            }
+            return resolved;
+        }
+
+        private static Type ResolveType(string name)
         {
             // Try common Unity types
             Type t = Type.GetType($"UnityEngine.{name}, UnityEngine");
@@ -680,7 +758,11 @@ namespace UnityMCP.Editor
                         Convert.ToSingle(rd.GetValueOrDefault("height", 0f)));
                     break;
                 case SerializedPropertyType.ObjectReference:
-                    prop.objectReferenceValue = ResolveObjectReference(value);
+                    var reference = ResolveObjectReference(value);
+                    if (reference == null)
+                        prop.objectReferenceValue = null;
+                    else if (!TryAssignObjectReference(prop, reference, out _, out string referenceError))
+                        throw new InvalidOperationException(referenceError);
                     break;
                 default:
                     throw new NotSupportedException($"Cannot set property type: {prop.propertyType}");
@@ -783,6 +865,146 @@ namespace UnityMCP.Editor
             }
 
             throw new NotSupportedException($"ObjectReference value must be a string (path/name) or dict with assetPath/instanceId/gameObject/path.");
+        }
+
+        // ─── Object reference assignment ───
+
+        /// <summary>
+        /// Assign <paramref name="candidate"/> to an ObjectReference property the way the Inspector's
+        /// object field does. SerializedProperty.objectReferenceValue stores whatever it is given, so
+        /// the field's expected type is checked first: a GameObject going into a Component-typed field
+        /// becomes its first matching component, and a main asset that does not fit is replaced by its
+        /// first matching sub-asset (a .png gives its Sprite). The change is applied, then read back.
+        /// Returns false with an error, without assigning, when nothing compatible exists, or when
+        /// Unity did not store the object. When the expected type cannot be determined the candidate
+        /// is assigned as given, still with the read-back check.
+        /// </summary>
+        internal static bool TryAssignObjectReference(SerializedProperty prop, UnityEngine.Object candidate,
+            out UnityEngine.Object assigned, out string error)
+        {
+            assigned = null;
+            error = null;
+            if (candidate == null)
+            {
+                error = $"No object to assign to '{prop.propertyPath}'.";
+                return false;
+            }
+
+            var target = FindCompatibleReference(prop, candidate, out string mismatch);
+            if (target == null)
+            {
+                error = $"Cannot assign '{candidate.name}' ({candidate.GetType().Name}) to '{prop.propertyPath}': {mismatch}.";
+                return false;
+            }
+
+            var serialized = prop.serializedObject;
+            prop.objectReferenceValue = target;
+            serialized.ApplyModifiedProperties();
+            serialized.Update();
+            var stored = serialized.FindProperty(prop.propertyPath)?.objectReferenceValue;
+            if (stored != target)
+            {
+                string holds = stored != null ? $"'{stored.name}' ({stored.GetType().Name})" : "null";
+                error = $"Unity did not store '{target.name}' ({target.GetType().Name}) in '{prop.propertyPath}' ({prop.type}); it holds {holds}.";
+                return false;
+            }
+
+            assigned = target;
+            return true;
+        }
+
+        /// <summary>
+        /// The candidate itself, one of its components, or one of its sub-assets that fits the
+        /// property's expected type; the candidate unchanged when that type is unknown; null (with
+        /// <paramref name="mismatch"/> set) when nothing fits.
+        /// </summary>
+        private static UnityEngine.Object FindCompatibleReference(SerializedProperty prop, UnityEngine.Object candidate, out string mismatch)
+        {
+            mismatch = null;
+            string expectedName = GetReferenceTypeName(prop);
+            Type declaredType = expectedName != null ? GetDeclaredReferenceType(prop, expectedName) : null;
+            if (declaredType == null && !IsKnownObjectTypeName(expectedName))
+                return candidate;
+
+            bool Fits(UnityEngine.Object obj) => obj != null && (declaredType != null
+                ? declaredType.IsInstanceOfType(obj)
+                : InheritsFromTypeName(obj.GetType(), expectedName));
+
+            if (Fits(candidate)) return candidate;
+
+            var searched = new List<string> { "the object itself" };
+            if (candidate is GameObject candidateGo)
+            {
+                searched.Add("its components");
+                foreach (var comp in candidateGo.GetComponents<Component>())
+                    if (Fits(comp)) return comp;
+            }
+
+            // Sub-assets proper only: a prefab's child objects and components are not substitutes.
+            string assetPath = AssetDatabase.IsMainAsset(candidate) ? AssetDatabase.GetAssetPath(candidate) : null;
+            if (!string.IsNullOrEmpty(assetPath))
+            {
+                searched.Add($"the sub-assets of '{assetPath}'");
+                foreach (var subAsset in AssetDatabase.LoadAllAssetsAtPath(assetPath))
+                    if (!(subAsset is GameObject) && !(subAsset is Component) && Fits(subAsset)) return subAsset;
+            }
+
+            mismatch = $"it expects {expectedName} ({prop.type}); checked {string.Join(", ", searched)}";
+            return null;
+        }
+
+        /// <summary>
+        /// Class name inside SerializedProperty.type: "PPtr&lt;$Enemy&gt;" (script field) gives
+        /// "Enemy", "PPtr&lt;Sprite&gt;" (native field) gives "Sprite". Null when it cannot be read,
+        /// and for native "PPtr&lt;MonoBehaviour&gt;", which also holds ScriptableObjects.
+        /// </summary>
+        private static string GetReferenceTypeName(SerializedProperty prop)
+        {
+            string type = prop.type;
+            if (type == null || !type.StartsWith("PPtr<", StringComparison.Ordinal) || !type.EndsWith(">", StringComparison.Ordinal))
+                return null;
+            string inner = type.Substring(5, type.Length - 6);
+            if (inner == "MonoBehaviour") return null;
+            string name = inner.TrimStart('$');
+            return name.Length > 0 ? name : null;
+        }
+
+        /// <summary>
+        /// Declared type of a top-level script field (exact, namespace-aware). Null for nested fields,
+        /// array elements and native properties, or when it disagrees with the PPtr class name.
+        /// </summary>
+        private static Type GetDeclaredReferenceType(SerializedProperty prop, string typeName)
+        {
+            string path = prop.propertyPath;
+            var target = prop.serializedObject.targetObject;
+            if (target == null || path.IndexOf('.') >= 0) return null;
+
+            for (var type = target.GetType(); type != null; type = type.BaseType)
+            {
+                var field = type.GetField(path, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (field == null) continue;
+                var fieldType = field.FieldType;
+                return fieldType.Name == typeName && typeof(UnityEngine.Object).IsAssignableFrom(fieldType) ? fieldType : null;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True when a loaded UnityEngine.Object class has this name, so the name can be checked
+        /// against the candidate's class chain. A native-only name skips the check.
+        /// </summary>
+        private static bool IsKnownObjectTypeName(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return false;
+            var type = FindType(typeName);
+            return type != null && typeof(UnityEngine.Object).IsAssignableFrom(type);
+        }
+
+        private static bool InheritsFromTypeName(Type type, string typeName)
+        {
+            for (var t = type; t != null; t = t.BaseType)
+                if (t.Name == typeName) return true;
+            return false;
         }
     }
 }

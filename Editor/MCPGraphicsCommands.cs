@@ -414,6 +414,13 @@ namespace UnityMCP.Editor
 
         private static object CountMeshTriangles(Mesh mesh)
         {
+            long count = CountMeshTrianglesLong(mesh);
+            return count <= int.MaxValue ? (object)(int)count : count;
+        }
+
+        /// <summary>Triangle count equal to mesh.triangles.Length / 3, without copying index buffers.</summary>
+        internal static long CountMeshTrianglesLong(Mesh mesh)
+        {
             long count = 0;
             for (int subMesh = 0; subMesh < mesh.subMeshCount; subMesh++)
             {
@@ -422,7 +429,7 @@ namespace UnityMCP.Editor
                 if (topology == MeshTopology.Triangles) count += mesh.GetIndexCount(subMesh) / 3;
                 else if (topology == MeshTopology.Quads) count += (long)mesh.GetIndexCount(subMesh) / 4 * 2;
             }
-            return count <= int.MaxValue ? (object)(int)count : count;
+            return count;
         }
 
         // ─── 6. Material Info (with preview) ───

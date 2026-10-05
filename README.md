@@ -21,7 +21,7 @@ The server also provides Hub and connection tools. Route counts describe the che
 
 **From a prompt to a playable prototype.** The recorded neon brick-breaker workflow combines scene authoring, materials, C# gameplay scripts and visual iteration through Unity MCP.
 
-[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](docs/unity-mcp-showcase-brickbreaker.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)
+[![AI assistant building a neon brick-breaker prototype alongside the Unity Editor](Documentation~/media/unity-mcp-showcase-brickbreaker.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)
 
 **[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-brickbreaker.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-brickbreaker.mp4) · [Village and castle demos](#build-environments-and-playable-levels)
 
@@ -88,7 +88,7 @@ UMA uses a separate assembly enabled by `UMA_INSTALLED`, keeping its references 
 
 Terrain, reusable houses, materials, trees, fences and paths, created and refined in the Unity Editor.
 
-[![Unity MCP recording showing a medieval village being built with terrain and houses](docs/unity-mcp-showcase-village.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)
+[![Unity MCP recording showing a medieval village being built with terrain and houses](Documentation~/media/unity-mcp-showcase-village.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)
 
 **[▶ Open video · 25 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-village.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-village.mp4)
 
@@ -96,7 +96,7 @@ Terrain, reusable houses, materials, trees, fences and paths, created and refine
 
 Multi-room construction, lighting adjustments and a first-person walkthrough in the recorded project.
 
-[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](docs/unity-mcp-showcase-castle.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)
+[![Unity MCP recording showing castle construction, lighting inspection and a playable walkthrough](Documentation~/media/unity-mcp-showcase-castle.gif)](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)
 
 **[▶ Open video · 18 seconds](https://cdn.jsdelivr.net/gh/AnkleBreaker-Studio/unity-mcp-server@513fca2/docs/media/showcase-castle.mp4)** · [Download MP4](https://raw.githubusercontent.com/AnkleBreaker-Studio/unity-mcp-plugin/main/Documentation~/media/showcase-castle.mp4)
 

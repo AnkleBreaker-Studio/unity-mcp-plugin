@@ -50,10 +50,15 @@ namespace UnityMCP.Editor
                 return new { error = $"Component index {index} out of range (found {components.Length})" };
 
             var component = components[index];
+            // Undo.DestroyObjectImmediate does not refuse a Transform: Unity swaps in a new one, which
+            // breaks every reference to the old one (a RectTransform becomes a plain Transform).
+            if (component is Transform)
+                return new { error = $"Cannot remove the {component.GetType().Name} of '{go.name}': {DescribeRemovalBlocker(go, component)}; delete the GameObject instead." };
+
             Undo.DestroyObjectImmediate(component);
 
-            // Unity refuses to destroy a Transform or a component another one requires: it only logs
-            // an error and throws nothing, so check that the component is really gone.
+            // Unity refuses to destroy a component another one requires: it only logs an error and
+            // throws nothing, so check that the component is really gone.
             if (component != null)
                 return new { error = $"Unity refused to remove {component.GetType().Name} from '{go.name}': {DescribeRemovalBlocker(go, component)}." };
 
@@ -63,6 +68,9 @@ namespace UnityMCP.Editor
         /// <summary>Why Unity kept a component it was asked to destroy, for the error message.</summary>
         internal static string DescribeRemovalBlocker(GameObject go, Component component)
         {
+            if (component is Transform)
+                return "a GameObject's Transform cannot be removed";
+
             Type type = component.GetType();
             var dependents = new List<string>();
             foreach (var sibling in go.GetComponents<Component>())
@@ -80,8 +88,6 @@ namespace UnityMCP.Editor
 
             if (dependents.Count > 0)
                 return $"{string.Join(", ", dependents)} {(dependents.Count == 1 ? "requires" : "require")} it; remove {(dependents.Count == 1 ? "that component" : "those components")} first";
-            if (component is Transform)
-                return "a GameObject's Transform cannot be removed";
             return "another component probably depends on it (see the Console)";
         }
 

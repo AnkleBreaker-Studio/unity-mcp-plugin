@@ -930,24 +930,18 @@ namespace UnityMCP.Editor
             return false;
         }
 
-        // Prefers the binding whose type matches; older plugins ignored the type, so an unambiguous
-        // path+property match is still used when no binding has the requested type.
+        // With an explicit type only that type's binding matches: AddKeyframe then creates the requested
+        // binding, and Get/RemoveKeyframe report 'not found' instead of touching another component's
+        // curve that shares the path and property (m_Enabled, m_Color, ...). Callers that name no type
+        // keep the historical first path+property match.
         private static EditorCurveBinding? FindCurveBinding(AnimationClip clip, string relativePath, string propertyName, Type type)
         {
-            var matches = AnimationUtility.GetCurveBindings(clip)
-                .Where(b => b.path == relativePath && b.propertyName == propertyName)
-                .ToList();
-            if (matches.Count == 0)
-                return null;
-            if (type == null)
-                return matches[0];
-
-            foreach (var binding in matches)
+            foreach (var binding in AnimationUtility.GetCurveBindings(clip))
             {
-                if (binding.type == type)
+                if (binding.path == relativePath && binding.propertyName == propertyName && (type == null || binding.type == type))
                     return binding;
             }
-            return matches.Count == 1 ? matches[0] : (EditorCurveBinding?)null;
+            return null;
         }
 
         // ─── Animation Events ───

@@ -708,7 +708,9 @@ namespace UnityMCP.Editor
             if (!TryReadBindingType(args, out Type type, out string typeName, out string typeError))
                 return new { error = typeError };
 
-            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type);
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             if (!targetBinding.HasValue)
                 return new { error = $"Curve not found for property '{propertyName}' at path '{relativePath}'" + (type != null ? $" on type '{typeName}'" : "") };
@@ -815,7 +817,9 @@ namespace UnityMCP.Editor
             float value = Convert.ToSingle(args["value"]);
 
             // Find existing curve binding
-            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type);
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             AnimationCurve curve;
             EditorCurveBinding curveBinding;
@@ -886,7 +890,9 @@ namespace UnityMCP.Editor
             if (!TryReadBindingType(args, out Type type, out string typeName, out string typeError))
                 return new { error = typeError };
 
-            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type);
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             if (!targetBinding.HasValue)
                 return new { error = $"Curve not found for property '{propertyName}'" + (type != null ? $" on type '{typeName}'" : "") };
@@ -930,22 +936,34 @@ namespace UnityMCP.Editor
             return false;
         }
 
-        // With an explicit type only a binding of that type (or a subtype: the Animation window records
-        // UI transform curves as RectTransform) matches. AddKeyframe then creates the requested binding,
-        // and Get/RemoveKeyframe report 'not found' instead of touching another component's curve that
-        // shares the path and property (m_Enabled, m_Color, ...). Callers that name no type keep the
+        // With an explicit type, a binding of exactly that type matches first. Otherwise a binding of a
+        // subtype matches only when it is the only one (the Animation window records UI transform curves
+        // as RectTransform); several subtypes, e.g. 'Behaviour' over Light and AudioSource m_Enabled, set
+        // ambiguity instead of editing an arbitrary component's curve. With no match AddKeyframe creates the
+        // requested binding and Get/RemoveKeyframe report 'not found'. Callers that name no type keep the
         // historical first path+property match.
-        private static EditorCurveBinding? FindCurveBinding(AnimationClip clip, string relativePath, string propertyName, Type type)
+        private static EditorCurveBinding? FindCurveBinding(AnimationClip clip, string relativePath, string propertyName, Type type, out string ambiguity)
         {
+            ambiguity = null;
             EditorCurveBinding? subtypeMatch = null;
+            var subtypes = new List<Type>();
             foreach (var binding in AnimationUtility.GetCurveBindings(clip))
             {
                 if (binding.path != relativePath || binding.propertyName != propertyName)
                     continue;
                 if (type == null || binding.type == type)
                     return binding;
-                if (subtypeMatch == null && binding.type != null && type.IsAssignableFrom(binding.type))
+                if (binding.type == null || !type.IsAssignableFrom(binding.type))
+                    continue;
+                if (subtypeMatch == null)
                     subtypeMatch = binding;
+                if (!subtypes.Contains(binding.type))
+                    subtypes.Add(binding.type);
+            }
+            if (subtypes.Count > 1)
+            {
+                ambiguity = $"Type '{type.Name}' matches '{propertyName}' curves of {string.Join(", ", subtypes.Select(t => t.Name))} at path '{relativePath}'; name the concrete component type";
+                return null;
             }
             return subtypeMatch;
         }

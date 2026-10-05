@@ -930,18 +930,24 @@ namespace UnityMCP.Editor
             return false;
         }
 
-        // With an explicit type only that type's binding matches: AddKeyframe then creates the requested
-        // binding, and Get/RemoveKeyframe report 'not found' instead of touching another component's
-        // curve that shares the path and property (m_Enabled, m_Color, ...). Callers that name no type
-        // keep the historical first path+property match.
+        // With an explicit type only a binding of that type (or a subtype: the Animation window records
+        // UI transform curves as RectTransform) matches. AddKeyframe then creates the requested binding,
+        // and Get/RemoveKeyframe report 'not found' instead of touching another component's curve that
+        // shares the path and property (m_Enabled, m_Color, ...). Callers that name no type keep the
+        // historical first path+property match.
         private static EditorCurveBinding? FindCurveBinding(AnimationClip clip, string relativePath, string propertyName, Type type)
         {
+            EditorCurveBinding? subtypeMatch = null;
             foreach (var binding in AnimationUtility.GetCurveBindings(clip))
             {
-                if (binding.path == relativePath && binding.propertyName == propertyName && (type == null || binding.type == type))
+                if (binding.path != relativePath || binding.propertyName != propertyName)
+                    continue;
+                if (type == null || binding.type == type)
                     return binding;
+                if (subtypeMatch == null && binding.type != null && type.IsAssignableFrom(binding.type))
+                    subtypeMatch = binding;
             }
-            return null;
+            return subtypeMatch;
         }
 
         // ─── Animation Events ───

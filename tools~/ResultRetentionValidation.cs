@@ -173,6 +173,20 @@ public static class UnityMcpResultRetentionValidation
                 && ReferenceEquals(MCPRequestQueue.GetTicketStatus(ticket.TicketId)["result"], deep), "Uncertain graph accounting was not conservative");
             return Metrics();
         });
+        Check("A dense 5,000-node hierarchy is measured and leaves unrelated results pollable", () => {
+            var control = Finish(true);
+            var roots = new List<object>();
+            for (int i = 0; i < 5000; i++) roots.Add(new Dictionary<string, object> {
+                { "name", "Node " + i }, { "instanceId", "GlobalObjectId_V1-2-fixture-" + i },
+                { "components", new List<string> { "MeshRenderer", "MeshFilter" } },
+                { "position", new Dictionary<string, object> { { "x", 1f }, { "y", 2f }, { "z", 3f } } } });
+            var hierarchy = Finish(new Dictionary<string, object> { { "hierarchy", roots }, { "returnedNodes", 5000 } }, "scene/hierarchy");
+            var later = Finish(true);
+            Require(Metric("costBytes") < 256L * 1024 * 1024 / 4, "A 5,000-node hierarchy was charged as an uncertain full-budget result");
+            Require(MCPRequestQueue.GetTicketStatus(control.TicketId) != null && MCPRequestQueue.GetTicketStatus(hierarchy.TicketId) != null
+                && MCPRequestQueue.GetTicketStatus(later.TicketId) != null, "A large result or an unrelated small result was evicted");
+            return Metrics();
+        });
         Check("Oversized accounting does not evict an unrelated usable result", () => {
             var control = Finish(true); long before = Metric("oversizedNotCached");
             string shared = new string('s', 8 * 1024 * 1024);

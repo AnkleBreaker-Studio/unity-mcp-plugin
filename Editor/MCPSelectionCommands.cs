@@ -112,11 +112,24 @@ namespace UnityMCP.Editor
             };
         }
 
+        // Default result limit, matching the search/* routes: a common type in a large scene
+        // otherwise builds one entry and hierarchy path per component into a multi-MB response.
+        private const int DefaultFindLimit = 500;
+
         public static object FindObjectsByType(Dictionary<string, object> args)
         {
             string typeName = args.ContainsKey("typeName") ? args["typeName"].ToString() : "";
             if (string.IsNullOrEmpty(typeName))
                 return new { error = "typeName is required" };
+
+            int limit = DefaultFindLimit;
+            if (args.ContainsKey("limit") && args["limit"] != null)
+            {
+                try { limit = Convert.ToInt32(args["limit"]); }
+                catch (Exception) { limit = 0; }
+                if (limit < 1)
+                    return new { error = $"limit must be a positive integer, got: {args["limit"]}" };
+            }
 
             Type type = Type.GetType($"UnityEngine.{typeName}, UnityEngine") ??
                         Type.GetType($"UnityEngine.{typeName}, UnityEngine.CoreModule") ??
@@ -136,26 +149,34 @@ namespace UnityMCP.Editor
 
             var objects = UnityEngine.Object.FindObjectsByType(type, FindObjectsSortMode.None);
             var results = new List<Dictionary<string, object>>();
+            int totalFound = 0;
             foreach (var obj in objects)
             {
                 var comp = obj as Component;
-                if (comp != null)
+                if (comp == null) continue;
+                totalFound++;
+                // Past the limit only count: no entry and no hierarchy path is built.
+                if (results.Count >= limit) continue;
+                results.Add(new Dictionary<string, object>
                 {
-                    results.Add(new Dictionary<string, object>
-                    {
-                        { "gameObject", comp.gameObject.name },
-                        { "instanceId", MCPObjectId.Get(comp.gameObject) },
-                        { "path", MCPGameObjectCommands.GetHierarchyPath(comp.gameObject) },
-                    });
-                }
+                    { "gameObject", comp.gameObject.name },
+                    { "instanceId", MCPObjectId.Get(comp.gameObject) },
+                    { "path", MCPGameObjectCommands.GetHierarchyPath(comp.gameObject) },
+                });
             }
 
-            return new Dictionary<string, object>
+            var result = new Dictionary<string, object>
             {
                 { "typeName", typeName },
                 { "count", results.Count },
+                { "totalFound", totalFound },
+                { "returned", results.Count },
+                { "limit", limit },
                 { "objects", results },
             };
+            if (totalFound > limit)
+                result["truncated"] = true;
+            return result;
         }
     }
 }

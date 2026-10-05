@@ -9,7 +9,8 @@ namespace UnityMCP.Editor
     internal static class MCPResultRetention
     {
         internal const long MaxCost = 256L * 1024 * 1024;
-        private const int MaxDepth = 64, MaxVisited = 65536;
+        // Each visit charges at least 64, so the cost ceiling ends traversal first and large results are measured, not charged the full budget.
+        private const int MaxDepth = 64, MaxVisited = (int)(MaxCost / 64);
 
         // Accounting weights bound retained polling results, not the managed or native heap.
         // Read stored fields only: observing a result must never call user getters or enumerators.

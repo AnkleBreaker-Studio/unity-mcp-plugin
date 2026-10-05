@@ -91,7 +91,7 @@ namespace UnityMCP.Editor
                 if (rt != null) UnityEngine.Object.DestroyImmediate(rt);
             }
 
-            AssetDatabase.Refresh();
+            ImportCaptureIfInAssets(path);
 
             return new Dictionary<string, object>
             {
@@ -101,6 +101,29 @@ namespace UnityMCP.Editor
                 { "height", height },
                 { "sizeBytes", bytes.Length },
             };
+        }
+
+        /// <summary>
+        /// Import the one written capture instead of AssetDatabase.Refresh(), which rescans the
+        /// whole project and imports every other pending external edit (a changed script then
+        /// compiles and reloads the domain mid-session). Only a file inside THIS project's Assets
+        /// folder is imported, by its project-relative "Assets/..." path; anything else is skipped.
+        /// </summary>
+        static void ImportCaptureIfInAssets(string path)
+        {
+            // Resolved exactly as File.WriteAllBytes resolved it (relative paths from the project root).
+            string fullPath = Path.GetFullPath(path);
+            string assetsRoot = Path.GetFullPath(Application.dataPath);
+            string sep = Path.DirectorySeparatorChar.ToString();
+            string assetsPrefix = assetsRoot.EndsWith(sep) ? assetsRoot : assetsRoot + sep;
+            // Case-insensitive only where the filesystem is (Windows/macOS), as MCPAssetSafety does.
+            var cmp = Application.platform == RuntimePlatform.LinuxEditor
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+            if (!fullPath.StartsWith(assetsPrefix, cmp))
+                return;
+
+            AssetDatabase.ImportAsset("Assets/" + fullPath.Substring(assetsPrefix.Length).Replace('\\', '/'));
         }
 
         // ─── Get Scene View Camera Info ───
@@ -430,9 +453,7 @@ namespace UnityMCP.Editor
                 string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 File.WriteAllBytes(path, png);
-                string normalized = path.Replace('\\', '/');
-                if (normalized.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) || normalized.Contains("/Assets/"))
-                    AssetDatabase.Refresh();
+                ImportCaptureIfInAssets(path);
 
                 return new Dictionary<string, object>
                 {

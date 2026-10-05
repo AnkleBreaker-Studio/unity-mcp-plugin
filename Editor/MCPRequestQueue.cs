@@ -104,8 +104,10 @@ namespace UnityMCP.Editor
         //  State
         // ═══════════════════════════════════════════════════════
 
-        // Ticket ID generator (thread-safe via Interlocked)
-        private static long _nextTicketId;
+        // Ticket ID generator (thread-safe via Interlocked). Seeded from Unix ms x 1000 so a domain reload never
+        // reuses an ID that a server polling queue/status without a session may still hold; stays below 2^53
+        // (a JS safe integer) until 2255. HTTP workers can run this initializer, so it must not use editor APIs.
+        private static long _nextTicketId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000;
 
         // Per-agent FIFO queues for fair round-robin
         private static readonly Dictionary<string, Queue<RequestTicket>> _agentQueues

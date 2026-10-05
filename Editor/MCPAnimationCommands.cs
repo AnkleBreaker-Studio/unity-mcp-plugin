@@ -705,22 +705,15 @@ namespace UnityMCP.Editor
 
             if (string.IsNullOrEmpty(propertyName))
                 return new { error = "propertyName is required" };
+            if (!TryReadBindingType(args, out Type type, out string typeName, out string typeError))
+                return new { error = typeError };
 
-            var bindings = AnimationUtility.GetCurveBindings(clip);
-            EditorCurveBinding? targetBinding = null;
-
-            foreach (var binding in bindings)
-            {
-                if (binding.propertyName == propertyName &&
-                    binding.path == relativePath)
-                {
-                    targetBinding = binding;
-                    break;
-                }
-            }
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             if (!targetBinding.HasValue)
-                return new { error = $"Curve not found for property '{propertyName}' at path '{relativePath}'" };
+                return new { error = $"Curve not found for property '{propertyName}' at path '{relativePath}'" + (type != null ? $" on type '{typeName}'" : "") };
 
             var curve = AnimationUtility.GetEditorCurve(clip, targetBinding.Value);
             var keyframes = new List<Dictionary<string, object>>();
@@ -761,14 +754,16 @@ namespace UnityMCP.Editor
 
             string relativePath = args.ContainsKey("relativePath") ? args["relativePath"].ToString() : "";
             string propertyName = args.ContainsKey("propertyName") ? args["propertyName"].ToString() : "";
-            string typeName = args.ContainsKey("type") ? args["type"].ToString() : "Transform";
 
             if (string.IsNullOrEmpty(propertyName))
                 return new { error = "propertyName is required" };
-
-            Type type = Type.GetType($"UnityEngine.{typeName}, UnityEngine") ??
-                        Type.GetType($"UnityEngine.{typeName}, UnityEngine.CoreModule") ??
-                        typeof(Transform);
+            if (!TryReadBindingType(args, out Type type, out string typeName, out string typeError))
+                return new { error = typeError };
+            if (type == null)
+            {
+                type = typeof(Transform);
+                typeName = "Transform";
+            }
 
             // Use AnimationUtility.SetEditorCurve to remove individual curve bindings safely.
             // clip.SetCurve(path, type, prop, null) fails on compound properties like localPosition.x
@@ -786,9 +781,13 @@ namespace UnityMCP.Editor
 
             if (removed == 0)
             {
-                // Fallback: try SetCurve for non-compound properties
-                try { clip.SetCurve(relativePath, type, propertyName, null); removed = 1; }
+                // Fallback: try SetCurve for non-compound properties. Count the bindings that actually
+                // disappeared: SetCurve(null) on a binding that does not exist removes nothing.
+                try { clip.SetCurve(relativePath, type, propertyName, null); }
                 catch { return new { error = $"Curve binding not found: path='{relativePath}' type='{typeName}' property='{propertyName}'" }; }
+                removed = bindings.Length - AnimationUtility.GetCurveBindings(clip).Length;
+                if (removed <= 0)
+                    return new { error = $"Curve binding not found: path='{relativePath}' type='{typeName}' property='{propertyName}'" };
             }
 
             EditorUtility.SetDirty(clip);
@@ -811,22 +810,16 @@ namespace UnityMCP.Editor
                 return new { error = "propertyName is required" };
             if (!args.ContainsKey("time") || !args.ContainsKey("value"))
                 return new { error = "time and value are required" };
+            if (!TryReadBindingType(args, out Type type, out _, out string typeError))
+                return new { error = typeError };
 
             float time = Convert.ToSingle(args["time"]);
             float value = Convert.ToSingle(args["value"]);
 
             // Find existing curve binding
-            var bindings = AnimationUtility.GetCurveBindings(clip);
-            EditorCurveBinding? targetBinding = null;
-
-            foreach (var binding in bindings)
-            {
-                if (binding.propertyName == propertyName && binding.path == relativePath)
-                {
-                    targetBinding = binding;
-                    break;
-                }
-            }
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             AnimationCurve curve;
             EditorCurveBinding curveBinding;
@@ -838,12 +831,8 @@ namespace UnityMCP.Editor
             }
             else
             {
-                // Create new curve binding
-                string typeName = args.ContainsKey("type") ? args["type"].ToString() : "Transform";
-                Type type = Type.GetType($"UnityEngine.{typeName}, UnityEngine") ??
-                            Type.GetType($"UnityEngine.{typeName}, UnityEngine.CoreModule") ??
-                            typeof(Transform);
-                curveBinding = EditorCurveBinding.FloatCurve(relativePath, type, propertyName);
+                // Create new curve binding (Transform only when the caller named no type)
+                curveBinding = EditorCurveBinding.FloatCurve(relativePath, type ?? typeof(Transform), propertyName);
                 curve = new AnimationCurve();
             }
 
@@ -875,6 +864,7 @@ namespace UnityMCP.Editor
                 { "success", true },
                 { "clipPath", path },
                 { "propertyName", propertyName },
+                { "type", curveBinding.type.Name },
                 { "keyframeIndex", idx },
                 { "time", time },
                 { "value", value },
@@ -897,20 +887,15 @@ namespace UnityMCP.Editor
                 return new { error = "propertyName is required" };
             if (keyIndex < 0)
                 return new { error = "keyframeIndex is required (0-based)" };
+            if (!TryReadBindingType(args, out Type type, out string typeName, out string typeError))
+                return new { error = typeError };
 
-            var bindings = AnimationUtility.GetCurveBindings(clip);
-            EditorCurveBinding? targetBinding = null;
-            foreach (var binding in bindings)
-            {
-                if (binding.propertyName == propertyName && binding.path == relativePath)
-                {
-                    targetBinding = binding;
-                    break;
-                }
-            }
+            EditorCurveBinding? targetBinding = FindCurveBinding(clip, relativePath, propertyName, type, out string ambiguity);
+            if (ambiguity != null)
+                return new { error = ambiguity };
 
             if (!targetBinding.HasValue)
-                return new { error = $"Curve not found for property '{propertyName}'" };
+                return new { error = $"Curve not found for property '{propertyName}'" + (type != null ? $" on type '{typeName}'" : "") };
 
             var curve = AnimationUtility.GetEditorCurve(clip, targetBinding.Value);
             if (keyIndex >= curve.keys.Length)
@@ -921,7 +906,66 @@ namespace UnityMCP.Editor
             EditorUtility.SetDirty(clip);
             AssetDatabase.SaveAssets();
 
-            return new { success = true, removedIndex = keyIndex, remainingKeyframes = curve.keys.Length };
+            return new { success = true, type = targetBinding.Value.type.Name, removedIndex = keyIndex, remainingKeyframes = curve.keys.Length };
+        }
+
+        // The server schemas send typeName; older callers sent type. A supplied name that does not
+        // resolve is an error: binding Transform instead writes a curve that animates nothing.
+        // type stays null when neither key was given.
+        private static bool TryReadBindingType(Dictionary<string, object> args, out Type type, out string typeName, out string error)
+        {
+            type = null;
+            typeName = null;
+            error = null;
+
+            string key = null;
+            if (args.TryGetValue("typeName", out object raw) && raw != null)
+                key = "typeName";
+            else if (args.TryGetValue("type", out raw) && raw != null)
+                key = "type";
+            if (key == null)
+                return true;
+
+            typeName = raw.ToString();
+            type = string.IsNullOrEmpty(typeName) ? null : MCPComponentCommands.FindType(typeName);
+            if (type != null && typeof(UnityEngine.Object).IsAssignableFrom(type))
+                return true;
+
+            type = null;
+            error = $"{key} '{typeName}' is not a known component type (e.g. 'Transform', 'SpriteRenderer')";
+            return false;
+        }
+
+        // With an explicit type, a binding of exactly that type matches first. Otherwise a binding of a
+        // subtype matches only when it is the only one (the Animation window records UI transform curves
+        // as RectTransform); several subtypes, e.g. 'Behaviour' over Light and AudioSource m_Enabled, set
+        // ambiguity instead of editing an arbitrary component's curve. With no match AddKeyframe creates the
+        // requested binding and Get/RemoveKeyframe report 'not found'. Callers that name no type keep the
+        // historical first path+property match.
+        private static EditorCurveBinding? FindCurveBinding(AnimationClip clip, string relativePath, string propertyName, Type type, out string ambiguity)
+        {
+            ambiguity = null;
+            EditorCurveBinding? subtypeMatch = null;
+            var subtypes = new List<Type>();
+            foreach (var binding in AnimationUtility.GetCurveBindings(clip))
+            {
+                if (binding.path != relativePath || binding.propertyName != propertyName)
+                    continue;
+                if (type == null || binding.type == type)
+                    return binding;
+                if (binding.type == null || !type.IsAssignableFrom(binding.type))
+                    continue;
+                if (subtypeMatch == null)
+                    subtypeMatch = binding;
+                if (!subtypes.Contains(binding.type))
+                    subtypes.Add(binding.type);
+            }
+            if (subtypes.Count > 1)
+            {
+                ambiguity = $"Type '{type.Name}' matches '{propertyName}' curves of {string.Join(", ", subtypes.Select(t => t.Name))} at path '{relativePath}'; name the concrete component type";
+                return null;
+            }
+            return subtypeMatch;
         }
 
         // ─── Animation Events ───
@@ -1178,7 +1222,9 @@ namespace UnityMCP.Editor
             if (controller == null)
                 return new { error = $"Animator controller not found at '{path}'" };
 
-            string stateName = args.ContainsKey("stateName") ? args["stateName"].ToString() : "Blend Tree";
+            // blendTreeName is the schema key; stateName is what older servers sent.
+            string stateName = args.ContainsKey("blendTreeName") ? args["blendTreeName"].ToString()
+                : args.ContainsKey("stateName") ? args["stateName"].ToString() : "Blend Tree";
             int layerIndex = args.ContainsKey("layerIndex") ? Convert.ToInt32(args["layerIndex"]) : 0;
             string blendType = args.ContainsKey("blendType") ? args["blendType"].ToString() : "Simple1D";
             string blendParameter = args.ContainsKey("blendParameter") ? args["blendParameter"].ToString() : "Blend";
@@ -1198,12 +1244,28 @@ namespace UnityMCP.Editor
             if (args.ContainsKey("blendParameterY"))
                 tree.blendParameterY = args["blendParameterY"].ToString();
 
+            // 2D trees place children by position; 1D and Direct trees keep using thresholds.
+            bool is2D = tree.blendType == BlendTreeType.SimpleDirectional2D
+                || tree.blendType == BlendTreeType.FreeformDirectional2D
+                || tree.blendType == BlendTreeType.FreeformCartesian2D;
+
             // Add motions if provided
             if (args.ContainsKey("motions"))
             {
                 var motions = args["motions"] as List<object>;
                 if (motions != null)
                 {
+                    // Unity respaces thresholds evenly while useAutomaticThresholds is on (the default),
+                    // which would discard the thresholds the caller gave.
+                    foreach (var motionObj in motions)
+                    {
+                        if (!is2D && motionObj is Dictionary<string, object> entry && entry.ContainsKey("threshold"))
+                        {
+                            tree.useAutomaticThresholds = false;
+                            break;
+                        }
+                    }
+
                     foreach (var motionObj in motions)
                     {
                         var m = motionObj as Dictionary<string, object>;
@@ -1217,7 +1279,11 @@ namespace UnityMCP.Editor
                         if (!string.IsNullOrEmpty(clipPath))
                             motion = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
 
-                        tree.AddChild(motion, threshold);
+                        var position = is2D && m.ContainsKey("position") ? m["position"] as Dictionary<string, object> : null;
+                        if (position != null)
+                            tree.AddChild(motion, new Vector2(MCPArgs.GetFloat(position, "x", 0f), MCPArgs.GetFloat(position, "y", 0f)));
+                        else
+                            tree.AddChild(motion, threshold);
 
                         // Set time scale on the last child
                         if (timeScale != 1f)

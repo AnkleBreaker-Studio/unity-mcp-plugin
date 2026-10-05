@@ -296,6 +296,16 @@ namespace UnityMCP.Editor
 
         // ─── Helpers ───
 
+        // The built-in UI font was renamed from Arial.ttf to LegacyRuntime.ttf in Unity 2022.2.
+        // Choose it at compile time: requesting the name a version lacks throws or logs an error.
+#if UNITY_2022_2_OR_NEWER
+        private const string BuiltinUIFontName = "LegacyRuntime.ttf";
+#else
+        private const string BuiltinUIFontName = "Arial.ttf";
+#endif
+
+        private static Font BuiltinUIFont() => Resources.GetBuiltinResource<Font>(BuiltinUIFontName);
+
         private static GameObject CreateTextElement(string name)
         {
             var go = new GameObject(name);
@@ -303,7 +313,7 @@ namespace UnityMCP.Editor
             rt.sizeDelta = new Vector2(160, 30);
             var text = go.AddComponent<Text>();
             text.text = "New Text";
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = BuiltinUIFont();
             text.color = Color.black;
             text.alignment = TextAnchor.MiddleCenter;
             return go;
@@ -335,7 +345,7 @@ namespace UnityMCP.Editor
             textRt.sizeDelta = Vector2.zero;
             var text = textGo.AddComponent<Text>();
             text.text = args.ContainsKey("label") ? args["label"].ToString() : "Button";
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = BuiltinUIFont();
             text.color = Color.black;
             text.alignment = TextAnchor.MiddleCenter;
 
@@ -369,7 +379,7 @@ namespace UnityMCP.Editor
             textRt.anchorMax = Vector2.one;
             textRt.sizeDelta = new Vector2(-10, -6);
             var text = textGo.AddComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = BuiltinUIFont();
             text.color = Color.black;
             text.supportRichText = false;
 
@@ -381,7 +391,7 @@ namespace UnityMCP.Editor
             phRt.sizeDelta = new Vector2(-10, -6);
             var phText = placeholderGo.AddComponent<Text>();
             phText.text = "Enter text...";
-            phText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            phText.font = BuiltinUIFont();
             phText.fontStyle = FontStyle.Italic;
             phText.color = new Color(0, 0, 0, 0.5f);
 

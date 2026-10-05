@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -132,12 +133,53 @@ namespace UnityMCP.Editor
                 if (!MCPAssetSafety.TryResolveProjectPath(path, out _, out var pathError))
                     return new { error = pathError };
                 if (!path.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) path += ".unity";
-                bool savedAs = EditorSceneManager.SaveScene(scene, MCPAssetSafety.ToAssetDatabasePath(path));
+                // Canonical destination ("Assets//X", "Assets/./X" and backslashes normalized).
+                if (!MCPAssetSafety.TryResolveProjectPath(path, out string fullPath, out pathError))
+                    return new { error = pathError };
+                string dest = ToProjectRelativePath(fullPath);
+
+                // Save-As to a different file: SaveScene(scene, dst) replaces an existing scene
+                // asset with no prompt, and scene saves cannot be undone. Re-saving the scene to
+                // its own path stays allowed without overwrite.
+                var cmp = PathComparison();
+                if (string.IsNullOrEmpty(scene.path) || !string.Equals(dest, scene.path, cmp))
+                {
+                    for (int i = 0; i < SceneManager.sceneCount; i++)
+                    {
+                        var other = SceneManager.GetSceneAt(i);
+                        if (other != scene && !string.IsNullOrEmpty(other.path) && string.Equals(other.path, dest, cmp))
+                            return new
+                            {
+                                error = $"Cannot save scene '{scene.name}' to '{dest}': that path belongs to another scene open in the editor ('{other.name}'). Close that scene first or choose another path.",
+                                openScene = other.path,
+                            };
+                    }
+                    var overwriteError = MCPAssetSafety.OverwriteGuard(dest, args);
+                    if (overwriteError != null)
+                        return overwriteError;
+                }
+
+                bool savedAs = EditorSceneManager.SaveScene(scene, dest);
                 return new { success = savedAs, scene = scene.name, path = scene.path };
             }
 
             bool saved = EditorSceneManager.SaveScene(scene);
             return new { success = saved, scene = scene.name, path = scene.path };
+        }
+
+        // Same rule as MCPAssetSafety: case-insensitive only where the filesystem is (Windows/macOS).
+        private static StringComparison PathComparison()
+        {
+            return Application.platform == RuntimePlatform.LinuxEditor
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+        }
+
+        /// <summary>Project-relative "Assets/..." or "Packages/..." path of a full path already confined by TryResolveProjectPath.</summary>
+        private static string ToProjectRelativePath(string fullPath)
+        {
+            string root = Path.GetFullPath(MCPAssetSafety.ProjectRoot);
+            return fullPath.Substring(root.Length).TrimStart('\\', '/').Replace('\\', '/');
         }
 
         public static object NewScene(Dictionary<string, object> args)

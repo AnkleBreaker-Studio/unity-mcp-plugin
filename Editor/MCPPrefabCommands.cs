@@ -130,20 +130,51 @@ namespace UnityMCP.Editor
             if (basePrefab == null)
                 return new { error = $"Base prefab not found at '{basePath}'" };
 
+            // Same confinement and clobber guard as asset/create-prefab, checked before anything is
+            // created: saving over an existing prefab keeps its .meta GUID, so every reference to it
+            // would silently re-bind to the new variant.
+            if (!MCPAssetSafety.TryResolveProjectPath(variantPath, out string variantFullPath, out string variantPathError))
+                return new { error = variantPathError };
+            if (!string.Equals(Path.GetExtension(variantPath), ".prefab", StringComparison.OrdinalIgnoreCase))
+                return new { error = $"variantPath must end with .prefab, got '{variantPath}'" };
+            if (MCPAssetSafety.TryResolveProjectPath(basePath, out string baseFullPath, out _)
+                && string.Equals(variantFullPath, baseFullPath, StringComparison.OrdinalIgnoreCase))
+                return new { error = "variantPath must differ from basePrefabPath" };
+            var overwriteError = MCPAssetSafety.OverwriteGuard(variantPath, args);
+            if (overwriteError != null) return overwriteError;
+
             // Ensure directory
             EnsureDirectory(variantPath);
 
-            // Instantiate, then save as variant
+            // Instantiate, then save as variant. The temporary instance sits in the open scene with no
+            // Undo record, so it is destroyed even when the save throws.
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(basePrefab);
-            var variant = PrefabUtility.SaveAsPrefabAsset(instance, variantPath);
-            UnityEngine.Object.DestroyImmediate(instance);
+            if (instance == null)
+                return new { error = $"Failed to instantiate base prefab '{basePath}'" };
+
+            GameObject variant;
+            try
+            {
+                variant = PrefabUtility.SaveAsPrefabAsset(instance, variantPath);
+            }
+            catch (Exception ex)
+            {
+                return new { error = $"Failed to save variant at '{variantPath}': {ex.Message}" };
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(instance);
+            }
+
+            if (variant == null)
+                return new { error = $"Unity did not save a variant at '{variantPath}'" };
 
             return new Dictionary<string, object>
             {
-                { "success", variant != null },
+                { "success", true },
                 { "variantPath", variantPath },
                 { "basePrefabPath", basePath },
-                { "name", variant != null ? variant.name : null },
+                { "name", variant.name },
             };
         }
 
@@ -161,9 +192,17 @@ namespace UnityMCP.Editor
                 return new { error = "GameObject is not a connected prefab instance" };
 
             string assetPath = PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(go);
+            // AutomatedAction on purpose: the asset write cannot be undone anyway, and UserAction can
+            // open a version-control checkout prompt that would block the request pump.
             PrefabUtility.ApplyPrefabInstance(go, InteractionMode.AutomatedAction);
 
-            return new { success = true, gameObject = go.name, appliedTo = assetPath };
+            return new
+            {
+                success = true,
+                gameObject = go.name,
+                appliedTo = assetPath,
+                note = "The prefab asset was written directly; Undo cannot restore its previous state.",
+            };
         }
 
         /// <summary>
@@ -179,7 +218,9 @@ namespace UnityMCP.Editor
             if (status != PrefabInstanceStatus.Connected)
                 return new { error = "GameObject is not a connected prefab instance" };
 
-            PrefabUtility.RevertPrefabInstance(go, InteractionMode.AutomatedAction);
+            // UserAction records a full-hierarchy Undo (and shows no dialog here); AutomatedAction
+            // records nothing, so the discarded overrides could never be restored.
+            PrefabUtility.RevertPrefabInstance(go, InteractionMode.UserAction);
 
             return new { success = true, gameObject = go.name, message = "All overrides reverted" };
         }
@@ -195,10 +236,11 @@ namespace UnityMCP.Editor
 
             bool completely = args.ContainsKey("completely") && Convert.ToBoolean(args["completely"]);
 
+            // UserAction records Undo for the unpack (no dialog on this path), so it can be undone.
             if (completely)
-                PrefabUtility.UnpackPrefabInstance(go, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+                PrefabUtility.UnpackPrefabInstance(go, PrefabUnpackMode.Completely, InteractionMode.UserAction);
             else
-                PrefabUtility.UnpackPrefabInstance(go, PrefabUnpackMode.OutermostRoot, InteractionMode.AutomatedAction);
+                PrefabUtility.UnpackPrefabInstance(go, PrefabUnpackMode.OutermostRoot, InteractionMode.UserAction);
 
             return new { success = true, gameObject = go.name, mode = completely ? "Completely" : "OutermostRoot" };
         }
@@ -293,8 +335,10 @@ namespace UnityMCP.Editor
                 return new { success = true, gameObject = go.name, property = propertyName, reference = "null (cleared)" };
             }
 
-            prop.objectReferenceValue = targetRef;
-            serialized.ApplyModifiedProperties();
+            // Shared Inspector-like assignment: converts to a fitting component or sub-asset, checks the
+            // field type and reads the stored value back.
+            if (!MCPComponentCommands.TryAssignObjectReference(prop, targetRef, out var assigned, out string assignError))
+                return new { error = assignError };
 
             return new Dictionary<string, object>
             {
@@ -302,8 +346,8 @@ namespace UnityMCP.Editor
                 { "gameObject", go.name },
                 { "component", component.GetType().Name },
                 { "property", propertyName },
-                { "reference", targetRef.name },
-                { "referenceType", targetRef.GetType().Name },
+                { "reference", assigned.name },
+                { "referenceType", assigned.GetType().Name },
             };
         }
 
@@ -392,11 +436,24 @@ namespace UnityMCP.Editor
             var go = MCPGameObjectCommands.FindGameObject(args);
             if (go == null) return new { error = "GameObject not found" };
 
-            string parentPath = args.ContainsKey("newParent") ? args["newParent"].ToString() : "";
+            string parentPath = args.ContainsKey("newParent") ? args["newParent"]?.ToString() : "";
             bool worldPositionStays = !args.ContainsKey("worldPositionStays") || Convert.ToBoolean(args["worldPositionStays"]);
 
+            // Resolve the new parent before moving anything, with the same lookup as the target (it also
+            // finds inactive objects). A non-empty path that does not resolve is an error, never a silent
+            // move to the scene root; only an empty newParent means the scene root.
+            GameObject newParent = null;
+            if (!string.IsNullOrEmpty(parentPath))
+            {
+                newParent = MCPGameObjectCommands.FindGameObject(new Dictionary<string, object> { { "path", parentPath } });
+                if (newParent == null)
+                    return new { error = $"Parent GameObject '{parentPath}' not found" };
+                if (newParent.transform.IsChildOf(go.transform))
+                    return new { error = $"Cannot parent '{go.name}' under itself or one of its descendants ('{parentPath}')" };
+            }
+
             Undo.SetTransformParent(go.transform,
-                string.IsNullOrEmpty(parentPath) ? null : GameObject.Find(parentPath)?.transform,
+                newParent != null ? newParent.transform : null,
                 worldPositionStays,
                 "Reparent");
 
@@ -404,7 +461,7 @@ namespace UnityMCP.Editor
             {
                 { "success", true },
                 { "gameObject", go.name },
-                { "newParent", string.IsNullOrEmpty(parentPath) ? "root" : parentPath },
+                { "newParent", newParent != null ? MCPGameObjectCommands.GetHierarchyPath(newParent) : "root" },
                 { "worldPositionStays", worldPositionStays },
             };
         }

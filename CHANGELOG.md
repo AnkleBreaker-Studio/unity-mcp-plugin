@@ -15,10 +15,11 @@ All notable changes to this package will be documented in this file.
 - Prefab variant apply, revert and compare work on the variant's contents, honour component and GameObject filters and include added or removed components and children. Override transfer matches overrides by target object and requires variants of the same base.
 - Revert and unpack of prefab instances are recorded in Undo. Apply results state that the asset write cannot be undone.
 - Create, instantiate and reparent return an error for a parent that cannot be resolved instead of using the scene root.
-- Object-reference setters convert or validate the assigned object against the field type and verify that Unity stored it. Component removal reports when Unity refused it.
+- Object-reference setters convert or validate the assigned object against the field type and verify that Unity stored it. Component removal reports when Unity refused it and refuses Transform and RectTransform, which Unity would otherwise silently replace.
 - Scene save and prefab variant creation refuse to overwrite a different existing asset without `overwrite`.
 - NavMesh bake applies agent radius, height, slope and climb. ScriptableObject reads tolerate flag and unnamed enum values. UI creation uses the built-in font available in each supported Unity version.
 - Material creation applies `properties` and lists the properties it could not apply. Animation tools accept `typeName`, `blendTreeName` and 2D blend positions; Frame Debugger and Profiler accept `eventIndex` and `deepProfile`.
+- Keyframe tools with a `typeName` act only on that component's curve (or its only subtype, such as RectTransform for Transform) and report an ambiguity instead of editing another component's curve. 1D blend trees keep the thresholds given by the caller.
 
 ### Editor performance
 - Scene statistics and the memory breakdown count triangles from index counts, once per mesh, instead of copying index buffers.

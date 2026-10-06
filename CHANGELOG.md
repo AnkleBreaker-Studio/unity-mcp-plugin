@@ -2,7 +2,9 @@
 
 All notable changes to this package will be documented in this file.
 
-## [Unreleased]
+## [2.41.0] - 2026-10-06
+
+Companion to server **2.36.0**. Includes the Unity 6.6 modernization and the maintenance audit fixes below; older servers keep working through capability negotiation.
 
 ### Category toggles and bridge reliability
 - The prefs, project settings, prefab asset and memory profiler toggles now block `editorprefs/*`, `playerprefs/*`, `settings/*`, `prefab-asset/*` and `profiler/memory-*`; memory profiler routes are also blocked when Profiler is off. Users who had already turned these toggles off will see those routes refused.

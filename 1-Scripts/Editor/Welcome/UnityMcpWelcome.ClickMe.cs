@@ -18,7 +18,7 @@ namespace UnityMCP.Editor.Welcome
     //
     // A partial of the Welcome on purpose: the hub draws with the window's own bands, buttons and
     // Install logic, and opens the window on a given tab, without the Welcome exposing any of it.
-    // It needs Welcome template R3 or later; `clickme.py stamp` checks every member it uses.
+    // It needs the matching Welcome media/lifetime contract; `clickme.py stamp` checks every member it uses.
 
     /// <summary>The hub's own settings, read from the <c>*.clickme.json</c> beside the Welcome
     /// config. Everything else (name, icon, requirements, catalogue) is the Welcome's.</summary>
@@ -66,6 +66,18 @@ namespace UnityMCP.Editor.Welcome
 
     internal sealed partial class UnityMcpWelcome
     {
+        /// <summary>Automatic opening of the Welcome: this package's CLICKME asset goes into the
+        /// Selection, so the hub sits in the Inspector next to the window.</summary>
+        static partial void SelectClickMe(UnityMcpWelcomeContext context)
+        {
+            string guid = UnityMcpWelcomeProjectCache.FindAssets("t:" + typeof(UnityMcpClickMe).Name).FirstOrDefault();
+            if (guid == null) return;
+            var hub = AssetDatabase.LoadAssetAtPath<UnityMcpClickMe>(AssetDatabase.GUIDToAssetPath(guid));
+            if (hub == null) return;
+            Selection.activeObject = hub;
+            EditorGUIUtility.PingObject(hub);
+        }
+
         /// <summary>Opens the window on one tab: <c>start</c>, <c>assets</c> or <c>studio</c>. A tab
         /// the window cannot show (catalogue offline, no studio tab) falls back to start.</summary>
         internal static void OpenOn(string contextGuid, string tab, string filter = null)
@@ -184,11 +196,9 @@ namespace UnityMCP.Editor.Welcome
             private UnityMcpCatalog _catalog;
             private readonly List<VisualElement> _stars = new List<VisualElement>();
             private bool _rebuildPending;
+            private bool _attached;
 
-            // This inspector's own textures. Never the Welcome's cache: the Welcome destroys every
-            // texture of it when it closes, and the hub then drew white squares.
-            private readonly Dictionary<string, (Texture2D texture, DateTime written)> _images =
-                new Dictionary<string, (Texture2D texture, DateTime written)>();
+            private IVisualElementScheduledItem _scheduledRebuild;
 
             // The hero is the header: the default one only repeats "CLICKME" and offers an Open
             // button that does nothing for this asset.
@@ -196,23 +206,34 @@ namespace UnityMCP.Editor.Welcome
 
             public override bool UseDefaultMargins() => false;
 
+            private void Attach()
+            {
+                if (_attached) return;
+                _attached = true;
+                UnityMcpWelcomeServices.AcquireConsumer();
+                UnityMcpWelcomeServices.CatalogChanged += OnCatalogChanged;
+                EditorApplication.projectChanged += ScheduleRebuild;
+                if (_root != null && _root.childCount > 0) { Bind(); Rebuild(); }
+            }
+
             private void OnDisable()
             {
-                UnityMcpWelcomeServices.CatalogChanged -= ScheduleRebuild;
-                foreach (var entry in _images.Values)
-                    if (entry.texture != null) DestroyImmediate(entry.texture);
-                _images.Clear();
+                if (!_attached) return;
+                _attached = false;
+                UnityMcpWelcomeServices.CatalogChanged -= OnCatalogChanged;
+                EditorApplication.projectChanged -= ScheduleRebuild;
+                UnityMcpWelcomeServices.ReleaseConsumer();
+                _scheduledRebuild?.Pause();
+                _scheduledRebuild = null;
+                _rebuildPending = false;
             }
 
             public override VisualElement CreateInspectorGUI()
             {
                 _root = new VisualElement();
-                _root.RegisterCallback<AttachToPanelEvent>(_ =>
-                {
-                    UnityMcpWelcomeServices.CatalogChanged -= ScheduleRebuild;
-                    UnityMcpWelcomeServices.CatalogChanged += ScheduleRebuild;
-                });
-                _root.RegisterCallback<DetachFromPanelEvent>(_ => UnityMcpWelcomeServices.CatalogChanged -= ScheduleRebuild);
+                _root.RegisterCallback<AttachToPanelEvent>(evt => { if (evt.target == _root) Attach(); });
+                _root.RegisterCallback<DetachFromPanelEvent>(evt => { if (evt.target == _root) OnDisable(); });
+                Attach();
                 Bind();
                 Rebuild();
                 return _root;
@@ -247,24 +268,45 @@ namespace UnityMCP.Editor.Welcome
                 if (UnityMcpWelcomeServices.GetDate(_context, "FirstOpen") == null) UnityMcpWelcomeServices.SetDate(_context, "FirstOpen");
             }
 
-            /// <summary>Each Card that lands raises CatalogChanged: a burst of them makes one
-            /// rebuild, on the panel's scheduler, so nothing runs once the hub is off screen.</summary>
+            private void OnCatalogChanged()
+            {
+                if (_context == null || !ReferenceEquals(_catalog, UnityMcpWelcomeServices.LoadCatalog(_context))) { ScheduleRebuild(); return; }
+                if (_root == null || !_attached || _rebuildPending) return;
+                using var perf = new UnityMcpWelcomePerf.Scope("ClickMe.UpdateStudio");
+                var previous = _root.Q<VisualElement>("clickme-studio-tile");
+                if (previous?.parent == null) return;
+                Action restoreFocus = PreserveFocus(_root);
+                var parent = previous.parent;
+                int index = parent.IndexOf(previous);
+                previous.RemoveFromHierarchy();
+                parent.Insert(index, IsArt ? StudioStrip() : Studio());
+                if (restoreFocus != null) _root.schedule.Execute(restoreFocus);
+            }
+
+            /// <summary>Coalesces catalogue and project changes while the hub is attached.</summary>
             private void ScheduleRebuild()
             {
-                if (_root == null || _rebuildPending) return;
+                if (_root == null || !_attached || _rebuildPending) return;
                 _rebuildPending = true;
-                _root.schedule.Execute(() =>
+                _scheduledRebuild = _root.schedule.Execute(() =>
                 {
+                    _scheduledRebuild = null;
                     _rebuildPending = false;
-                    Rebuild();
+                    if (_attached) Rebuild();
                 }).StartingIn(REBUILD_DELAY_MS);
             }
 
             private void Rebuild()
             {
+                using var perf = new UnityMcpWelcomePerf.Scope("ClickMe.Rebuild");
                 if (_root == null) return;
                 if (_context == null) Bind();
-                else _catalog = UnityMcpWelcomeServices.LoadCatalog(_context);
+                else
+                {
+                    _context = UnityMcpWelcomeServices.LoadContexts().FirstOrDefault();
+                    if (_context != null) { _catalog = UnityMcpWelcomeServices.LoadCatalog(_context); _data = ReadData() ?? new UnityMcpClickMeData(); }
+                }
+                Action restoreFocus = PreserveFocus(_root);
                 _root.Clear();
                 _stars.Clear();
 
@@ -314,53 +356,20 @@ namespace UnityMCP.Editor.Welcome
                 // Never ask for a review while the band asks for something else.
                 bool asked = ready && BuildReview(body);
                 shell.Add(BuildFooter(asked));
+                if (restoreFocus != null) _root.schedule.Execute(restoreFocus);
             }
 
             // -- Images -----------------------------------------------------
 
-            /// <summary>Loads a PNG or JPG from disk as the Welcome does (import settings
-            /// bypassed), into this inspector's cache. A file rewritten since, a new devlog cover or
-            /// a Card just downloaded, is read again.</summary>
-            private Texture2D OwnImage(string path)
-            {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
-                DateTime written = File.GetLastWriteTimeUtc(path);
-                if (_images.TryGetValue(path, out var cached))
-                {
-                    if (cached.texture != null && cached.written == written) return cached.texture;
-                    if (cached.texture != null) DestroyImmediate(cached.texture);
-                    _images.Remove(path);
-                }
-                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-                if (!texture.LoadImage(File.ReadAllBytes(path)))
-                {
-                    DestroyImmediate(texture);
-                    return null;
-                }
-                texture.filterMode = FilterMode.Bilinear;
-                _images[path] = (texture, written);
-                return texture;
-            }
+            /// <summary>Uses the shared image cache; attached image bindings pin visible textures.</summary>
+            private Texture2D OwnImage(string path) => UnityMcpWelcomeServices.LoadImage(path);
 
             /// <summary>The Welcome's rule: the downloaded Card while the catalogue is online,
             /// else the one the package embeds.</summary>
-            private Texture2D CardImage(UnityMcpProduct product)
-            {
-                if (product == null) return null;
-                Texture2D remote = UnityMcpWelcomeServices.CatalogOnline ? OwnImage(UnityMcpWelcomeServices.CachedCardPath(product)) : null;
-                if (remote != null) return remote;
-                return string.IsNullOrEmpty(product.card) ? null : OwnImage(_context.Media("Media/Cards/" + product.card));
-            }
+            private Texture2D CardImage(UnityMcpProduct product) => UnityMcpWelcomeServices.Card(_context, product);
 
             /// <summary>A game cover, cached under the same key as the Welcome's GameImage.</summary>
-            private Texture2D GameCover(UnityMcpGame game)
-            {
-                var media = new UnityMcpProduct { id = "game-" + game.id + "-cover", cardUrl = game.coverUrl };
-                Texture2D remote = UnityMcpWelcomeServices.CatalogOnline && !string.IsNullOrEmpty(game.coverUrl)
-                    ? OwnImage(UnityMcpWelcomeServices.CachedCardPath(media)) : null;
-                if (remote != null) return remote;
-                return string.IsNullOrEmpty(game.cover) ? null : OwnImage(_context.Media("Media/Games/" + game.cover));
-            }
+            private Texture2D GameCover(UnityMcpGame game) => UnityMcpWelcomeServices.GameImage(_context, game, false);
 
             private IEnumerable<StyleSheet> Styles()
             {
@@ -371,7 +380,7 @@ namespace UnityMCP.Editor.Welcome
                     StyleSheet sheet = dir != null ? AssetDatabase.LoadAssetAtPath<StyleSheet>(dir + "/" + name + ".uss") : null;
                     if (sheet == null)
                     {
-                        string guid = AssetDatabase.FindAssets(name + " t:StyleSheet").FirstOrDefault();
+                        string guid = UnityMcpWelcomeProjectCache.FindAssets(name + " t:StyleSheet").FirstOrDefault();
                         if (guid != null) sheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(AssetDatabase.GUIDToAssetPath(guid));
                     }
                     if (sheet != null) yield return sheet;
@@ -386,13 +395,7 @@ namespace UnityMCP.Editor.Welcome
                 var header = new VisualElement();
                 header.AddToClassList("abc-header");
 
-                Texture2D icon = OwnImage(_context.Media(config.icon));
-                if (icon != null)
-                {
-                    var image = new Image { image = icon, scaleMode = ScaleMode.ScaleToFit };
-                    image.AddToClassList("abc-header__icon");
-                    header.Add(image);
-                }
+                header.Add(LiveImage(() => OwnImage(_context.Media(config.icon)), "abc-header__icon", path: _context.Media(config.icon)));
 
                 var text = new VisualElement();
                 text.AddToClassList("abc-header__text");
@@ -583,8 +586,8 @@ namespace UnityMCP.Editor.Welcome
             /// sale first, then the newest.</summary>
             private List<UnityMcpProduct> Shelf(string category = "Tools") =>
                 _catalog.products
-                    .Where(p => p.id != _context.Config.id && !p.pinned && !UnityMcpWelcomeServices.IsInstalled(p))
-                    .Where(p => TopCategory(p) == category)
+                    .Where(p => p.id != _context.Config.id && !p.pinned && TopCategory(p) == category)
+                    .Where(p => !UnityMcpWelcomeServices.IsInstalled(p))
                     .OrderBy(p => UnityMcpWelcomeServices.IsComingSoon(p))
                     .ThenByDescending(p => p.discount > 0)
                     .ThenByDescending(p => ReleaseDate(p))
@@ -603,7 +606,7 @@ namespace UnityMCP.Editor.Welcome
             {
                 string self = _context.Config.id;
                 return _catalog.products.Count(p => p.id != self && p.discount > 0 && !UnityMcpWelcomeServices.IsComingSoon(p) &&
-                    !UnityMcpWelcomeServices.IsInstalled(p) && (category == null || TopCategory(p) == category));
+                    (category == null || TopCategory(p) == category) && !UnityMcpWelcomeServices.IsInstalled(p));
             }
 
             /// <summary>A Discover tile: three store Cards fanned out, a sale tag, a caption. Opens
@@ -616,7 +619,7 @@ namespace UnityMCP.Editor.Welcome
                 var stage = new VisualElement();
                 stage.AddToClassList("abc-disc__stage");
 
-                List<Texture2D> cards = shelf.Take(SHELF_CARDS).Select(CardImage).Where(t => t != null).ToList();
+                List<UnityMcpProduct> cards = shelf.Take(SHELF_CARDS).ToList();
                 // Back to front: the second to the right, the third to the left, the first on top.
                 // The fan fills the stage: its width follows the tile's (see .abc-fan).
                 string[] slots = { "abc-stack--front", "abc-stack--right", "abc-stack--left" };
@@ -624,8 +627,8 @@ namespace UnityMCP.Editor.Welcome
                 fan.AddToClassList("abc-fan");
                 for (int i = cards.Count - 1; i >= 0; i--)
                 {
-                    var card = new Image { image = cards[i], scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                    card.AddToClassList("abc-stack");
+                    UnityMcpProduct product = cards[i];
+                    var card = LiveImage(() => CardImage(product), "abc-stack", ScaleMode.ScaleAndCrop, UnityMcpWelcomeServices.CachedCardPath(product), fallbackPath: _context.Media("Media/Cards/" + product.card));
                     card.AddToClassList(slots[i]);
                     fan.Add(card);
                 }
@@ -640,19 +643,13 @@ namespace UnityMCP.Editor.Welcome
             {
                 string guid = _context.Guid;
                 VisualElement tile = Focusable(Clickable(() => OpenOn(guid, "studio"), "abc-disc"), () => OpenOn(guid, "studio"));
+                tile.name = "clickme-studio-tile";
                 var stage = new VisualElement();
                 stage.AddToClassList("abc-disc__stage");
 
                 UnityMcpDevlog post = UnityMcpWelcomeServices.LoadDevlog();
                 UnityMcpGame[] games = _catalog.games ?? new UnityMcpGame[0];
-                Texture2D cover = post != null ? OwnImage(UnityMcpWelcomeServices.DevlogImage) : null;
-                if (cover == null && games.Length > 0) cover = GameCover(games[0]);
-                if (cover != null)
-                {
-                    var image = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                    image.AddToClassList("abc-disc__cover");
-                    stage.Add(image);
-                }
+                stage.Add(LiveImage(() => { Texture2D cover = post != null ? OwnImage(UnityMcpWelcomeServices.DevlogImage) : null; return cover != null ? cover : games.Length > 0 ? GameCover(games[0]) : null; }, "abc-disc__cover", ScaleMode.ScaleAndCrop));
                 if (post != null) stage.Add(Tag(IsRecent(post.date) ? "NEW POST" : "DEVBLOG", "abc-tag--accent", "abc-tag--left"));
                 tile.Add(stage);
 
@@ -698,13 +695,7 @@ namespace UnityMCP.Editor.Welcome
                 Action open = () => UnityMcpWelcomeServices.OpenProduct(free, _catalog);
                 VisualElement line = Focusable(Clickable(open, "abc-free"), open);
                 line.tooltip = free.url;
-                Texture2D card = CardImage(free);
-                if (card != null)
-                {
-                    var image = new Image { image = card, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                    image.AddToClassList("abc-free__card");
-                    line.Add(image);
-                }
+                line.Add(LiveImage(() => CardImage(free), "abc-free__card", ScaleMode.ScaleAndCrop, UnityMcpWelcomeServices.CachedCardPath(free), fallbackPath: _context.Media("Media/Cards/" + free.card)));
                 var text = new VisualElement();
                 text.AddToClassList("abc-free__text");
                 var title = new VisualElement();
@@ -850,16 +841,10 @@ namespace UnityMCP.Editor.Welcome
                 string guid = _context.Guid;
                 Action open = () => OpenOn(guid, "studio");
                 VisualElement strip = Focusable(Clickable(open, "abc-strip"), open);
+                strip.name = "clickme-studio-tile";
                 UnityMcpDevlog post = UnityMcpWelcomeServices.LoadDevlog();
                 UnityMcpGame[] games = _catalog.games ?? new UnityMcpGame[0];
-                Texture2D cover = post != null ? OwnImage(UnityMcpWelcomeServices.DevlogImage) : null;
-                if (cover == null && games.Length > 0) cover = GameCover(games[0]);
-                if (cover != null)
-                {
-                    var image = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                    image.AddToClassList("abc-strip__cover");
-                    strip.Add(image);
-                }
+                strip.Add(LiveImage(() => { Texture2D cover = post != null ? OwnImage(UnityMcpWelcomeServices.DevlogImage) : null; return cover != null ? cover : games.Length > 0 ? GameCover(games[0]) : null; }, "abc-strip__cover", ScaleMode.ScaleAndCrop));
                 var text = new VisualElement();
                 text.AddToClassList("abc-strip__text");
                 text.Add(Text("Our studio \u203a", "abc-disc__title"));
@@ -891,13 +876,7 @@ namespace UnityMCP.Editor.Welcome
                 Action open = () => UnityMcpWelcomeServices.OpenProduct(product, _catalog);
                 VisualElement line = Focusable(Clickable(open, "abc-tie"), open);
                 line.tooltip = product.url;
-                Texture2D card = CardImage(product);
-                if (card != null)
-                {
-                    var image = new Image { image = card, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                    image.AddToClassList("abc-free__card");
-                    line.Add(image);
-                }
+                line.Add(LiveImage(() => CardImage(product), "abc-free__card", ScaleMode.ScaleAndCrop, UnityMcpWelcomeServices.CachedCardPath(product), fallbackPath: _context.Media("Media/Cards/" + product.card)));
                 var text = new VisualElement();
                 text.AddToClassList("abc-free__text");
                 text.Add(Text(string.IsNullOrEmpty(tie.title) ? product.name : tie.title, "abc-free__name"));

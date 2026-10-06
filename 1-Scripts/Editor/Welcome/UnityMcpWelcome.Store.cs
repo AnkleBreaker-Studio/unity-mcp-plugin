@@ -25,6 +25,7 @@ namespace UnityMCP.Editor.Welcome
 
         private VisualElement BuildPanel()
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.BuildPanel");
             UnityMcpShowcase showcase = Showcase;
             var frame = new VisualElement();
             frame.AddToClassList("abw-panel");
@@ -38,8 +39,8 @@ namespace UnityMCP.Editor.Welcome
             if (!string.IsNullOrEmpty(showcase.blurb)) panel.Add(Text(showcase.blurb, "abw-panel__blurb"));
 
             List<UnityMcpProduct> shelf = _catalog.products
-                .Where(p => !IsSelf(p) && !p.pinned && !UnityMcpWelcomeServices.IsInstalled(p))
-                .Where(p => TopCategory(p) == "Tools")
+                .Where(p => !IsSelf(p) && !p.pinned && TopCategory(p) == "Tools")
+                .Where(p => !UnityMcpWelcomeServices.IsInstalled(p))
                 .OrderBy(p => UnityMcpWelcomeServices.IsComingSoon(p))
                 .ThenByDescending(p => p.discount > 0)
                 .ThenByDescending(p => ReleaseDate(p))
@@ -140,6 +141,7 @@ namespace UnityMCP.Editor.Welcome
         /// </summary>
         private VisualElement Card(UnityMcpProduct product, string pitch, bool wide, string tag = null)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.Card");
             bool installed = UnityMcpWelcomeServices.IsInstalled(product);
             bool soon = UnityMcpWelcomeServices.IsComingSoon(product);
             bool sale = product.discount > 0 && !installed && !soon;
@@ -159,20 +161,15 @@ namespace UnityMCP.Editor.Welcome
                 float height = evt.newRect.width * 2f / 3f;
                 if (height > 0f && Mathf.Abs(evt.newRect.height - height) > 0.5f) media.style.height = height;
             });
-            Texture2D image = UnityMcpWelcomeServices.Card(_context, product);
-            if (image != null)
-            {
-                var picture = new Image { image = image, scaleMode = ScaleMode.ScaleToFit };
-                picture.AddToClassList("abw-card__image");
-                media.Add(picture);
-            }
-            else
-            {
-                // No Card on disk yet (not embedded, not fetched): the name, set large, keeps the
-                // grid aligned until the image lands.
-                media.AddToClassList("abw-card__placeholder");
-                media.Add(Text(product.name, "abw-card__placeholder-name"));
-            }
+            Label placeholder = Text(product.name, "abw-card__placeholder-name");
+            media.Add(placeholder);
+            Image picture = LiveImage(() => UnityMcpWelcomeServices.Card(_context, product), "abw-card__image",
+                path: UnityMcpWelcomeServices.CachedCardPath(product), fallbackPath: _context.Media("Media/Cards/" + product.card), availability: ready =>
+                {
+                    media.EnableInClassList("abw-card__placeholder", !ready);
+                    placeholder.style.display = ready ? DisplayStyle.None : DisplayStyle.Flex;
+                });
+            media.Insert(0, picture);
             if (sale)
             {
                 var badge = new VisualElement();
@@ -292,13 +289,7 @@ namespace UnityMCP.Editor.Welcome
         {
             bool installed = UnityMcpWelcomeServices.IsInstalled(product);
             VisualElement line = Clickable(() => UnityMcpWelcomeServices.OpenProduct(product, _catalog), "abw-line");
-            Texture2D image = UnityMcpWelcomeServices.Card(_context, product);
-            if (image != null)
-            {
-                var thumbnail = new Image { image = image, scaleMode = ScaleMode.ScaleToFit };
-                thumbnail.AddToClassList("abw-line__image");
-                line.Add(thumbnail);
-            }
+            line.Add(LiveImage(() => UnityMcpWelcomeServices.Card(_context, product), "abw-line__image", ScaleMode.ScaleToFit));
             var text = new VisualElement();
             text.AddToClassList("abw-line__text");
             var heading = new VisualElement();
@@ -359,6 +350,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildAssetsTab(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.BuildAssetsTab");
             if (_filter == "art") _filter = "cat:3D";
             // What is on screen here is no longer news for the discovery prompt.
             UnityMcpWelcomePrompts.MarkCatalogSeen(_catalog, DateTime.UtcNow);
@@ -376,7 +368,7 @@ namespace UnityMCP.Editor.Welcome
             foreach ((string id, string label) in Filters())
             {
                 string captured = id;
-                VisualElement chip = Clickable(() => { _filter = captured; Rebuild(); }, "abw-chip");
+                VisualElement chip = Clickable(() => SelectFilter(captured), "abw-chip");
                 chip.EnableInClassList("abw-chip--on", _filter == id);
                 if (id == "sale") chip.AddToClassList("abw-chip--sale");
                 chip.Add(new Label(label));
@@ -387,8 +379,9 @@ namespace UnityMCP.Editor.Welcome
             // into the right edge.
             host.Add(chips);
 
+            _assetFilterIds = new HashSet<string>(Filtered(_filter, includeSelf: true).Select(p => p.id));
             var picks = new HashSet<string>(Showcase.shelf.Select(p => p.id));
-            List<UnityMcpProduct> grid = Filtered(_filter, includeSelf: true)
+            List<UnityMcpProduct> grid = Filtered("all", includeSelf: true)
                 .OrderBy(p => Rank(p))
                 .ThenByDescending(p => ReleaseDate(p))
                 .ThenBy(p => p.name)
@@ -397,11 +390,15 @@ namespace UnityMCP.Editor.Welcome
             List<UnityMcpProduct> upcoming = grid.Where(UnityMcpWelcomeServices.IsComingSoon).ToList();
             if (available.Count > 0) BuildAssetsSection(host, available, picks, false, false);
             if (upcoming.Count > 0) BuildAssetsSection(host, upcoming, picks, true, available.Count > 0);
-            if (grid.Count == 0) host.Add(Text("Nothing in this filter yet.", "abw-assets-head__detail"));
+            var empty = Text("Nothing in this filter yet.", "abw-assets-head__detail");
+            empty.name = "assets-empty";
+            host.Add(empty);
+            ApplyAssetFilter(host);
         }
 
         private void BuildAssetsSection(VisualElement host, List<UnityMcpProduct> products, HashSet<string> picks, bool upcoming, bool separated)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.AssetsSection");
             var section = new VisualElement { name = upcoming ? "assets-coming-soon" : "assets-available" };
             section.AddToClassList("abw-assets-section");
             if (separated) section.AddToClassList("abw-assets-section--separated");
@@ -413,7 +410,9 @@ namespace UnityMCP.Editor.Welcome
             foreach (UnityMcpProduct product in products)
             {
                 string pitch = Showcase.shelf.FirstOrDefault(p => p.id == product.id)?.pitch;
-                cards.Add(Card(product, pitch, true, picks.Contains(product.id) ? "PAIRS" : null));
+                string tag = picks.Contains(product.id) ? "PAIRS" : null;
+                if (_pageBuildQueue != null) _pageBuildQueue.Enqueue(() => AddAssetCard(cards, product, pitch, tag));
+                else AddAssetCard(cards, product, pitch, tag);
             }
             section.Add(cards);
             host.Add(section);
@@ -454,31 +453,43 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildStudioTab(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.BuildStudioTab");
             // Careers and consulting share a row when they follow each other.
             VisualElement cards = null;
             foreach (string id in StudioBlocks())
             {
-                if (id == "careers" || id == "consulting")
+                Action build = () =>
                 {
-                    if (cards == null)
+                    if (id == "careers" || id == "consulting")
                     {
-                        cards = new VisualElement();
-                        cards.AddToClassList("abw-row");
-                        cards.style.marginRight = -10;
-                        host.Add(cards);
+                        if (cards == null)
+                        {
+                            cards = new VisualElement();
+                            cards.AddToClassList("abw-row");
+                            cards.style.marginRight = -10;
+                            host.Add(cards);
+                        }
+                        cards.Add(id == "careers" ? CareersCard() : ConsultingCard());
+                        return;
                     }
-                    cards.Add(id == "careers" ? CareersCard() : ConsultingCard());
-                    continue;
-                }
-                cards = null;
-                if (id == "devlog") BuildDevlog(host);
-                else if (id == "games") BuildGames(host);
-                else if (id == "about") BuildAbout(host);
-                else
-                {
-                    UnityMcpVenture venture = _catalog.ventures?.FirstOrDefault(v => v.id == id);
-                    if (venture != null) BuildVenture(host, venture);
-                }
+                    cards = null;
+                    if (id == "devlog")
+                    {
+                        var anchor = new VisualElement { name = "devlog-anchor" };
+                        anchor.style.display = DisplayStyle.None;
+                        host.Add(anchor);
+                        BuildDevlog(host);
+                    }
+                    else if (id == "games") BuildGames(host);
+                    else if (id == "about") BuildAbout(host);
+                    else
+                    {
+                        UnityMcpVenture venture = _catalog.ventures?.FirstOrDefault(v => v.id == id);
+                        if (venture != null) BuildVenture(host, venture);
+                    }
+                };
+                if (_pageBuildQueue != null) _pageBuildQueue.Enqueue(build);
+                else build();
             }
         }
 
@@ -492,7 +503,8 @@ namespace UnityMCP.Editor.Welcome
             var games = new VisualElement();
             games.AddToClassList("abw-games");
             foreach (UnityMcpGame game in visible.OrderBy(game => game.id == "mithrall" ? 0 : game.id == "kickdom" ? 1 : 2))
-                games.Add(GameCard(game));
+                if (_pageBuildQueue != null) _pageBuildQueue.Enqueue(() => games.Add(GameCard(game)));
+                else games.Add(GameCard(game));
             host.Add(games);
         }
 
@@ -535,13 +547,7 @@ namespace UnityMCP.Editor.Welcome
             var card = new VisualElement { name = "venture-" + venture.id };
             card.AddToClassList("abw-game");
             card.AddToClassList("abw-venture");
-            Texture2D cover = UnityMcpWelcomeServices.VentureImage(venture, false);
-            if (cover != null)
-            {
-                var backdrop = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                backdrop.AddToClassList("abw-game__backdrop");
-                card.Add(backdrop);
-            }
+            card.Add(LiveImage(() => UnityMcpWelcomeServices.VentureImage(venture, false), "abw-game__backdrop", ScaleMode.ScaleAndCrop));
             var mask = new VisualElement { pickingMode = PickingMode.Ignore };
             mask.AddToClassList("abw-game__mask");
             mask.generateVisualContent += context => DrawMask(context, mask.contentRect, GAME_MASK);
@@ -550,13 +556,7 @@ namespace UnityMCP.Editor.Welcome
             var intro = new VisualElement();
             intro.AddToClassList("abw-game__intro");
             intro.AddToClassList("abw-venture__intro");
-            Texture2D logo = UnityMcpWelcomeServices.VentureImage(venture, true);
-            if (logo != null)
-            {
-                var mark = new Image { image = logo, scaleMode = ScaleMode.ScaleToFit, tooltip = venture.title };
-                mark.AddToClassList("abw-game__logo");
-                intro.Add(mark);
-            }
+            intro.Add(LiveImage(() => UnityMcpWelcomeServices.VentureImage(venture, true), "abw-game__logo", ScaleMode.ScaleToFit));
             var body = new VisualElement();
             body.AddToClassList("abw-game__body");
             if (!string.IsNullOrEmpty(venture.tagline)) body.Add(Text(venture.tagline, "abw-game__tagline"));
@@ -628,26 +628,14 @@ namespace UnityMCP.Editor.Welcome
             var card = new VisualElement { name = "game-" + game.id };
             card.AddToClassList("abw-game");
             card.EnableInClassList("abw-game--selected", _studioGame == game.id);
-            Texture2D cover = UnityMcpWelcomeServices.GameImage(_context, game, false);
-            if (cover != null)
-            {
-                var backdrop = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                backdrop.AddToClassList("abw-game__backdrop");
-                card.Add(backdrop);
-            }
+            card.Add(LiveImage(() => UnityMcpWelcomeServices.GameImage(_context, game, false), "abw-game__backdrop", ScaleMode.ScaleAndCrop));
             var mask = new VisualElement { pickingMode = PickingMode.Ignore };
             mask.AddToClassList("abw-game__mask");
             mask.generateVisualContent += context => DrawMask(context, mask.contentRect, GAME_MASK);
             card.Add(mask);
             var intro = new VisualElement();
             intro.AddToClassList("abw-game__intro");
-            Texture2D logo = UnityMcpWelcomeServices.GameImage(_context, game, true);
-            if (logo != null)
-            {
-                var mark = new Image { image = logo, scaleMode = ScaleMode.ScaleToFit, tooltip = game.name };
-                mark.AddToClassList("abw-game__logo");
-                intro.Add(mark);
-            }
+            intro.Add(LiveImage(() => UnityMcpWelcomeServices.GameImage(_context, game, true), "abw-game__logo", ScaleMode.ScaleToFit));
             var body = new VisualElement();
             body.AddToClassList("abw-game__body");
             body.Add(Text(game.tagline, "abw-game__tagline"));
@@ -724,8 +712,7 @@ namespace UnityMCP.Editor.Welcome
                 if (product == null) continue;
                 var link = new Button(() => UnityMcpWelcomeServices.OpenProduct(product, _catalog)) { tooltip = product.storeName, name = "game-product-" + game.id + "-" + product.id };
                 link.AddToClassList("abw-game-product");
-                var picture = new Image { image = UnityMcpWelcomeServices.Card(_context, product), scaleMode = ScaleMode.ScaleToFit };
-                picture.AddToClassList("abw-game-product__image");
+                var picture = LiveImage(() => UnityMcpWelcomeServices.Card(_context, product), "abw-game-product__image", path: UnityMcpWelcomeServices.CachedCardPath(product), fallbackPath: _context.Media("Media/Cards/" + product.card));
                 link.Add(picture);
                 link.Add(Text(product.name, "abw-game-product__name"));
                 link.Add(Text(use.role == "development" ? "Development tool" : "Used in " + game.name, "abw-game-product__role"));
@@ -746,9 +733,9 @@ namespace UnityMCP.Editor.Welcome
             };
             // The page keeps the vertical wheel: over the cards it scrolls Studio as it does
             // anywhere else. Only a horizontal gesture moves the carousel; arrows and focus do the rest.
-            ScrollView page = _scroll;
             scroll.RegisterCallback<WheelEvent>(evt =>
             {
+                ScrollView page = scroll.GetFirstAncestorOfType<ScrollView>();
                 evt.StopPropagation();
                 if (Mathf.Abs(evt.delta.x) > Mathf.Abs(evt.delta.y))
                     scroll.scrollOffset += new Vector2(evt.delta.x * scroll.mouseWheelScrollSize, 0);
@@ -783,18 +770,13 @@ namespace UnityMCP.Editor.Welcome
                 open();
                 evt.StopPropagation();
             });
-            Texture2D cover = UnityMcpWelcomeServices.LoadImage(UnityMcpWelcomeServices.DevlogImage);
-            if (cover != null)
             {
-                var backdrop = new Image { image = cover, scaleMode = ScaleMode.ScaleAndCrop, pickingMode = PickingMode.Ignore };
-                backdrop.AddToClassList("abw-devlog__backdrop");
-                card.Add(backdrop);
+                card.Add(LiveImage(() => UnityMcpWelcomeServices.LoadImage(UnityMcpWelcomeServices.DevlogImage), "abw-devlog__backdrop", ScaleMode.ScaleAndCrop, availability: ready => card.EnableInClassList("abw-devlog--plain", !ready)));
                 var mask = new VisualElement { pickingMode = PickingMode.Ignore };
                 mask.AddToClassList("abw-devlog__mask");
                 mask.generateVisualContent += context => DrawMask(context, mask.contentRect, DEVLOG_MASK);
                 card.Add(mask);
             }
-            else card.AddToClassList("abw-devlog--plain");
 
             var body = new VisualElement();
             body.AddToClassList("abw-devlog__body");

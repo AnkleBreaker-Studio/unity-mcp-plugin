@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "_generated": "by welcome.py catalog from products.json + the store; do not edit",
-  "updated": "2026-10-01",
+  "updated": "2026-10-05",
   "publisherUrl": "https://assetstore.unity.com/publishers/101837",
   "discordUrl": "https://discord.gg/2D36VUmsYN",
   "devlogFeed": "https://anklebreaker-studio.com/devlog/feed.xml",
@@ -493,7 +493,7 @@
     },
     {
       "id": "FluidVolumesAndPotions",
-      "cardFile": "PotionLiquidMaster.jpg",
+      "cardFile": "PotionLiquidMaster_v7.jpg",
       "name": "Potion & Liquid Master",
       "storeName": "Potion & Liquid Master - AAA Quality",
       "status": "published",
@@ -531,6 +531,27 @@
         "asm:AnkleBreaker.Gatling.FishNet"
       ],
       "window": "",
+      "card": ""
+    },
+    {
+      "id": "Telegraph",
+      "cardFile": "Telegraph.jpg",
+      "name": "Telegraph",
+      "storeName": "",
+      "status": "coming-soon",
+      "releasedAt": "",
+      "url": "https://assetstore.unity.com/packages/slug/400510",
+      "category": "Tools / Particles & Effects",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Ground warnings that charge before a boss attack lands.",
+      "detect": [
+        "folder:Assets/AB/Telegraph",
+        "welcome:Telegraph",
+        "asm:AnkleBreaker.Telegraph"
+      ],
+      "window": "Tools/AnkleBreaker/Telegraph/Welcome",
       "card": ""
     },
     {

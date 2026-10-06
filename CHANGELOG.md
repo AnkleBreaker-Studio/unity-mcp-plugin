@@ -2,6 +2,13 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.41.2] - 2026-10-06
+
+### Fixed
+- Update the Studio tab Nodary card to the approved blue/cyan identity with the official logo and versioned cover.
+- Correct the Nodary signup link to `/sign-up` and point the demo button to `/demo`.
+- Preserve the existing card layout, copy, Welcome preferences and CLICKME behavior.
+
 ## [2.41.1] - 2026-10-06
 
 ### Fixed

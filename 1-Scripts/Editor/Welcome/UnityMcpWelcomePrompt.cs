@@ -48,6 +48,7 @@ namespace UnityMCP.Editor.Welcome
         private static double s_waitStarted = -1;
         private static UnityMcpWelcomeContext s_discoverContext;
         private static Offer s_offer;
+        private static bool s_consumer;
 
         static UnityMcpWelcomePrompts()
         {
@@ -228,6 +229,7 @@ namespace UnityMCP.Editor.Welcome
         private static void Stop(bool sessionDone)
         {
             EditorApplication.update -= Tick;
+            if (s_consumer) { s_consumer = false; UnityMcpWelcomeServices.ReleaseConsumer(); }
             if (sessionDone) SessionState.SetBool(SESSION_DONE, true);
         }
 
@@ -274,6 +276,7 @@ namespace UnityMCP.Editor.Welcome
 
             // Discovery needs today's catalogue: prices and sales from an embedded copy are stale.
             s_discoverContext = context;
+            if (!s_consumer) { s_consumer = true; UnityMcpWelcomeServices.AcquireConsumer(); }
             s_waitStarted = t;
             UnityMcpWelcomeServices.RefreshCatalog(catalog, true);
         }
@@ -291,15 +294,15 @@ namespace UnityMCP.Editor.Welcome
                 UnityMcpCatalog catalog = UnityMcpWelcomeServices.LoadCatalog(context);
                 s_offer = FindOffer(catalog.products, context.Config.id, UnityMcpWelcomeServices.IsInstalled, DiscoverBaseline(now), SeenOffers());
                 if (!s_offer.Any) { Stop(true); return; }
-                UnityMcpWelcomeServices.QueueCards(catalog);
+                UnityMcpWelcomeServices.QueueCards(new UnityMcpCatalog { products = new[] { s_offer.Featured } });
                 s_waitStarted = t;
                 return;
             }
             // A text-only popup sells less than the Card: give the download a few seconds.
-            bool cardReady = File.Exists(UnityMcpWelcomeServices.CachedCardPath(s_offer.Featured));
+            bool cardReady = UnityMcpWelcomeServices.Card(context, s_offer.Featured) != null;
             if (!cardReady && t - s_waitStarted < CARD_WAIT_S) return;
-            Claim(now);
             UnityMcpWelcomePromptWindow.ShowDiscover(context, UnityMcpWelcomeServices.LoadCatalog(context), s_offer);
+            Claim(now);
         }
 
         private static void Claim(DateTime now)
@@ -372,7 +375,14 @@ namespace UnityMCP.Editor.Welcome
         /// <summary>Not restored with the layout: a prompt belongs to the session that raised it.</summary>
         private void OnEnable()
         {
+            UnityMcpWelcomeServices.AcquireConsumer();
             if (_context == null) EditorApplication.delayCall += () => { if (this != null && _context == null) Close(); };
+        }
+
+        private void OnDisable()
+        {
+            rootVisualElement.Clear();
+            UnityMcpWelcomeServices.ReleaseConsumer();
         }
 
         private void OnDestroy()
@@ -400,13 +410,7 @@ namespace UnityMCP.Editor.Welcome
             UnityMcpWelcomeData config = _context.Config;
             var head = new VisualElement();
             head.AddToClassList("abw-prompt__head");
-            Texture2D icon = UnityMcpWelcomeServices.LoadImage(_context.Media(config.icon));
-            if (icon != null)
-            {
-                var image = new Image { image = icon, scaleMode = ScaleMode.ScaleToFit };
-                image.AddToClassList("abw-prompt__icon");
-                head.Add(image);
-            }
+            head.Add(UnityMcpWelcome.LiveImage(() => UnityMcpWelcomeServices.LoadImage(_context.Media(config.icon)), "abw-prompt__icon", path: _context.Media(config.icon)));
             var text = new VisualElement();
             text.AddToClassList("abw-prompt__text");
             string made = config.usage.phrase;
@@ -447,13 +451,8 @@ namespace UnityMCP.Editor.Welcome
         private void BuildDiscover(VisualElement shell)
         {
             UnityMcpProduct featured = _offer.Featured;
-            Texture2D card = UnityMcpWelcomeServices.Card(_context, featured);
-            if (card != null)
-            {
-                var image = new Image { image = card, scaleMode = ScaleMode.ScaleToFit };
-                image.AddToClassList("abw-prompt__card");
-                shell.Add(image);
-            }
+            if (position.height >= SIZE_DISCOVER.y)
+                shell.Add(UnityMcpWelcome.LiveImage(() => UnityMcpWelcomeServices.Card(_context, featured), "abw-prompt__card", path: UnityMcpWelcomeServices.CachedCardPath(featured), fallbackPath: _context.Media("Media/Cards/" + featured.card)));
             var text = new VisualElement();
             text.AddToClassList("abw-prompt__text");
             text.Add(MakeLabel("ENJOYING " + (_context.Config.profile == "art" ? "OUR ASSETS" : "OUR TOOLS") + "?", "abw-prompt__eyebrow"));

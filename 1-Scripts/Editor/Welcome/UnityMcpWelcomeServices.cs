@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditorInternal;
@@ -52,15 +53,87 @@ namespace UnityMCP.Editor.Welcome
         private const int CARD_TIMEOUT_S = 4;
 
         public static event Action CatalogChanged;
+        public static event Action<string> MediaChanged;
+        private static int s_consumers;
+        private static bool s_notifyingMedia;
+        private static readonly HashSet<string> s_attemptedCards = new HashSet<string>();
+        private static Task s_cardWrite;
+        private static string s_cardWrittenPath;
+        private static readonly Dictionary<string, object> s_projectCache = new Dictionary<string, object>();
+        private static int s_projectRevision = -1;
+        private static string s_pipeline;
+
+        static UnityMcpWelcomeServices()
+        {
+            AssemblyReloadEvents.beforeAssemblyReload += Shutdown;
+            EditorApplication.quitting += Shutdown;
+            UnityMcpWelcomeImages.Subscribe(path => MediaChanged?.Invoke(path));
+        }
+
+        private static T Cached<T>(string key, Func<T> compute)
+        {
+            int revision = UnityMcpWelcomeProjectCache.Revision;
+            string pipeline = ActivePipeline();
+            if (revision != s_projectRevision || pipeline != s_pipeline)
+            {
+                s_projectCache.Clear();
+                s_projectRevision = revision;
+                s_pipeline = pipeline;
+            }
+            if (s_projectCache.TryGetValue(key, out object value)) return (T)value;
+            T result = compute();
+            s_projectCache[key] = result;
+            return result;
+        }
+
+        public static void AcquireConsumer() { s_consumers++; UnityMcpWelcomeImages.Acquire(); }
+
+        public static void ReleaseConsumer()
+        {
+            if (s_consumers > 0) { s_consumers--; UnityMcpWelcomeImages.Release(); }
+            if (s_consumers == 0) Shutdown();
+        }
+
+        private static void CancelCards()
+        {
+            EditorApplication.update -= PollCard;
+            UnityMcpWelcomeTransport.Release(ref s_cardRequest);
+            s_cardProduct = null;
+            s_cardQueue.Clear();
+            s_attemptedCards.Clear();
+            s_cardPaths.Clear();
+            s_cardWrite = null;
+        }
+
+        private static void Shutdown()
+        {
+            CancelCards();
+            EditorApplication.update -= PollCatalog;
+            EditorApplication.update -= PollDevlog;
+            s_devlogParse = null; s_devlogLink = null; s_devlogWrite = null;
+            UnityMcpWelcomeTransport.Release(ref s_request);
+            UnityMcpWelcomeTransport.Release(ref s_devlogRequest);
+            CatalogFetchedAt = null;
+            s_remoteCatalog = null;
+            s_devlogOnline = false;
+            ReleaseImages();
+        }
 
         // -- Configs --------------------------------------------------------
 
         public static List<UnityMcpWelcomeContext> LoadContexts()
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("LoadContexts");
+            return Cached("contexts", () => ComputeLoadContexts());
+        }
+
+        private static List<UnityMcpWelcomeContext> ComputeLoadContexts()
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.LoadContexts");
             
             var found = new List<UnityMcpWelcomeContext>();
             string query = CONFIG_NAME + " t:TextAsset";
-            foreach (string guid in AssetDatabase.FindAssets(query))
+            foreach (string guid in UnityMcpWelcomeProjectCache.FindAssets(query))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 string file = Path.GetFileNameWithoutExtension(path);
@@ -164,9 +237,11 @@ namespace UnityMCP.Editor.Welcome
 
         // -- What the project has -------------------------------------------
 
+        private static System.Reflection.Assembly[] Assemblies => Cached("assemblies", () => AppDomain.CurrentDomain.GetAssemblies());
+
         public static bool IsAssemblyLoaded(string name) =>
             !string.IsNullOrEmpty(name) &&
-            AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == name);
+            Cached("assemblyNames", () => new HashSet<string>(Assemblies.Select(a => a.GetName().Name))).Contains(name);
 
         public static List<UnityMcpRequirement> MissingRequirements(UnityMcpWelcomeContext c) =>
             c.Config.requires.Where(r => !IsAssemblyLoaded(r.assembly)).ToList();
@@ -196,7 +271,7 @@ namespace UnityMCP.Editor.Welcome
         {
             if (guids != null && guids.Length > 0)
                 return guids.Where(g => !string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(g))).Distinct().ToArray();
-            return AssetDatabase.IsValidFolder(folder) ? AssetDatabase.FindAssets(filter, new[] { folder }) : new string[0];
+            return AssetDatabase.IsValidFolder(folder) ? UnityMcpWelcomeProjectCache.FindAssets(filter, new[] { folder }) : new string[0];
         }
 
         public static List<Material> MismatchedMaterials(string folder) => ScopedMismatchedMaterials(folder, null);
@@ -211,6 +286,13 @@ namespace UnityMCP.Editor.Welcome
 
         public static List<Material> ScopedMismatchedMaterials(string folder, string[] guids)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("ScopedMismatchedMaterials");
+            return Cached("materials:" + folder + ":" + string.Join("|", guids ?? new string[0]), () => ComputeScopedMismatchedMaterials(folder, guids));
+        }
+
+        private static List<Material> ComputeScopedMismatchedMaterials(string folder, string[] guids)
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.ScopedMismatchedMaterials");
             var wrong = new List<Material>();
             string pipeline = ActivePipeline();
             foreach (string guid in ScopedGuids("t:Material", folder, guids))
@@ -239,6 +321,13 @@ namespace UnityMCP.Editor.Welcome
 
         public static bool IsInstalled(UnityMcpProduct product)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("IsInstalled");
+            return Cached("installed:" + string.Join("|", product.detect), () => ComputeIsInstalled(product));
+        }
+
+        private static bool ComputeIsInstalled(UnityMcpProduct product)
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.IsInstalled");
             foreach (string rule in product.detect)
             {
                 int colon = rule.IndexOf(':');
@@ -249,9 +338,9 @@ namespace UnityMCP.Editor.Welcome
                 {
                     case "folder": if (AssetDatabase.IsValidFolder(value)) return true; break;
                     case "asm": if (IsAssemblyLoaded(value)) return true; break;
-                    case "type": if (AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType(value, false) != null)) return true; break;
+                    case "type": if (Assemblies.Any(a => a.GetType(value, false) != null)) return true; break;
                     case "package": if (UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + value) != null) return true; break;
-                    case "welcome": if (AssetDatabase.FindAssets(value + ".welcome t:TextAsset").Length > 0) return true; break;
+                    case "welcome": if (UnityMcpWelcomeProjectCache.FindAssets(value + ".welcome t:TextAsset").Length > 0) return true; break;
                 }
             }
             return false;
@@ -260,7 +349,14 @@ namespace UnityMCP.Editor.Welcome
         /// <summary>Version of an installed AnkleBreaker product, when it carries a welcome config.</summary>
         public static string InstalledVersion(string productId)
         {
-            foreach (string guid in AssetDatabase.FindAssets(productId + ".welcome t:TextAsset"))
+            using var perf = new UnityMcpWelcomePerf.Scope("InstalledVersion");
+            return Cached("version:" + productId, () => ComputeInstalledVersion(productId));
+        }
+
+        private static string ComputeInstalledVersion(string productId)
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.InstalledVersion");
+            foreach (string guid in UnityMcpWelcomeProjectCache.FindAssets(productId + ".welcome t:TextAsset"))
             {
                 var context = Load(AssetDatabase.GUIDToAssetPath(guid), guid);
                 if (context != null && context.Config.id == productId) return DisplayVersion(context);
@@ -290,6 +386,13 @@ namespace UnityMCP.Editor.Welcome
 
         public static string StatValue(UnityMcpWelcomeContext c, UnityMcpStat stat)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("StatValue");
+            return Cached("stat:" + c.Dir + ":" + JsonUtility.ToJson(stat), () => ComputeStatValue(c, stat));
+        }
+
+        private static string ComputeStatValue(UnityMcpWelcomeContext c, UnityMcpStat stat)
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.StatValue");
             if (!string.IsNullOrEmpty(stat.count))
             {
                 string folder = c.Resolve(stat.path);
@@ -335,7 +438,7 @@ namespace UnityMCP.Editor.Welcome
 
         public static GameObject FindPrefab(UnityMcpWelcomeContext c, string name)
         {
-            foreach (string guid in AssetDatabase.FindAssets(name + " t:Prefab", new[] { c.Root }))
+            foreach (string guid in UnityMcpWelcomeProjectCache.FindAssets(name + " t:Prefab", new[] { c.Root }))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 if (Path.GetFileNameWithoutExtension(path) == name) return AssetDatabase.LoadAssetAtPath<GameObject>(path);
@@ -346,8 +449,15 @@ namespace UnityMCP.Editor.Welcome
         /// <summary>How many things the buyer made with the package, outside the package itself.</summary>
         public static int UsageCount(UnityMcpWelcomeContext c)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UsageCount");
+            return Cached("usage:" + c.Root + ":" + c.Config.usage.filter, () => ComputeUsageCount(c));
+        }
+
+        private static int ComputeUsageCount(UnityMcpWelcomeContext c)
+        {
+            using var perf = new UnityMcpWelcomePerf.Scope("Compute.UsageCount");
             if (string.IsNullOrEmpty(c.Config.usage.filter)) return 0;
-            return AssetDatabase.FindAssets(c.Config.usage.filter, new[] { "Assets" })
+            return UnityMcpWelcomeProjectCache.FindAssets(c.Config.usage.filter, new[] { "Assets" })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Count(p => !p.StartsWith(c.Root + "/", StringComparison.Ordinal));
         }
@@ -427,8 +537,14 @@ namespace UnityMCP.Editor.Welcome
 
         public static string FindScene(string name)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("FindScene");
+            return Cached("scene:" + name, () => ComputeFindScene(name));
+        }
+
+        private static string ComputeFindScene(string name)
+        {
             if (string.IsNullOrEmpty(name)) return null;
-            foreach (string guid in AssetDatabase.FindAssets(name + " t:Scene"))
+            foreach (string guid in UnityMcpWelcomeProjectCache.FindAssets(name + " t:Scene"))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 if (Path.GetFileNameWithoutExtension(path) == name) return path;
@@ -462,7 +578,8 @@ namespace UnityMCP.Editor.Welcome
 
         public static UnityMcpCatalog LoadCatalog(UnityMcpWelcomeContext c)
         {
-            UnityMcpCatalog embedded = ReadCatalog(ReadText(c.Media("welcome-catalog.json"))) ?? new UnityMcpCatalog();
+            using var perf = new UnityMcpWelcomePerf.Scope("LoadCatalog");
+            UnityMcpCatalog embedded = Cached("catalog:" + c.Dir, () => ReadCatalog(ReadText(c.Media("welcome-catalog.json"))) ?? new UnityMcpCatalog());
             if (s_remoteCatalog == null) return embedded;
             // Older feeds omit games; an explicit empty array intentionally removes them.
             if (s_remoteCatalog.games == null) s_remoteCatalog.games = embedded.games;
@@ -518,6 +635,7 @@ namespace UnityMCP.Editor.Welcome
         public static Texture2D VentureImage(UnityMcpVenture venture, bool logo)
         {
             UnityMcpProduct media = VentureMedia(venture, logo);
+            QueueCard(media);
             return CatalogOnline && !string.IsNullOrEmpty(media.cardUrl) ? LoadImage(CachedCardPath(media)) : null;
         }
 
@@ -530,8 +648,9 @@ namespace UnityMCP.Editor.Welcome
         public static Texture2D GameImage(UnityMcpWelcomeContext c, UnityMcpGame game, bool logo)
         {
             UnityMcpProduct media = GameMedia(game, logo);
-            Texture2D remote = CatalogOnline && !string.IsNullOrEmpty(media.cardUrl) ? LoadImage(CachedCardPath(media)) : null;
-            if (remote != null) return remote;
+            QueueCard(media);
+            string remotePath = CachedCardPath(media);
+            if (CatalogOnline && !string.IsNullOrEmpty(media.cardUrl) && UnityMcpWelcomeImages.HasUsableFile(remotePath)) return LoadImage(remotePath);
             string file = logo ? game.logo : game.cover;
             return string.IsNullOrEmpty(file) ? null : LoadImage(c.Media("Media/Games/" + file));
         }
@@ -566,9 +685,11 @@ namespace UnityMCP.Editor.Welcome
         private static bool s_overrideWarned;
 
         // A disk cache cannot establish connectivity or keep old promotions alive after a failure.
-        public static void RefreshCatalog(UnityMcpCatalog current, bool force = false)
+        public static void RefreshCatalog(UnityMcpCatalog current, bool force = false) =>
+            RefreshCatalogFromUrl(EditorPrefs.GetString(CATALOG_URL_PREF, CATALOG_URL));
+
+        private static void RefreshCatalogFromUrl(string url)
         {
-            string url = EditorPrefs.GetString(CATALOG_URL_PREF, CATALOG_URL);
             if (s_request != null && url == s_catalogUrl) return;
             // Machine-wide and set only by our lab tools: a forgotten one silently skews every AB window.
             if (url != CATALOG_URL && !s_overrideWarned)
@@ -576,33 +697,32 @@ namespace UnityMCP.Editor.Welcome
                 s_overrideWarned = true;
                 Debug.LogWarning("[AnkleBreaker Welcome] Catalogue URL overridden by EditorPrefs \"" + CATALOG_URL_PREF + "\": " + url);
             }
-            if (s_request != null) { s_request.Abort(); s_request.Dispose(); s_request = null; }
+            UnityMcpWelcomeTransport.Release(ref s_request);
             EditorApplication.update -= PollCatalog;
             s_catalogUrl = url;
             s_remoteCatalog = null;
             CatalogFetchedAt = null;
             s_devlogOnline = false;
             s_devlogAttempted = false;
-            if (s_devlogRequest != null) { s_devlogRequest.Abort(); s_devlogRequest.Dispose(); s_devlogRequest = null; }
+            UnityMcpWelcomeTransport.Release(ref s_devlogRequest);
             EditorApplication.update -= PollDevlog;
-            s_cardQueue.Clear();
-            CatalogChanged?.Invoke();
+            s_devlogParse = null; s_devlogLink = null; s_devlogWrite = null;
+            CancelCards();
             try
             {
-                s_request = UnityWebRequest.Get(url);
-                s_request.timeout = CATALOG_TIMEOUT_S;
-                s_request.SendWebRequest();
+                s_request = UnityMcpWelcomeTransport.Acquire(url, CATALOG_TIMEOUT_S, false);
                 EditorApplication.update += PollCatalog;
             }
             catch (Exception)
             {
-                if (s_request != null) s_request.Dispose();
-                s_request = null;
+                UnityMcpWelcomeTransport.Release(ref s_request);
             }
+            CatalogChanged?.Invoke();
         }
 
         private static void PollCatalog()
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("PollCatalog");
             if (s_request == null || !s_request.isDone) return;
             EditorApplication.update -= PollCatalog;
             try
@@ -612,7 +732,7 @@ namespace UnityMCP.Editor.Welcome
                 CatalogFetchedAt = s_remoteCatalog != null ? DateTime.UtcNow : (DateTime?)null;
             }
             catch (Exception) { s_remoteCatalog = null; CatalogFetchedAt = null; }
-            finally { s_request.Dispose(); s_request = null; }
+            finally { UnityMcpWelcomeTransport.Release(ref s_request); }
             CatalogChanged?.Invoke();
         }
 
@@ -621,56 +741,105 @@ namespace UnityMCP.Editor.Welcome
         public static void QueueCards(UnityMcpCatalog catalog)
         {
             if (catalog == null || !CatalogOnline) return;
-            IEnumerable<UnityMcpProduct> media = catalog.products.Concat((catalog.games ?? new UnityMcpGame[0])
-                .SelectMany(g => new[] { GameMedia(g, false), GameMedia(g, true) }))
-                .Concat((catalog.ventures ?? new UnityMcpVenture[0])
-                .SelectMany(v => new[] { VentureMedia(v, false), VentureMedia(v, true) }));
-            foreach (UnityMcpProduct product in media)
-            {
-                if (!Uri.TryCreate(product.cardUrl, UriKind.Absolute, out Uri uri) ||
-                    (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeFile) ||
-                    File.Exists(CachedCardPath(product))) continue;
-                if (s_cardProduct?.cardUrl != product.cardUrl && !s_cardQueue.Any(p => p.cardUrl == product.cardUrl)) s_cardQueue.Enqueue(product);
-            }
-            if (s_cardRequest == null && s_cardQueue.Count > 0) NextCard();
+            foreach (UnityMcpProduct product in catalog.products) QueueCard(product);
+            foreach (UnityMcpGame game in catalog.games ?? new UnityMcpGame[0])
+            { QueueCard(GameMedia(game, false)); QueueCard(GameMedia(game, true)); }
+            foreach (UnityMcpVenture venture in catalog.ventures ?? new UnityMcpVenture[0])
+            { QueueCard(VentureMedia(venture, false)); QueueCard(VentureMedia(venture, true)); }
+        }
+
+        private static void QueueCard(UnityMcpProduct product)
+        {
+            if (!CatalogOnline || product == null || s_attemptedCards.Contains(product.cardUrl ?? "") || !Uri.TryCreate(product.cardUrl, UriKind.Absolute, out Uri uri) ||
+                (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeFile) ||
+                !s_attemptedCards.Add(product.cardUrl) || File.Exists(CachedCardPath(product))) return;
+            s_cardQueue.Enqueue(product);
+            EditorApplication.update -= PollCard;
+            EditorApplication.update += PollCard;
         }
 
         private static void NextCard()
         {
-            if (s_cardQueue.Count == 0) return;
-            s_cardProduct = s_cardQueue.Dequeue();
-            s_cardRequest = UnityWebRequest.Get(s_cardProduct.cardUrl);
-            s_cardRequest.timeout = CARD_TIMEOUT_S;
-            s_cardRequest.SendWebRequest();
-            EditorApplication.update += PollCard;
+            using var perf = new UnityMcpWelcomePerf.Scope("NextCard");
+            if (s_cardRequest != null || s_cardWrite != null || s_notifyingMedia || s_cardQueue.Count == 0) return;
+            UnityMcpProduct product = s_cardQueue.Peek();
+            if (File.Exists(CachedCardPath(product))) { s_cardQueue.Dequeue(); return; }
+            try
+            {
+                s_cardRequest = UnityMcpWelcomeTransport.Acquire(product.cardUrl, CARD_TIMEOUT_S, true);
+                if (s_cardRequest == null) return;
+                s_cardProduct = s_cardQueue.Dequeue();
+            }
+            catch (Exception) { s_cardQueue.Dequeue(); }
         }
 
         private static void PollCard()
         {
-            if (s_cardRequest == null || !s_cardRequest.isDone) return;
-            EditorApplication.update -= PollCard;
-            bool landed = false;
-            try
+            using var perf = new UnityMcpWelcomePerf.Scope("PollCard");
+            if (s_cardWrite != null)
             {
-                if (s_cardRequest.result == UnityWebRequest.Result.Success && s_cardRequest.downloadHandler.data.Length > 0)
+                if (!s_cardWrite.IsCompleted) return;
+                bool landed = !s_cardWrite.IsFaulted && !s_cardWrite.IsCanceled;
+                if (s_cardWrite.IsFaulted) _ = s_cardWrite.Exception;
+                s_cardWrite = null;
+                if (landed)
                 {
-                    Directory.CreateDirectory(Path.Combine(CACHE_DIR, "cards"));
-                    File.WriteAllBytes(CachedCardPath(s_cardProduct), s_cardRequest.downloadHandler.data);
-                    landed = true;
+                    s_notifyingMedia = true;
+                    try { MediaChanged?.Invoke(s_cardWrittenPath); }
+                    finally { s_notifyingMedia = false; }
                 }
             }
-            catch (Exception) { /* a missing card is a text card */ }
-            finally
+            if (s_cardRequest != null)
             {
-                s_cardRequest.Dispose();
-                s_cardRequest = null;
+                if (!s_cardRequest.isDone) return;
+                try
+                {
+                    if (s_cardRequest.result == UnityWebRequest.Result.Success)
+                    {
+                        byte[] data = s_cardRequest.downloadHandler.data;
+                        if (data != null && data.Length > 0)
+                        {
+                            string path = CachedCardPath(s_cardProduct);
+                            s_cardWrittenPath = path;
+                            s_cardWrite = Task.Run(() => AtomicWrite(path, data));
+                        }
+                    }
+                }
+                finally { UnityMcpWelcomeTransport.Release(ref s_cardRequest); s_cardProduct = null; }
             }
-            if (landed) CatalogChanged?.Invoke();
-            NextCard();
+            if (s_cardWrite == null) NextCard();
+            if (s_cardRequest == null && s_cardWrite == null && s_cardQueue.Count == 0) EditorApplication.update -= PollCard;
         }
 
-        public static string CachedCardPath(UnityMcpProduct product) =>
-            Path.Combine(CACHE_DIR, "cards", Hash128.Compute(product.cardUrl ?? product.id).ToString() + ".image");
+        private static void AtomicWrite(string path, byte[] data)
+        {
+            string fullPath = Path.GetFullPath(path);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+            string temporary = fullPath + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllBytes(temporary, data);
+                if (!File.Exists(fullPath))
+                {
+                    try { File.Move(temporary, fullPath); }
+                    catch (IOException) { if (!File.Exists(fullPath)) throw; }
+                }
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+
+        private static readonly Dictionary<string, string> s_cardPaths = new Dictionary<string, string>();
+
+        public static string CachedCardPath(UnityMcpProduct product)
+        {
+            string key = product.cardUrl ?? product.id ?? "";
+            if (!s_cardPaths.TryGetValue(key, out var path))
+            {
+                path = Path.Combine(CACHE_DIR, "cards", Hash128.Compute(key).ToString() + ".image");
+                s_cardPaths[key] = path;
+            }
+            return path;
+        }
 
         // -- Devlog ---------------------------------------------------------
 
@@ -679,14 +848,18 @@ namespace UnityMCP.Editor.Welcome
         private static bool s_devlogOnline;
         private static bool s_devlogAttempted;
         private static UnityMcpDevlog s_devlogPending;
+        private static string s_previousDevlogImage;
+        private static Task<UnityMcpDevlog> s_devlogParse;
+        private static Task<string> s_devlogLink;
+        private static Task<bool> s_devlogWrite;
 
         private static string DevlogJson => Path.Combine(CACHE_DIR, "devlog.json");
-        public static string DevlogImage => Path.Combine(CACHE_DIR, "devlog-cover");
-        public static bool DevlogLoading => s_devlogRequest != null;
+        public static string DevlogImage => Path.Combine(CACHE_DIR, "cards", "devlog-" + Hash128.Compute(s_devlogPending?.image ?? "").ToString() + ".image");
+        public static bool DevlogLoading => s_devlogRequest != null || s_devlogParse != null || s_devlogLink != null || s_devlogWrite != null;
 
         public static UnityMcpDevlog LoadDevlog()
         {
-            try { return CatalogOnline && s_devlogOnline && File.Exists(DevlogJson) ? JsonUtility.FromJson<UnityMcpDevlog>(File.ReadAllText(DevlogJson)) : null; }
+            try { return CatalogOnline && s_devlogOnline ? s_devlogPending : null; }
             catch (Exception) { return null; }
         }
 
@@ -695,6 +868,7 @@ namespace UnityMCP.Editor.Welcome
         {
             if (!CatalogOnline || s_devlogAttempted || s_devlogRequest != null || string.IsNullOrEmpty(feedUrl)) return;
             s_devlogAttempted = true;
+            s_previousDevlogImage = DevlogImage;
             s_devlogStage = 0;
             StartDevlogRequest(feedUrl);
         }
@@ -703,14 +877,11 @@ namespace UnityMCP.Editor.Welcome
         {
             try
             {
-                s_devlogRequest = UnityWebRequest.Get(url);
-                s_devlogRequest.timeout = CATALOG_TIMEOUT_S;
-                s_devlogRequest.SendWebRequest();
+                s_devlogRequest = UnityMcpWelcomeTransport.Acquire(url, CATALOG_TIMEOUT_S, false);
             }
             catch (Exception)
             {
-                if (s_devlogRequest != null) s_devlogRequest.Dispose();
-                s_devlogRequest = null;
+                UnityMcpWelcomeTransport.Release(ref s_devlogRequest);
                 return;
             }
             EditorApplication.update -= PollDevlog;
@@ -719,36 +890,57 @@ namespace UnityMCP.Editor.Welcome
 
         private static void PollDevlog()
         {
-            if (s_devlogRequest == null || !s_devlogRequest.isDone) return;
-            EditorApplication.update -= PollDevlog;
-            bool ok = s_devlogRequest.result == UnityWebRequest.Result.Success;
-            string text = ok && s_devlogStage < 2 ? s_devlogRequest.downloadHandler.text : null;
-            byte[] data = ok && s_devlogStage == 2 ? s_devlogRequest.downloadHandler.data : null;
-            s_devlogRequest.Dispose();
-            s_devlogRequest = null;
-            try
+            using var perf = new UnityMcpWelcomePerf.Scope("PollDevlog");
+            if (s_devlogParse != null)
             {
-                if (s_devlogStage == 0)
-                {
-                    s_devlogPending = ok ? ParseFeed(text) : null;
-                    if (s_devlogPending == null) return;
-                    s_devlogStage = 1;
-                    StartDevlogRequest(s_devlogPending.link);
-                }
-                else if (s_devlogStage == 1)
-                {
-                    Match image = ok ? OG_IMAGE.Match(text) : Match.Empty;
-                    if (!image.Success) { SaveDevlog(null); return; }
-                    s_devlogPending.image = WebUtility.HtmlDecode(image.Groups[1].Value);
-                    s_devlogStage = 2;
-                    StartDevlogRequest(s_devlogPending.image);
-                }
-                else
-                {
-                    SaveDevlog(data);
-                }
+                if (!s_devlogParse.IsCompleted) return;
+                s_devlogPending = s_devlogParse.GetAwaiter().GetResult();
+                s_devlogParse = null;
+                if (s_devlogPending == null) { EditorApplication.update -= PollDevlog; return; }
+                s_devlogStage = 1;
+                StartDevlogRequest(s_devlogPending.link);
+                return;
             }
-            catch (Exception) { /* no devlog is a normal state, not an error */ }
+            if (s_devlogLink != null)
+            {
+                if (!s_devlogLink.IsCompleted) return;
+                string link = s_devlogLink.GetAwaiter().GetResult();
+                s_devlogLink = null;
+                if (string.IsNullOrEmpty(link)) { SaveDevlog(null); return; }
+                s_devlogPending.image = link;
+                s_devlogStage = 2;
+                StartDevlogRequest(link);
+                return;
+            }
+            if (s_devlogWrite != null)
+            {
+                if (!s_devlogWrite.IsCompleted) return;
+                bool ok = s_devlogWrite.GetAwaiter().GetResult();
+                s_devlogWrite = null;
+                EditorApplication.update -= PollDevlog;
+                if (ok)
+                {
+                    s_devlogOnline = true;
+                    if (s_previousDevlogImage != DevlogImage) UnityMcpWelcomeImages.Retire(s_previousDevlogImage);
+                    CatalogChanged?.Invoke();
+                }
+                return;
+            }
+            if (s_devlogRequest == null) { EditorApplication.update -= PollDevlog; return; }
+            if (!s_devlogRequest.isDone) return;
+            bool success = s_devlogRequest.result == UnityWebRequest.Result.Success;
+            string text = success && s_devlogStage < 2 ? s_devlogRequest.downloadHandler.text : null;
+            byte[] data = success && s_devlogStage == 2 ? s_devlogRequest.downloadHandler.data : null;
+            UnityMcpWelcomeTransport.Release(ref s_devlogRequest);
+            if (s_devlogStage == 0)
+                s_devlogParse = Task.Run(() => { try { return success ? ParseFeed(text) : null; } catch (Exception) { return null; } });
+            else if (s_devlogStage == 1)
+                s_devlogLink = Task.Run(() =>
+                {
+                    try { Match image = success ? OG_IMAGE.Match(text) : Match.Empty; return image.Success ? WebUtility.HtmlDecode(image.Groups[1].Value) : null; }
+                    catch (Exception) { return null; }
+                });
+            else SaveDevlog(data);
         }
 
         private static readonly Regex OG_IMAGE =
@@ -759,13 +951,16 @@ namespace UnityMCP.Editor.Welcome
 
         private static void SaveDevlog(byte[] cover)
         {
-            Directory.CreateDirectory(CACHE_DIR);
-            if (cover != null && cover.Length > 0) File.WriteAllBytes(DevlogImage, cover);
-            else if (File.Exists(DevlogImage)) File.Delete(DevlogImage);
-            File.WriteAllText(DevlogJson, JsonUtility.ToJson(s_devlogPending));
-            s_devlogOnline = true;
-            s_textures.Remove(DevlogImage);
-            CatalogChanged?.Invoke();
+            string imagePath = DevlogImage;
+            s_devlogWrite = Task.Run(() =>
+            {
+                try
+                {
+                    if (cover != null && cover.Length > 0) AtomicWrite(imagePath, cover);
+                    return true;
+                }
+                catch (Exception) { return false; }
+            });
         }
 
         private static UnityMcpDevlog ParseFeed(string xml)
@@ -787,42 +982,26 @@ namespace UnityMCP.Editor.Welcome
 
         // -- Images ---------------------------------------------------------
 
-        private static readonly Dictionary<string, Texture2D> s_textures = new Dictionary<string, Texture2D>();
-
-        /// <summary>
-        /// Loads a PNG or JPG from disk, bypassing its import settings: a Card imported as a
-        /// compressed, mipmapped texture comes out soft and blocky at 176 px, and the settings
-        /// travel in a .meta nobody reviews.
-        /// </summary>
         public static Texture2D LoadImage(string path)
         {
-            if (string.IsNullOrEmpty(path)) return null;
-            if (s_textures.TryGetValue(path, out Texture2D cached) && cached != null) return cached;
-            if (!File.Exists(path)) return null;
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-            if (!texture.LoadImage(File.ReadAllBytes(path)))
-            {
-                Object.DestroyImmediate(texture);
-                return null;
-            }
-            texture.filterMode = FilterMode.Bilinear;
-            s_textures[path] = texture;
-            return texture;
+            using var perf = new UnityMcpWelcomePerf.Scope("LoadImage");
+            return UnityMcpWelcomeImages.Load(path);
         }
 
         public static Texture2D Card(UnityMcpWelcomeContext c, UnityMcpProduct product)
         {
             if (product == null) return null;
-            Texture2D embedded = string.IsNullOrEmpty(product.card) ? null : LoadImage(c.Media("Media/Cards/" + product.card));
-            Texture2D remote = CatalogOnline ? LoadImage(CachedCardPath(product)) : null;
-            return remote != null ? remote : embedded;
+            QueueCard(product);
+            string remotePath = CachedCardPath(product);
+            if (CatalogOnline && UnityMcpWelcomeImages.HasUsableFile(remotePath)) return LoadImage(remotePath);
+            return string.IsNullOrEmpty(product.card) ? null : LoadImage(c.Media("Media/Cards/" + product.card));
         }
 
         public static void ReleaseImages()
         {
-            foreach (Texture2D texture in s_textures.Values)
-                if (texture != null) Object.DestroyImmediate(texture);
-            s_textures.Clear();
+            using var perf = new UnityMcpWelcomePerf.Scope("ReleaseImages");
+            if (s_consumers > 0) return;
+            UnityMcpWelcomeImages.ClearIfUnused();
         }
     }
 
@@ -837,8 +1016,7 @@ namespace UnityMCP.Editor.Welcome
 
         static UnityMcpWelcomeFirstOpen()
         {
-            EditorApplication.delayCall -= TryOpen;
-            EditorApplication.delayCall += TryOpen;
+            UnityMcpWelcomeStartup.Enqueue(TryOpen);
             AssetDatabase.importPackageCompleted -= OnPackageImported;
             AssetDatabase.importPackageCompleted += OnPackageImported;
         }
@@ -862,7 +1040,7 @@ namespace UnityMCP.Editor.Welcome
             }
             if (EditorApplication.isCompiling || EditorApplication.isUpdating || EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                if (s_ticks++ < MAX_DEFERRAL_TICKS) EditorApplication.delayCall += TryOpen;
+                if (s_ticks++ < MAX_DEFERRAL_TICKS) UnityMcpWelcomeStartup.Enqueue(TryOpen);
                 return;
             }
 
@@ -890,14 +1068,13 @@ namespace UnityMCP.Editor.Welcome
             if (!focused) return;
             EditorApplication.focusChanged -= OnFocusChanged;
             s_ticks = 0;
-            EditorApplication.delayCall += TryOpen;
+            UnityMcpWelcomeStartup.Enqueue(TryOpen);
         }
 
         private static void OnPackageImported(string packageName)
         {
             s_ticks = 0;
-            EditorApplication.delayCall -= TryOpen;
-            EditorApplication.delayCall += TryOpen;
+            UnityMcpWelcomeStartup.Enqueue(TryOpen);
         }
     }
 }

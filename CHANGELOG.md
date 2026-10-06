@@ -2,6 +2,13 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.41.1] - 2026-10-06
+
+### Fixed
+- Update the Welcome window and hosted CLICKME inspector from the canonical templates.
+- Share catalogue requests and image ownership between visible consumers, cache project lookups, and refresh media without rebuilding the entire window or inspector.
+- Reuse tab panels and build optional content incrementally to reduce editor work while preserving existing Welcome and review preferences.
+
 ## [2.41.0] - 2026-10-06
 
 Companion to server **2.36.0**. Includes the Unity 6.6 modernization and the maintenance audit fixes below; older servers keep working through capability negotiation.

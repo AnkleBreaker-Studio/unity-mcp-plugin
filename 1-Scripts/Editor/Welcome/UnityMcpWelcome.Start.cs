@@ -17,6 +17,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildToolStart(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.BuildToolStart");
             UnityMcpWelcomeData config = _context.Config;
             bool blocked = BuildToolStatus(host);
             BuildUpdateBand(host);
@@ -111,6 +112,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildHero(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.Hero");
             UnityMcpWelcomeData config = _context.Config;
             if (!UnityMcpWelcomeServices.IsSet(config.hero)) return;
 
@@ -217,6 +219,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildStats(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.Stats");
             UnityMcpStat[] stats = _context.Config.stats;
             if (stats.Length == 0) return;
             VisualElement section = Section(host);
@@ -309,6 +312,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildArtStart(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.BuildArtStart");
             UnityMcpWelcomeData config = _context.Config;
             BuildPipelineBand(host);
             BuildHero(host);
@@ -330,6 +334,7 @@ namespace UnityMCP.Editor.Welcome
         /// built for another one renders magenta.</summary>
         private void BuildPipelineBand(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.PipelineBand");
             UnityMcpPipeline band = _context.Config.pipelineBand;
             string folder = _context.Resolve(band.materials);
             string pipeline = UnityMcpWelcomeServices.PipelineLabel(UnityMcpWelcomeServices.ActivePipeline());
@@ -371,6 +376,7 @@ namespace UnityMCP.Editor.Welcome
         /// pack of sixty rocks does not bury the rest of the column.</summary>
         private void BuildBoard(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.PrefabBoard");
             UnityMcpBoard board = _context.Config.board;
             string prefabs = _context.Resolve(board.prefabs);
             if ((board.prefabGuids == null || board.prefabGuids.Length == 0) && (string.IsNullOrEmpty(board.prefabs) || !AssetDatabase.IsValidFolder(prefabs))) return;
@@ -400,12 +406,11 @@ namespace UnityMCP.Editor.Welcome
                 tile.tooltip = name;
                 string iconPath = string.IsNullOrEmpty(board.icons) ? null : icons + "/" + name + ".png";
                 Texture2D icon = UnityMcpWelcomeServices.LoadImage(iconPath);
-                var image = new Image { image = icon != null ? icon : AssetPreview.GetMiniThumbnail(prefab), scaleMode = ScaleMode.ScaleToFit };
-                image.AddToClassList("abw-tile__icon");
+                var image = LiveImage(() => { Texture2D loaded = UnityMcpWelcomeServices.LoadImage(iconPath); return loaded != null ? loaded : AssetPreview.GetMiniThumbnail(prefab); }, "abw-tile__icon", path: iconPath);
                 tile.Add(image);
                 tile.Add(Text(TileLabel(name, common), "abw-tile__label"));
                 grid.Add(tile);
-                tiles.Add(new BoardTile { Element = tile, Image = image, Prefab = prefab, NeedsPreview = icon == null, Name = name });
+                tiles.Add(new BoardTile { Element = tile, Image = image, Prefab = prefab, NeedsPreview = icon == null && !UnityMcpWelcomeImages.HasUsableFile(iconPath), Name = name });
             }
 
             VisualElement group = null;
@@ -522,6 +527,7 @@ namespace UnityMCP.Editor.Welcome
 
         private void BuildTie(VisualElement host)
         {
+            using var perf = new UnityMcpWelcomePerf.Scope("UI.ArtTie");
             UnityMcpTie tie = _context.Config.tie;
             if (string.IsNullOrEmpty(tie.product)) return;
             UnityMcpProduct product = _catalog.products.FirstOrDefault(p => p.id == tie.product);

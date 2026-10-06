@@ -669,6 +669,17 @@
 .abw .abw-venture__feature-title { font-size: 12px; -unity-font-style: bold; color: #ffffff; white-space: normal; }
 .abw .abw-venture__feature-body { font-size: 11px; color: #b3b8d4; margin-top: 3px; white-space: normal; }
 .abw .abw-venture__footnote { font-size: 11px; color: #9297b5; margin-top: 12px; white-space: normal; }
+
+#venture-nodary { background-color: #050609; border-color: #1f6b87; }
+#venture-nodary .abw-venture__feature { background-color: rgba(5,18,26,0.9); border-color: rgba(31,107,135,0.65); }
+#venture-nodary .abw-venture__feature-body { color: #b6c9d2; }
+#venture-nodary .abw-venture__footnote { color: #a3bcc8; }
+#venture-nodary .abw-game__tagline { color: #b6dbe5; }
+#venture-nodary .abw-game-link { background-color: rgba(5,18,26,0.9); border-color: #43839a; color: #edf8fc; }
+#venture-nodary .abw-game-link:hover { background-color: #003758; }
+#venture-nodary .abw-game-link--primary { background-color: #46e2ff; border-color: #46e2ff; color: #050609; }
+#venture-nodary .abw-game-link--primary:hover { background-color: #93edff; }
+#venture-nodary .abw-game-link:focus { border-color: #ffffff; }
 .abw-studio-card {
     flex-grow: 1;
     flex-basis: 200px;

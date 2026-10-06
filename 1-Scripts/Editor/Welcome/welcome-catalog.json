@@ -180,17 +180,17 @@
       "tagline": "AI CONTEXT FOR GAME TEAMS",
       "title": "Your AI changes. Your context stays.",
       "summary": "Nodary links your design docs, sheets, diagrams and decisions into one map that your team and your AI both read, with sources cited.",
-      "cover": "nodary-cover.jpg",
-      "logo": "nodary-logo.png",
+      "cover": "nodary-cover-20261006.jpg",
+      "logo": "nodary-logo-20261006.png",
       "links": [
         {
           "label": "Start for free",
-          "url": "https://nodary.ai/signup",
+          "url": "https://nodary.ai/sign-up",
           "primary": true
         },
         {
           "label": "Try a working example",
-          "url": "https://nodary.ai/demo/context"
+          "url": "https://nodary.ai/demo"
         }
       ],
       "featuresTitle": "What your team gets",

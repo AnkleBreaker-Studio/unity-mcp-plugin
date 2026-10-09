@@ -255,6 +255,7 @@ namespace UnityMCP.Editor.Welcome
             if (context == null) { Stop(false); return; }
             UnityMcpCatalog catalog = UnityMcpWelcomeServices.LoadCatalog(context);
             bool review = ReviewPopupDue(context, catalog, now);
+            if (context.Config.recommendationsOnly && !review) { Stop(false); return; }
 
             if (s_registeredAt < 0)
             {
@@ -284,6 +285,7 @@ namespace UnityMCP.Editor.Welcome
         private static void WaitForOffer(double t, DateTime now)
         {
             UnityMcpWelcomeContext context = s_discoverContext;
+            if (context == null || context.Config.recommendationsOnly) { Stop(false); return; }
             if (s_offer == null)
             {
                 if (!UnityMcpWelcomeServices.CatalogOnline)
@@ -351,6 +353,7 @@ namespace UnityMCP.Editor.Welcome
 
         public static void ShowDiscover(UnityMcpWelcomeContext context, UnityMcpCatalog catalog, UnityMcpWelcomePrompts.Offer offer)
         {
+            if (context == null || context.Config.recommendationsOnly) return;
             // Told is seen: the same sale is not news in fourteen days.
             UnityMcpWelcomePrompts.MarkCatalogSeen(catalog, DateTime.UtcNow);
             // The Card may still be downloading when the wait runs out: no empty frame for it.

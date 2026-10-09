@@ -8,6 +8,10 @@ namespace UnityMCP.Editor.Welcome
     {
         // Only framework/Unity types cross stamped assemblies; incompatible protocols use another key.
         private const string Key = "AnkleBreaker.Welcome.Transport.v1";
+
+        /// <summary>Requests in flight across every stamped copy before a bounded one waits. Six
+        /// matches a browser's per-host limit: a Card's cost is the round trip, not its bytes.</summary>
+        public const int MaxActive = 6;
         private static Dictionary<string, object[]> Requests
         {
             get
@@ -29,7 +33,7 @@ namespace UnityMCP.Editor.Welcome
                 entry[1] = (int)entry[1] + 1;
                 return (UnityWebRequest)entry[0];
             }
-            if (bounded && requests.Count >= 2) return null;
+            if (bounded && requests.Count >= MaxActive) return null;
             UnityWebRequest request = null;
             try
             {

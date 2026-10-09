@@ -2,6 +2,12 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.41.3] - 2026-10-09
+
+### Fixed
+- Download the Welcome catalogue images several at a time instead of one by one: the Welcome fills its cards faster on first open.
+- No change to Welcome preferences, the CLICKME hub or the window layout.
+
 ## [2.41.2] - 2026-10-06
 
 ### Fixed

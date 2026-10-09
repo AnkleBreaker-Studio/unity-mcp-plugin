@@ -125,6 +125,7 @@
     "seeAll": "See all {n} assets"
   },
   "studioTab": true,
+  "recommendationsOnly": false,
   "root": "../../..",
   "icon": "Media/Icon.png"
 }

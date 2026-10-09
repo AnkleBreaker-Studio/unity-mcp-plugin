@@ -57,8 +57,7 @@ namespace UnityMCP.Editor.Welcome
         private static int s_consumers;
         private static bool s_notifyingMedia;
         private static readonly HashSet<string> s_attemptedCards = new HashSet<string>();
-        private static Task s_cardWrite;
-        private static string s_cardWrittenPath;
+        private static int s_cardGeneration;
         private static readonly Dictionary<string, object> s_projectCache = new Dictionary<string, object>();
         private static int s_projectRevision = -1;
         private static string s_pipeline;
@@ -97,12 +96,12 @@ namespace UnityMCP.Editor.Welcome
         private static void CancelCards()
         {
             EditorApplication.update -= PollCard;
-            UnityMcpWelcomeTransport.Release(ref s_cardRequest);
-            s_cardProduct = null;
+            foreach (CardJob job in s_cardJobs) UnityMcpWelcomeTransport.Release(ref job.Request);
+            s_cardJobs.Clear();
+            s_cardGeneration++;
             s_cardQueue.Clear();
             s_attemptedCards.Clear();
             s_cardPaths.Clear();
-            s_cardWrite = null;
         }
 
         private static void Shutdown()
@@ -533,6 +532,9 @@ namespace UnityMCP.Editor.Welcome
         public static string Url(string url, UnityMcpCatalog catalog) =>
             url == "discord" && catalog != null ? catalog.discordUrl : url;
 
+        public static bool CanRecommend(UnityMcpProduct product, bool recommendationsOnly) =>
+            product != null && (!recommendationsOnly || (product.status == "published" && !string.IsNullOrEmpty(product.url)));
+
         public static bool IsComingSoon(UnityMcpProduct product) => product != null && product.status == "coming-soon";
 
         public static string FindScene(string name)
@@ -680,8 +682,16 @@ namespace UnityMCP.Editor.Welcome
 
         private static UnityWebRequest s_request;
         private static readonly Queue<UnityMcpProduct> s_cardQueue = new Queue<UnityMcpProduct>();
-        private static UnityWebRequest s_cardRequest;
-        private static UnityMcpProduct s_cardProduct;
+        private static readonly List<CardJob> s_cardJobs = new List<CardJob>();
+
+        /// <summary>One Card in flight: downloading while <see cref="Write"/> is null, then saving.</summary>
+        private sealed class CardJob
+        {
+            public UnityWebRequest Request;
+            public UnityMcpProduct Product;
+            public Task Write;
+            public string Path;
+        }
         private static bool s_overrideWarned;
 
         // A disk cache cannot establish connectivity or keep old promotions alive after a failure.
@@ -736,7 +746,7 @@ namespace UnityMCP.Editor.Welcome
             CatalogChanged?.Invoke();
         }
 
-        /// <summary>Downloads the Cards the package does not embed, one at a time, into the shared
+        /// <summary>Downloads the Cards the package does not embed, several at a time, into the shared
         /// cache. Until one lands its product draws as a text card.</summary>
         public static void QueueCards(UnityMcpCatalog catalog)
         {
@@ -758,57 +768,70 @@ namespace UnityMCP.Editor.Welcome
             EditorApplication.update += PollCard;
         }
 
-        private static void NextCard()
+        private static void NextCards()
         {
             using var perf = new UnityMcpWelcomePerf.Scope("NextCard");
-            if (s_cardRequest != null || s_cardWrite != null || s_notifyingMedia || s_cardQueue.Count == 0) return;
-            UnityMcpProduct product = s_cardQueue.Peek();
-            if (File.Exists(CachedCardPath(product))) { s_cardQueue.Dequeue(); return; }
-            try
+            if (s_notifyingMedia) return;
+            while (s_cardJobs.Count < UnityMcpWelcomeTransport.MaxActive && s_cardQueue.Count > 0)
             {
-                s_cardRequest = UnityMcpWelcomeTransport.Acquire(product.cardUrl, CARD_TIMEOUT_S, true);
-                if (s_cardRequest == null) return;
-                s_cardProduct = s_cardQueue.Dequeue();
+                UnityMcpProduct product = s_cardQueue.Peek();
+                if (File.Exists(CachedCardPath(product))) { s_cardQueue.Dequeue(); continue; }
+                try
+                {
+                    UnityWebRequest request = UnityMcpWelcomeTransport.Acquire(product.cardUrl, CARD_TIMEOUT_S, true);
+                    if (request == null) return;
+                    s_cardQueue.Dequeue();
+                    s_cardJobs.Add(new CardJob { Request = request, Product = product });
+                }
+                catch (Exception) { s_cardQueue.Dequeue(); }
             }
-            catch (Exception) { s_cardQueue.Dequeue(); }
         }
 
         private static void PollCard()
         {
             using var perf = new UnityMcpWelcomePerf.Scope("PollCard");
-            if (s_cardWrite != null)
+            List<string> landed = null;
+            for (int i = s_cardJobs.Count - 1; i >= 0; i--)
             {
-                if (!s_cardWrite.IsCompleted) return;
-                bool landed = !s_cardWrite.IsFaulted && !s_cardWrite.IsCanceled;
-                if (s_cardWrite.IsFaulted) _ = s_cardWrite.Exception;
-                s_cardWrite = null;
-                if (landed)
+                CardJob job = s_cardJobs[i];
+                if (job.Write != null)
                 {
-                    s_notifyingMedia = true;
-                    try { MediaChanged?.Invoke(s_cardWrittenPath); }
-                    finally { s_notifyingMedia = false; }
+                    if (!job.Write.IsCompleted) continue;
+                    if (job.Write.IsFaulted) _ = job.Write.Exception;
+                    else if (!job.Write.IsCanceled) (landed ??= new List<string>()).Add(job.Path);
+                    s_cardJobs.RemoveAt(i);
+                    continue;
                 }
-            }
-            if (s_cardRequest != null)
-            {
-                if (!s_cardRequest.isDone) return;
+                if (!job.Request.isDone) continue;
                 try
                 {
-                    if (s_cardRequest.result == UnityWebRequest.Result.Success)
+                    if (job.Request.result == UnityWebRequest.Result.Success)
                     {
-                        byte[] data = s_cardRequest.downloadHandler.data;
+                        byte[] data = job.Request.downloadHandler.data;
                         if (data != null && data.Length > 0)
                         {
-                            string path = CachedCardPath(s_cardProduct);
-                            s_cardWrittenPath = path;
-                            s_cardWrite = Task.Run(() => AtomicWrite(path, data));
+                            string path = job.Path = CachedCardPath(job.Product);
+                            job.Write = Task.Run(() => AtomicWrite(path, data));
                         }
                     }
                 }
-                finally { UnityMcpWelcomeTransport.Release(ref s_cardRequest); s_cardProduct = null; }
+                finally { UnityMcpWelcomeTransport.Release(ref job.Request); }
+                if (job.Write == null) s_cardJobs.RemoveAt(i);
             }
-            if (s_cardWrite == null) NextCard();
-            if (s_cardRequest == null && s_cardWrite == null && s_cardQueue.Count == 0) EditorApplication.update -= PollCard;
+            if (landed != null)
+            {
+                // A listener may refresh the catalogue, which cancels this generation mid-loop.
+                int generation = s_cardGeneration;
+                s_notifyingMedia = true;
+                try
+                {
+                    foreach (string path in landed)
+                        if (generation == s_cardGeneration) MediaChanged?.Invoke(path);
+                }
+                finally { s_notifyingMedia = false; }
+            }
+            NextCards();
+            if (s_cardJobs.Count == 0 && s_cardQueue.Count == 0) EditorApplication.update -= PollCard;
         }
 
         private static void AtomicWrite(string path, byte[] data)

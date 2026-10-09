@@ -85,7 +85,7 @@ namespace UnityMCP.Editor.Welcome
             window._pendingAssetsFilter = null;
             window.Bind();
             window.MarkOpened();
-            if (tab == "assets")
+            if (tab == "assets" && !window.RecommendationsOnly)
             {
                 // Offline or still fetching: Rebuild keeps the destination pending until it lands.
                 window._filter = filter ?? "all";
@@ -167,7 +167,7 @@ namespace UnityMCP.Editor.Welcome
                 return;
             }
             _catalog = catalog;
-            if (UnityMcpWelcomeServices.CatalogOnline && _pendingAssetsFilter != null)
+            if (!RecommendationsOnly && UnityMcpWelcomeServices.CatalogOnline && _pendingAssetsFilter != null)
             {
                 _filter = _pendingAssetsFilter;
                 _pendingAssetsFilter = null;
@@ -244,6 +244,11 @@ namespace UnityMCP.Editor.Welcome
             VisualElement root = rootVisualElement;
             if (root == null) return;
             if (_context == null) Bind();
+            if (RecommendationsOnly && _tab == "assets")
+            {
+                _tab = "start";
+                _pendingAssetsFilter = null;
+            }
 
             Vector2 scroll = _scroll != null ? _scroll.scrollOffset : Vector2.zero;
             Vector2 panelScroll = _panelScroll != null ? _panelScroll.scrollOffset : Vector2.zero;
@@ -332,6 +337,8 @@ namespace UnityMCP.Editor.Welcome
             return null;
         }
 
+        private bool RecommendationsOnly => _context != null && _context.Config.recommendationsOnly;
+
         /// <summary>Art packs included: the studio and its devlog are the
         /// same argument whatever the buyer bought.</summary>
         private bool HasStudioTab => _context.Config.studioTab;
@@ -361,7 +368,7 @@ namespace UnityMCP.Editor.Welcome
             tabs.AddToClassList("abw-tabs");
             tabs.EnableInClassList("abw-tabs--panel", _tab == "start" && UnityMcpWelcomeServices.CatalogOnline);
             tabs.Add(Tab("start", "Get started"));
-            if (UnityMcpWelcomeServices.CatalogOnline) tabs.Add(Tab("assets", "Assets"));
+            if (!RecommendationsOnly && UnityMcpWelcomeServices.CatalogOnline) tabs.Add(Tab("assets", "Assets"));
             if (HasStudioTab) tabs.Add(Tab("studio", "Studio"));
             side.Add(tabs);
             header.Add(side);
@@ -429,6 +436,11 @@ namespace UnityMCP.Editor.Welcome
         private void OpenTab(string id)
         {
             _pendingAssetsFilter = null;
+            if (id == "assets" && RecommendationsOnly)
+            {
+                Application.OpenURL(_catalog.publisherUrl);
+                return;
+            }
             if (id != "assets" && id != "studio") id = "start";
             _tab = id;
             Render(true);

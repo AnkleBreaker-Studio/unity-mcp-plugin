@@ -74,6 +74,7 @@ namespace UnityMCP.Editor.Welcome
         public UnityMcpPipeline pipelineBand = new UnityMcpPipeline();
 
         public UnityMcpShowcase showcase = new UnityMcpShowcase();
+        public bool recommendationsOnly;
         public bool studioTab = true;
         public UnityMcpStudio studio = new UnityMcpStudio();
     }

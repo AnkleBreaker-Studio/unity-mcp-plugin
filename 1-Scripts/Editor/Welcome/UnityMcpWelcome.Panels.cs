@@ -99,7 +99,7 @@ namespace UnityMCP.Editor.Welcome
         private void PrepareShowcase(Page page)
         {
             if (page.Showcase == null || page.ShowcaseReady || _showcaseTick != null) return;
-            var products = _catalog.products.Where(p => !IsSelf(p) && !p.pinned && TopCategory(p) == "Tools").ToArray();
+            var products = _catalog.products.Where(IsShelfCandidate).ToArray();
             int index = 0;
             int generation = _uiGeneration;
             _showcaseTick = rootVisualElement.schedule.Execute(() =>

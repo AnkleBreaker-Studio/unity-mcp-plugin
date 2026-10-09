@@ -2,6 +2,12 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.41.4] - 2026-10-09
+
+### Fixed
+- Products on sale now appear in the Welcome Get started recommendations whatever their category (a 3D pack on sale was left out, the shelf only took Tools).
+- No change to Welcome preferences, the CLICKME hub or the window layout.
+
 ## [2.41.3] - 2026-10-09
 
 ### Fixed

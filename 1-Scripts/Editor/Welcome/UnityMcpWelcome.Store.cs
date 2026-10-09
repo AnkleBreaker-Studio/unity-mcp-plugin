@@ -39,7 +39,7 @@ namespace UnityMCP.Editor.Welcome
             if (!string.IsNullOrEmpty(showcase.blurb)) panel.Add(Text(showcase.blurb, "abw-panel__blurb"));
 
             List<UnityMcpProduct> shelf = _catalog.products
-                .Where(p => !IsSelf(p) && !p.pinned && TopCategory(p) == "Tools")
+                .Where(IsShelfCandidate)
                 .Where(p => !UnityMcpWelcomeServices.IsInstalled(p))
                 .Where(p => UnityMcpWelcomeServices.CanRecommend(p, RecommendationsOnly))
                 .OrderBy(p => UnityMcpWelcomeServices.IsComingSoon(p))
@@ -84,6 +84,12 @@ namespace UnityMCP.Editor.Welcome
         }
 
         private bool IsSelf(UnityMcpProduct product) => product.id == _context.Config.id;
+
+        /// <summary>The Get started shelf shows Tools, plus any product on sale whatever its category.</summary>
+        private bool IsShelfCandidate(UnityMcpProduct product) =>
+            !IsSelf(product) && !product.pinned &&
+            (TopCategory(product) == "Tools" ||
+             !RecommendationsOnly && product.discount > 0 && !UnityMcpWelcomeServices.IsComingSoon(product));
 
         private List<(UnityMcpProduct, string)> PickedShelf()
         {

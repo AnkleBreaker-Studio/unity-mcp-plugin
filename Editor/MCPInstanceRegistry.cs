@@ -41,7 +41,26 @@ namespace UnityMCP.Editor
         /// (if Unity crashes, OnDisable never fires and the entry goes stale).
         /// </summary>
         private const double HeartbeatIntervalSeconds = 30.0;
-        private static double _lastHeartbeatTime = 0;
+
+        /// <summary>
+        /// Background heartbeat timer. The previous implementation drove the
+        /// heartbeat from EditorApplication.update, which NEVER fires while the
+        /// main thread is blocked (script compilation, AssetDatabase imports,
+        /// long editor operations) — lastSeen went stale and the MCP server's
+        /// staleness check (~5-10 min re-discovery threshold) treated a
+        /// perfectly healthy editor as crashed, forcing re-discovery and
+        /// delaying/failing tool calls for minutes. A System.Threading.Timer
+        /// keeps ticking through any main-thread block. UpdateLastSeen only
+        /// touches the mutex-guarded registry file, which is safe off the main
+        /// thread; Debug.Log called from a worker thread is supported by Unity.
+        /// </summary>
+        private static Timer _heartbeatTimer;
+
+        /// <summary>
+        /// Project path captured on the main thread at Register time — the
+        /// timer callback must not touch Unity APIs (Application.dataPath).
+        /// </summary>
+        private static string _cachedProjectPath;
 
         /// <summary>
         /// Named mutex to prevent race conditions when multiple Unity instances
@@ -262,42 +281,45 @@ namespace UnityMCP.Editor
                 Debug.Log($"[AB-UMCP] Registered instance on port {port} in registry.");
             }, "register");
 
-            // Start the heartbeat: periodically update lastSeen so the MCP server
-            // can detect crashes (if Unity crashes, the heartbeat stops and the
-            // entry goes stale after ~5-10 minutes).
-            _lastHeartbeatTime = EditorApplication.timeSinceStartup;
-            EditorApplication.update -= HeartbeatTick;
-            EditorApplication.update += HeartbeatTick;
-        }
-
-        /// <summary>
-        /// EditorApplication.update callback — fires the heartbeat at regular intervals.
-        /// This runs on the main thread, so it's safe but lightweight.
-        /// During compiles, EditorApplication.update is NOT called (main thread is blocked),
-        /// which is fine — the lastSeen timestamp will be slightly stale but the MCP server
-        /// uses a generous timeout (5-10 min) that far exceeds any normal compile time.
-        /// </summary>
-        private static void HeartbeatTick()
-        {
-            if (_registeredPort < 0) return;
-
-            double now = EditorApplication.timeSinceStartup;
-            if (now - _lastHeartbeatTime < HeartbeatIntervalSeconds) return;
-
-            _lastHeartbeatTime = now;
-            UpdateLastSeen();
+            // Start the heartbeat on a background timer: it keeps updating
+            // lastSeen so the MCP server can detect crashes (if Unity crashes,
+            // the heartbeat stops and the entry goes stale after ~5-10 min)
+            // while continuing to tick through main-thread blocks (script
+            // compilation, AssetDatabase imports, long editor operations)
+            // that would have starved an EditorApplication.update-driven
+            // heartbeat — EditorApplication.update never fires while the
+            // main thread is blocked.
+            _cachedProjectPath = GetProjectPath();
+            var existingTimer = _heartbeatTimer;
+            if (existingTimer != null)
+            {
+                try { existingTimer.Dispose(); } catch { }
+            }
+            _heartbeatTimer = new Timer(
+                _ =>
+                {
+                    if (_registeredPort < 0) return;
+                    UpdateLastSeen();
+                },
+                null,
+                TimeSpan.FromSeconds(HeartbeatIntervalSeconds),
+                TimeSpan.FromSeconds(HeartbeatIntervalSeconds));
         }
 
         /// <summary>
         /// Update the lastSeen timestamp for this instance's registry entry.
         /// This is a lightweight write — only modifies the existing entry's timestamp.
+        /// Must never touch Unity APIs: it runs on the background heartbeat timer.
         /// </summary>
         private static void UpdateLastSeen()
         {
+            // _cachedProjectPath is captured on the main thread in Register();
+            // guard anyway so a first tick racing the cache write is a no-op.
+            string projectPath = _cachedProjectPath;
+            if (string.IsNullOrEmpty(projectPath)) return;
             WithRegistryLock(() =>
             {
                 var instances = ReadRegistry();
-                string projectPath = GetProjectPath();
                 string nowUtc = DateTime.UtcNow.ToString("o");
                 bool updated = false;
 
@@ -325,8 +347,15 @@ namespace UnityMCP.Editor
         /// </summary>
         public static void Unregister()
         {
-            // Stop heartbeat
-            EditorApplication.update -= HeartbeatTick;
+            // Stop the background heartbeat first: after _registeredPort = -1
+            // the timer callback would no-op anyway, but disposing removes the
+            // final write racing the unregistration that follows it.
+            var timer = _heartbeatTimer;
+            _heartbeatTimer = null;
+            if (timer != null)
+            {
+                try { timer.Dispose(); } catch { }
+            }
 
             if (_registeredPort < 0) return;
 

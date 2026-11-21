@@ -2,6 +2,21 @@
 
 All notable changes to this package will be documented in this file.
 
+## [2.41.5] - 2026-11-21
+
+### Removed
+- The Welcome's Studio tab no longer embeds a game that has left the studio's catalogue: its card, cover, logo and "Used in" badges are gone from the package, as they already were from the online catalogue.
+
+### Changed
+- Welcome updated from the studio's canonical template: a settings menu next to the version badge (documentation, bug report, feature request, Discord, copy version info for support, and the machine-wide "Recommendation popups" switch shared by every AnkleBreaker package).
+- The background catalogue check for news runs at most once every 14 days, popup or not.
+- Version labels use a middle dot instead of a dash.
+
+### Fixed
+- Two UAC0005 warnings of the Welcome under Unity 6.6 are gone (loaded assemblies are read through the Unity 6.5+ API).
+- The Welcome no longer warns about a menu item that does not exist in the project.
+- No change to Welcome preferences, the CLICKME hub or the MCP bridge.
+
 ## [2.41.4] - 2026-10-09
 
 ### Fixed
@@ -276,7 +291,7 @@ Companion to server **2.36.0**. Includes the Unity 6.6 modernization and the mai
 ### Changed
 - The Welcome footer's "Leave a review" button stands out (filled, with a star) until you have rated, then steps back.
 - The review card in the Welcome and in `CLICKME` follows the same three-day rule instead of counting window openings, and remembers a review for the whole machine rather than per project.
-- The Welcome's Studio tab takes the order and visibility of its blocks from the online catalogue, and presents Nodary next to Mithrall and Kickdom.
+- The Welcome's Studio tab takes the order and visibility of its blocks from the online catalogue, and presents Nodary next to the studio's games.
 
 ## [2.40.0] - 2026-09-29
 

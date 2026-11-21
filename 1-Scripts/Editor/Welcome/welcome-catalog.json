@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "_generated": "by welcome.py catalog from products.json + the store; do not edit",
-  "updated": "2026-10-09",
+  "updated": "2026-11-03",
   "publisherUrl": "https://assetstore.unity.com/publishers/101837",
   "discordUrl": "https://discord.gg/2D36VUmsYN",
   "devlogFeed": "https://anklebreaker-studio.com/devlog/feed.xml",
@@ -45,43 +45,6 @@
     }
   ],
   "games": [
-    {
-      "id": "kickdom",
-      "name": "Kickdom",
-      "tagline": "REAL-TIME PVP FOOTBALL",
-      "summary": "Build your team. Turn the match around with game-changing items.",
-      "cover": "kickdom-hero.jpg",
-      "logo": "kickdom-logo.png",
-      "websiteUrl": "https://www.kickdom.gg/",
-      "steamUrl": "",
-      "steamLabel": "",
-      "products": [
-        {
-          "id": "Changeling",
-          "role": "game"
-        },
-        {
-          "id": "TweenInInspector",
-          "role": "game"
-        },
-        {
-          "id": "ManagersLoader",
-          "role": "game"
-        },
-        {
-          "id": "ManagersLoaderFishNet",
-          "role": "game"
-        },
-        {
-          "id": "Tombstack",
-          "role": "development"
-        },
-        {
-          "id": "MCPForUnity",
-          "role": "development"
-        }
-      ]
-    },
     {
       "id": "mithrall",
       "name": "Mithrall",
@@ -384,7 +347,7 @@
         "asm:AnkleBreaker.TweenInInspector"
       ],
       "window": "",
-      "card": "TweenInInspector.jpg"
+      "card": ""
     },
     {
       "id": "MapGUIPro",
@@ -535,12 +498,12 @@
     },
     {
       "id": "Telegraph",
-      "cardFile": "Telegraph.jpg",
+      "cardFile": "Telegraph-duels-20261022.jpg",
       "name": "Telegraph",
-      "storeName": "",
-      "status": "coming-soon",
-      "releasedAt": "",
-      "url": "https://assetstore.unity.com/packages/slug/400510",
+      "storeName": "Telegraph - Spell Indicator",
+      "status": "published",
+      "releasedAt": "2026-10-19T11:46:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/particles-effects/telegraph-spell-indicator-400510",
       "category": "Tools / Particles & Effects",
       "free": false,
       "pinned": false,
@@ -552,6 +515,27 @@
         "asm:AnkleBreaker.Telegraph"
       ],
       "window": "Tools/AnkleBreaker/Telegraph/Welcome",
+      "card": ""
+    },
+    {
+      "id": "KeyboardAdapter",
+      "cardFile": "KeyboardAdapter.jpg",
+      "name": "Keyboard Adapter",
+      "storeName": "Keyboard Adapter - Layout-Aware Input",
+      "status": "published",
+      "releasedAt": "2026-10-22T14:09:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/input-management/keyboard-adapter-layout-aware-input-416952",
+      "category": "Tools / Input Management",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Input System shortcuts that follow the player's keyboard.",
+      "detect": [
+        "folder:Assets/AB/KeyboardAdapter",
+        "welcome:KeyboardAdapter",
+        "asm:AnkleBreaker.KeyboardAdapter.Runtime"
+      ],
+      "window": "Tools/AnkleBreaker/Keyboard Adapter/Welcome",
       "card": ""
     },
     {
@@ -593,22 +577,85 @@
       "card": ""
     },
     {
-      "id": "BeautifulSky",
-      "cardFile": "BeautifulSky.jpg",
-      "name": "Beautiful Sky",
-      "storeName": "",
-      "status": "coming-soon",
-      "releasedAt": "",
-      "url": "https://assetstore.unity.com/packages/slug/395604",
-      "category": "Tools / Integration",
+      "id": "BridgeMaster",
+      "cardFile": "BridgeMaster-store-20261103.jpg",
+      "name": "Bridge Master",
+      "storeName": "Bridge Master - Stylized Bridge Builder",
+      "status": "published",
+      "releasedAt": "2026-10-28T15:24:14Z",
+      "url": "https://assetstore.unity.com/packages/tools/level-design/bridge-master-stylized-bridge-builder-400456",
+      "category": "Tools / Level Design",
       "free": false,
       "pinned": false,
       "family": "",
-      "blurb": "",
+      "blurb": "Stone, timber and rope bridges, in the Editor or at runtime.",
       "detect": [
-        "folder:Assets/AB/BeautifulSky"
+        "folder:Assets/AB/BridgeMaster"
       ],
       "window": "",
+      "card": ""
+    },
+    {
+      "id": "BeautifulSky",
+      "cardFile": "BeautifulSky-store-20261023.jpg",
+      "name": "Beautiful Sky",
+      "storeName": "Beautiful Sky - Sky, Weather & Day-Night System",
+      "status": "published",
+      "releasedAt": "2026-10-23T12:28:11Z",
+      "url": "https://assetstore.unity.com/packages/tools/particles-effects/beautiful-sky-sky-weather-day-night-system-395604",
+      "category": "Tools / Particles & Effects",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Day, night and 20 weathers, with storms that roll in.",
+      "detect": [
+        "folder:Assets/AB/BeautifulSky",
+        "welcome:BeautifulSky",
+        "asm:AnkleBreaker.BeautifulSky.Core"
+      ],
+      "window": "Tools/AnkleBreaker/BeautifulSky/Welcome",
+      "card": ""
+    },
+    {
+      "id": "BeautifulWater",
+      "cardFile": "BeautifulWater.jpg",
+      "name": "Beautiful Water",
+      "storeName": "Beautiful Water - Oceans, Lakes & Rivers",
+      "status": "published",
+      "releasedAt": "2026-11-03T13:31:10Z",
+      "url": "https://assetstore.unity.com/packages/tools/particles-effects/beautiful-water-oceans-lakes-rivers-400504",
+      "category": "Tools / Particles & Effects",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Oceans, coasts, lakes and rivers: what you see is what floats.",
+      "detect": [
+        "folder:Assets/AB/BeautifulWater",
+        "welcome:BeautifulWater",
+        "asm:AnkleBreaker.BeautifulWater"
+      ],
+      "window": "Tools/AnkleBreaker/Beautiful Water/Welcome",
+      "card": ""
+    },
+    {
+      "id": "CullMaster",
+      "cardFile": "CullMaster.jpg",
+      "name": "CullMaster",
+      "storeName": "CullMaster - Rendering Optimization Tool",
+      "status": "published",
+      "releasedAt": "2026-10-14T12:29:09Z",
+      "url": "https://assetstore.unity.com/packages/tools/game-toolkits/cullmaster-rendering-optimization-tool-395608",
+      "category": "Tools / Game Toolkits",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "Culling for rendering, animation, audio and ticks, measured.",
+      "detect": [
+        "folder:Assets/AB/CullMaster",
+        "welcome:CullMaster",
+        "asm:AnkleBreaker.CullMaster.Core"
+      ],
+      "window": "Tools/AnkleBreaker/CullMaster/Welcome",
       "card": ""
     },
     {
@@ -709,6 +756,26 @@
       ],
       "window": "",
       "card": "EnvironmentRocks.jpg"
+    },
+    {
+      "id": "ElvesCharacters",
+      "cardFile": "ElvesCharacters.jpg",
+      "name": "Stylized Elves Characters",
+      "storeName": "Stylized Elves Characters - Facial & Body Rig",
+      "status": "published",
+      "releasedAt": "2026-10-22T14:01:10Z",
+      "url": "https://assetstore.unity.com/packages/3d/characters/humanoids/fantasy/stylized-elves-characters-facial-body-rig-400454",
+      "category": "3D / Characters / Humanoids / Fantasy",
+      "free": false,
+      "pinned": false,
+      "family": "",
+      "blurb": "40 dressed, animated elves with 22 facial poses, portraits and icons.",
+      "detect": [
+        "welcome:ElvesCharacters",
+        "folder:Assets/AB_Stylized/1_Characters/Humanoids/Elves"
+      ],
+      "window": "",
+      "card": ""
     },
     {
       "id": "Stylized322748",
